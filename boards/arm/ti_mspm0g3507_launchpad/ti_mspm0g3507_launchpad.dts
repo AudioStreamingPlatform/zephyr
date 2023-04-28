@@ -1,0 +1,29 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/dts-v1/;
+
+#include <ti/mspm0g3507.dtsi>
+
+/ {
+	model = "TI MSPM0G3507 LaunchPad";
+	compatible = "ti,ti_mspm0g3507_launchpad","ti,mspm0g3507",
+						"ti,mspm0g350x";
+
+	chosen {
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+	};
+};
+
+&cpu0 {
+	clock-frequency = <32000000>;
+};
+
+&gpioa {
+	status = "okay";
+};
+
+&gpiob {
+	status = "okay";
+};
+

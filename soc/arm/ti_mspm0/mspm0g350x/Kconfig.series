@@ -1,0 +1,14 @@
+# TI MSPM0G350X
+
+# SPDX-License-Identifier: Apache-2.0
+
+config SOC_SERIES_MSPM0G350X
+	bool "TI Family MSPM0G350X"
+	select ARM
+	select CPU_CORTEX_M0PLUS
+	select CPU_HAS_ARM_MPU
+	select CPU_CORTEX_M_HAS_SYSTICK
+	select CPU_CORTEX_M_HAS_VTOR
+	select SOC_FAMILY_TIMSPM0
+	help
+	  Enable support for TI MSPM0G350X series.

@@ -1,0 +1,7 @@
+# TI LaunchPad MSPM0G3507 Development Board
+
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD_TI_MSPM0G3507_LAUNCHPAD
+	bool "TI MSPM0G3507 LauncPad Kit"
+	depends on SOC_MSPM0G3507

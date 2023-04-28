@@ -1,0 +1,9 @@
+identifier: ti_mspm0g3507_launchpad
+name: TI-MSPM0G3507-LAUNCHPAD
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+ram: 32
+flash: 128

@@ -1,0 +1,12 @@
+# TI MSPMG350x
+
+# SPDX-License-Identifier: Apache-2.0
+
+if SOC_SERIES_MSPM0G350X
+
+source "soc/arm/ti_mspm0/mspm0g350x/Kconfig.defconfig.mspm0g3507"
+
+config SOC_SERIES
+	default "mspm0g350x"
+
+endif # SOC_SERIES_MSPM0G350X

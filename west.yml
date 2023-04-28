@@ -21,6 +21,8 @@ manifest:
   remotes:
     - name: upstream
       url-base: https://github.com/zephyrproject-rtos
+    - name: audio_streaming_platform
+      url-base: https://github.com/AudioStreamingPlatform
 
   group-filter: [-babblesim]
 
@@ -146,7 +148,8 @@ manifest:
       groups:
         - hal
     - name: hal_ti
-      revision: ae1db23f32dde779cdfc4afaa9a60ea219310a64
+      remote: audio_streaming_platform
+      revision: cbe9098004ef7f0ef29e3c99eb40086edd8774dc
       path: modules/hal/ti
       groups:
         - hal

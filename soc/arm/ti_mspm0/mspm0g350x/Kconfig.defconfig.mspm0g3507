@@ -1,0 +1,19 @@
+# TI MSPM0G3507 SoC
+
+# SPDX-License-Identifier: Apache-2.0
+
+if SOC_MSPM0G3507
+
+config SOC
+	default "mspm0g3507"
+
+config SYS_CLOCK_HW_CYCLES_PER_SEC
+	default 32000000
+
+config SYS_CLOCK_TICKS_PER_SEC
+    default 32768
+
+config NUM_IRQS
+	default 44
+
+endif # SOC_MSPM0G3507

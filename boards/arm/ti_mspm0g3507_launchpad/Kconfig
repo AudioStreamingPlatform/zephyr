@@ -1,0 +1,7 @@
+# TI MSPM0G3507 LaunchPad configuration
+
+# SPDX-License-Identifier: Apache-2.0
+
+if BOARD_TI_MSPM0G3507_LAUNCHPAD
+
+endif # BOARD_TI_MSPM0G3507_LAUNCHPAD

@@ -1,0 +1,7 @@
+# TI LaunchPad MSPM0G3507 Development Board
+
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD
+	default "ti_mspm0g3507_launchpad"
+	depends on BOARD_TI_MSPM0G3507_LAUNCHPAD

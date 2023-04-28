@@ -13,6 +13,20 @@
 		zephyr,sram = &sram0;
 		zephyr,flash = &flash0;
 	};
+
+    leds {
+   		compatible = "gpio-leds";
+   		redled0: red_led0 {
+   			gpios = <&gpiob 26 GPIO_ACTIVE_LOW>;
+        };
+   		greenled0: green_led0 {
+   			gpios = <&gpiob 27 GPIO_ACTIVE_LOW>;
+        };
+   		blueled0: blue_led0 {
+   			gpios = <&gpiob 22 GPIO_ACTIVE_LOW>;
+        };
+    };
+
 };
 
 &cpu0 {

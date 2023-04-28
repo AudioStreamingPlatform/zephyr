@@ -6,6 +6,8 @@ CONFIG_SOC_MSPM0G3507=y
 
 CONFIG_ARM_MPU=y
 
+CONFIG_GPIO=y
+
 # # enable uart driver
 # CONFIG_SERIAL=y
 

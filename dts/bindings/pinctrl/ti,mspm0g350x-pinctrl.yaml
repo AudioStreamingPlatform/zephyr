@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+description: MSPM0G350X pin control
+
+include: base.yaml
+
+compatible: "ti,mspm0g350x-pinctrl"
+
+child-binding:
+  child-binding:
+    include:
+      - name: pincfg-node.yaml
+        property-allowlist:
+          - bias-disable
+          - bias-pull-down
+          - bias-pull-up
+
+    properties:
+      pinmux:
+        required: true
+        type: array
+        description: |
+          UPDATE ME

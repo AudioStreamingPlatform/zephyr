@@ -1,0 +1,10 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#ifndef ZEPHYR_INCLUDE_DT_BINDINGS_PINCTRL_TI_MSPM0_PINCTRL_H_
+#define ZEPHYR_INCLUDE_DT_BINDINGS_PINCTRL_TI_MSPM0_PINCTRL_H_
+
+// ADD macro to define pinctrl similar to NRF_PSEL
+
+#endif /* ZEPHYR_INCLUDE_DT_BINDINGS_PINCTRL_TI_MSPM0_PINCTRL_H_ */

@@ -1,7 +1,9 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <arm/armv6-m.dtsi>
+
 #include <zephyr/dt-bindings/gpio/gpio.h>
+#include <dt-bindings/pinctrl/ti-mspm0-pinctrl.h>
 
 / {
 	cpus {
@@ -30,6 +32,11 @@
 	};
 
 	soc {
+		pinctrl: pinctrl@40428000 {
+		    compatible = "ti,mspm0g350x-pinctrl";
+		    reg = <0x40428000 0x1600>;
+		};
+
 		gpioa: gpio@400a0000 {
 			compatible = "ti,mspm0-gpio";
 			reg = <0x400A0000 0x800>;

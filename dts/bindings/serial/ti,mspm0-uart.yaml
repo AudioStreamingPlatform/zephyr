@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: TI MSPM0 Series UART node
+
+compatible: "ti,mspm0-uart"
+
+# include: [uart-controller.yaml, pinctrl-device.yaml, base.yaml]
+include:
+  - name: uart-controller.yaml
+  - name: pinctrl-device.yaml
+
+properties:
+  reg:
+    required: true
+
+  interrupts:
+    required: true
+
+  pinctrl-0:
+    type: phandles
+    required: true
+

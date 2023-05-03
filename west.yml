@@ -149,7 +149,7 @@ manifest:
         - hal
     - name: hal_ti
       remote: audio_streaming_platform
-      revision: cbe9098004ef7f0ef29e3c99eb40086edd8774dc
+      revision: 9c0729a894e21c045f49d6af5606ccebcd8a3c22
       path: modules/hal/ti
       groups:
         - hal

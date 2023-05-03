@@ -31,10 +31,26 @@
 		#clock-cells = <0>;
 	};
 
+
+    bus_clk: bus_clk {
+        compatible = "fixed-factor-clock";
+        clocks = <&sysclk>;
+        clock-div = <1>;
+        #clock-cells = <0>;
+    };
+
 	soc {
 		pinctrl: pinctrl@40428000 {
 		    compatible = "ti,mspm0g350x-pinctrl";
 		    reg = <0x40428000 0x1600>;
+		};
+
+		uart0: uart@40108000 {
+			compatible = "ti,mspm0-uart";
+			reg = <0x40108000 0x400>;
+			interrupts = <31 0>;
+			clocks = <&bus_clk>;
+			status = "disabled";
 		};
 
 		gpioa: gpio@400a0000 {

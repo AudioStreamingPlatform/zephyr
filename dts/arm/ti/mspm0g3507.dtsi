@@ -14,3 +14,21 @@
 		reg = <0x0 DT_SIZE_K(128)>;
 	};
 };
+
+&uart0 {
+    pinctrl-0 = <&uart0_default>;
+	pinctrl-names = "default";
+};
+
+&pinctrl {
+    status = "okay";
+    uart0_default: uart0_default {
+        group1 {
+            pinmux = <0x00>;
+        };
+        group2 {
+            pinmux = <0x00>;
+            /* input-enable; */
+        };
+    };
+};

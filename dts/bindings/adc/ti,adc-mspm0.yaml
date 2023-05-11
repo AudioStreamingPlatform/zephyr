@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: mspm0 ADC node
+
+compatible: "ti,mspm0-adc"
+
+include: adc-controller.yaml
+
+properties:
+  reg:
+    required: true
+
+  interrupts:
+    required: true
+
+  "#io-channel-cells":
+    const: 1
+
+io-channel-cells:
+  - input

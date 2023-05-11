@@ -66,6 +66,13 @@
 			gpio-controller;
 			#gpio-cells = <2>;
 		};
+
+		adc0: adc@40000000 {
+			compatible = "ti,mspm0-adc";
+			reg = <0x40000000 0x100>;
+			interrupts = <4 0>;
+			#io-channel-cells = <1>;
+		};
 	};
 };
 

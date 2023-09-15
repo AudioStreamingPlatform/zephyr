@@ -23,6 +23,9 @@ manifest:
       url-base: https://github.com/zephyrproject-rtos
     - name: babblesim
       url-base: https://github.com/BabbleSim
+    - name: beo_asp
+      url-base: https://github.com/AudioStreamingPlatform
+
 
   group-filter: [-babblesim, -optional]
 
@@ -239,7 +242,8 @@ manifest:
       groups:
         - hal
     - name: hal_ti
-      revision: b85f86e51fc4d47c4c383d320d64d52d4d371ae4
+      remote: beo_asp
+      revision: 8baec2939588600ec3b39bf50e4bd2a2844d5d3c
       path: modules/hal/ti
       groups:
         - hal

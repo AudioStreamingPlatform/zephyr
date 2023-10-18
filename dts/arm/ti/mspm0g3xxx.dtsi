@@ -45,6 +45,7 @@
 				reg = <0x400a0000 0x2000>;
 				interrupts = <1 0>;
 				status = "disabled";
+				ngpios = <32>;
 				gpio-controller;
 				#gpio-cells = <2>;
 			};
@@ -54,6 +55,7 @@
 				reg = <0x400a2000 0x2000>;
 				interrupts = <1 0>;
 				status = "disabled";
+				ngpios = <28>;
 				gpio-controller;
 				#gpio-cells = <2>;
 			};

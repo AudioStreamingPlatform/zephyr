@@ -33,9 +33,9 @@ struct adc_mspm0g3xxx_sample_time_entry {
 };
 
 /** Maps standard unit sample times (us) to internal (raw hal_ti register) values */
-static const struct adc_mspm0g3xxx_sample_time_entry adc_g3xxx_sample_times[] = {
-	{ 2, 1 },
-};
+/* static const struct adc_mspm0g3xxx_sample_time_entry adc_g3xxx_sample_times[] = { */
+/* 	{ 2, 1 }, */
+/* }; */
 
 struct adc_mspm0g3xxx_data {
 	struct adc_context ctx;
@@ -83,7 +83,7 @@ static void adc_context_update_buffer_pointer(struct adc_context *ctx,
 static int adc_mspm0g3xxx_init(const struct device *dev)
 {
 	struct adc_mspm0g3xxx_data *data = dev->data;
-	const struct adc_mspm0g3xxx_cfg *config = dev->config;
+	/* const struct adc_mspm0g3xxx_cfg *config = dev->config; */
 
 	data->dev = dev;
 #ifdef UNDO
@@ -103,8 +103,8 @@ static int adc_mspm0g3xxx_channel_setup(const struct device *dev,
 {
 	struct adc_mspm0g3xxx_data *data = dev->data;
 	const uint8_t ch = channel_cfg->channel_id;
-	uint16_t sample_time_us = 0;
-	uint8_t i;
+	/* uint16_t sample_time_us = 0; */
+	/* uint8_t i; */
 
 	if (ch > MAX_CHAN_ID) {
 		LOG_ERR("Channel 0x%X is not supported, max 0x%X", ch, MAX_CHAN_ID);

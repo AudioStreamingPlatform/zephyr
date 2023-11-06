@@ -246,7 +246,7 @@ manifest:
         - hal
     - name: hal_ti
       remote: beo_asp
-      revision: e3ebb7002f9a69f8b6447dfe2b099549f6eb1267
+      revision: b1af0b247cb2eedee81ade8f9becaae9a320a816
       path: modules/hal/ti
       groups:
         - hal

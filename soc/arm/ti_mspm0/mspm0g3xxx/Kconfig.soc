@@ -1,4 +1,4 @@
-# Texas Instruments MSPM0G3507
+# Texas Instruments MSPM0G3XXX
 
 # SPDX-License-Identifier: Apache-2.0
 
@@ -6,6 +6,8 @@ choice
 	prompt "TI MSPM0 MCU Selection"
 	depends on SOC_SERIES_MSPM0G3XXX
 
-config SOC_MSPM0G3507
-	bool "MSPM0G3507"
+	config SOC_MSPM0G3506
+		bool "MSPM0G3506"
+	config SOC_MSPM0G3507
+		bool "MSPM0G3507"
 endchoice

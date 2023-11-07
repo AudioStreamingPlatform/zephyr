@@ -1,0 +1,16 @@
+# TI MSPM0G1106 SoC
+
+# SPDX-License-Identifier: Apache-2.0
+
+if SOC_MSPM0G1106
+
+config SOC
+	default "mspm0g1106"
+
+config SYS_CLOCK_HW_CYCLES_PER_SEC
+	default 32000000
+
+config NUM_IRQS
+	default 32
+
+endif # SOC_MSPM0G1106

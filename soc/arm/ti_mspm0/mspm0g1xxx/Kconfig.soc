@@ -1,0 +1,11 @@
+# Texas Instruments MSPM0G1XXX
+
+# SPDX-License-Identifier: Apache-2.0
+
+choice
+	prompt "TI MSPM0 MCU Selection"
+	depends on SOC_SERIES_MSPM0G1XXX
+
+	config SOC_MSPM0G1106
+		bool "MSPM0G1106"
+endchoice

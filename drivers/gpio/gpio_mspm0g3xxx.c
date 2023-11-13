@@ -71,6 +71,7 @@ static int gpio_mspm0g3xxx_pin_configure(const struct device *port, gpio_pin_t p
 			: (flags & GPIO_PULL_DOWN) ? DL_GPIO_RESISTOR_PULL_DOWN
 						   : DL_GPIO_RESISTOR_NONE,
 			DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
+		DL_GPIO_disableOutput(config->base, BIT(pin));
 		break;
 	case GPIO_OUTPUT:
 		DL_GPIO_initDigitalOutputFeatures(config->pincm_lut[pin], DL_GPIO_INVERSION_DISABLE,

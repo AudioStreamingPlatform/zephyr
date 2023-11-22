@@ -398,8 +398,8 @@ static void i2c_mspm0g3xxx_isr(const struct device *dev)
 				 * only supported way to cancel the transaction is disabling
 				 * the target peripheral entirely.
 				 */
-				DL_I2C_disableTarget((I2C_Regs *)config->base);
-				data->state = I2C_mspm0g3xxx_TARGET_PREEMPTED;
+				/* DL_I2C_disableTarget((I2C_Regs *)config->base); */
+				/* data->state = I2C_mspm0g3xxx_TARGET_PREEMPTED; */
 			} else {
 				/* semaphore has successfully been obtained */
 				data->state = I2C_mspm0g3xxx_TARGET_STARTED;

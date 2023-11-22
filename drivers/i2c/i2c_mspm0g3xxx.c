@@ -512,7 +512,7 @@ static int i2c_mspm0g3xxx_init(const struct device *dev)
 
 	/* Set frequency */
 	uint32_t speed_config =
-		i2c_map_dt_bitrate(config->clock_frequency);
+		i2c_map_dt_bitrate(config->clock_frequency) | I2C_MODE_CONTROLLER;
 
 	k_sem_give(&data->i2c_busy_sem);
 	i2c_mspm0g3xxx_configure(dev, speed_config);

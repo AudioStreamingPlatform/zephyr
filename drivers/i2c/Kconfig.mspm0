@@ -7,3 +7,14 @@ config I2C_MSPM0G3XXX
 	select USE_MSPM0_DL_I2C
 	help
 	  Enable support for I2C on the TI MSPM0G3XXX series.
+
+if I2C_MSPM0G3XXX
+
+config I2C_MSPM0G3XXX_TARGET_SUPPORT
+	bool "TI I2C_MSPM0G3XXX target support"
+	default n
+	help
+	  Enable support for i2c-target functionality
+	  for TI MSPM0G3XXX driver.
+
+endif # I2C_MSPM0G3XXX

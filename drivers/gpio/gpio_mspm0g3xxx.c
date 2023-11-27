@@ -115,7 +115,7 @@ static int gpio_mspm0g3xxx_port_set_masked_raw(const struct device *port, uint32
 {
 	const struct gpio_mspm0g3xxx_config *config = port->config;
 
-	DL_GPIO_writePinsVal(config->base, mask, value);
+	DL_GPIO_writePinsVal(config->base, mask, (value & mask));
 
 	return 0;
 }

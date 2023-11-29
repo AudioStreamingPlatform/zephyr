@@ -23,6 +23,12 @@ LOG_MODULE_REGISTER(i2c_mspm0g3xxx);
 	 DL_I2C_INTERRUPT_TARGET_TXFIFO_EMPTY | DL_I2C_INTERRUPT_TARGET_START |                    \
 	 DL_I2C_INTERRUPT_TARGET_STOP)
 
+enum i2c_mspm0g3xxx_target_type {
+	TARGET_TYPE_PRIMARY,
+	TARGET_TYPE_ALTERNATE,
+	TARGET_TYPE_INVALID,
+};
+
 enum i2c_mspm0g3xxx_state {
 	I2C_mspm0g3xxx_IDLE,
 	I2C_mspm0g3xxx_TX_STARTED,
@@ -54,8 +60,8 @@ struct i2c_mspm0g3xxx_data {
 	uint32_t count;                           /* Count for progress in I2C transmission */
 	uint32_t dev_config;                      /* Configuration last passed */
 	uint32_t is_target;
-	const struct i2c_target_callbacks *target_callbacks;
-	struct i2c_target_config *target_config;
+	struct i2c_target_config *target_config_primary;
+	struct i2c_target_config *target_config_alternate;
 	int target_tx_valid;
 	int target_rx_valid;
 	struct k_sem i2c_busy_sem;
@@ -223,6 +229,17 @@ static int i2c_mspm0g3xxx_transfer(const struct device *dev, struct i2c_msg *msg
 	return ret;
 }
 
+enum i2c_mspm0g3xxx_target_type i2c_mspm0g3xxx_next_target_type(struct i2c_mspm0g3xxx_data *data)
+{
+	if (data->target_config_primary == NULL) {
+		return TARGET_TYPE_PRIMARY;
+	} else if (data->target_config_alternate == NULL) {
+		return TARGET_TYPE_ALTERNATE;
+	}
+
+	return TARGET_TYPE_INVALID;
+}
+
 static int i2c_mspm0g3xxx_target_register(const struct device *dev,
 					  struct i2c_target_config *target_config)
 {
@@ -239,25 +256,39 @@ static int i2c_mspm0g3xxx_target_register(const struct device *dev,
 
 	k_sem_take(&data->i2c_busy_sem, K_FOREVER);
 
+	enum i2c_mspm0g3xxx_target_type target_type = i2c_mspm0g3xxx_next_target_type(data);
+	if (target_type == TARGET_TYPE_INVALID) {
+		LOG_ERR("Both primary and alternate target are already configured");
+		k_sem_give(&data->i2c_busy_sem);
+		return -ENODEV;
+	}
+
+	LOG_DBG("Register %s target on addr=%u",
+		target_type == TARGET_TYPE_PRIMARY ? "primary" : "alternate",
+		target_config->address);
+
+	/* device is already configured as a target - simply setup the address and callbacks */
 	if (data->is_target == true) {
-		/* device is already configured as a target */
-		if (target_config != data->target_config) {
-			/* a new target configuration has been given. Reconfigure
-			 * address and callbacks
-			 */
-			DL_I2C_disableInterrupt((I2C_Regs *)config->base,
-						TI_MSPM0G_TARGET_INTERRUPTS);
-			DL_I2C_disableTarget((I2C_Regs *)config->base);
+		DL_I2C_disableInterrupt((I2C_Regs *)config->base, TI_MSPM0G_TARGET_INTERRUPTS);
+		DL_I2C_disableTarget((I2C_Regs *)config->base);
+
+		if (target_type == TARGET_TYPE_PRIMARY) {
 			DL_I2C_setTargetOwnAddress((I2C_Regs *)config->base,
 						   target_config->address);
-			data->target_config = target_config;
-			data->target_callbacks = target_config->callbacks;
-
-			if (data->state == I2C_mspm0g3xxx_TARGET_PREEMPTED) {
-				DL_I2C_clearInterruptStatus((I2C_Regs *)config->base,
-							    TI_MSPM0G_TARGET_INTERRUPTS);
-			}
+			DL_I2C_enableTargetOwnAddress((I2C_Regs *)config->base);
+			data->target_config_primary = target_config;
+		} else if (target_type == TARGET_TYPE_ALTERNATE) {
+			DL_I2C_setTargetOwnAddressAlternate((I2C_Regs *)config->base,
+							    target_config->address);
+			DL_I2C_enableTargetOwnAddressAlternate((I2C_Regs *)config->base);
+			data->target_config_alternate = target_config;
 		}
+
+		if (data->state == I2C_mspm0g3xxx_TARGET_PREEMPTED) {
+			DL_I2C_clearInterruptStatus((I2C_Regs *)config->base,
+						    TI_MSPM0G_TARGET_INTERRUPTS);
+		}
+
 		k_sem_give(&data->i2c_busy_sem);
 
 		DL_I2C_enableInterrupt((I2C_Regs *)config->base, TI_MSPM0G_TARGET_INTERRUPTS);
@@ -268,13 +299,13 @@ static int i2c_mspm0g3xxx_target_register(const struct device *dev,
 	/* Disable the controller and configure the device to run as a target */
 	DL_I2C_disableController((I2C_Regs *)config->base);
 
-	data->target_callbacks = target_config->callbacks;
-	data->target_config = target_config;
+	data->target_config_primary = target_config;
 	data->dev_config &= ~I2C_MODE_CONTROLLER;
 	data->is_target = true;
 	data->state = I2C_mspm0g3xxx_IDLE;
 
 	DL_I2C_setTargetOwnAddress((I2C_Regs *)config->base, target_config->address);
+	DL_I2C_enableTargetOwnAddress((I2C_Regs *)config->base);
 	DL_I2C_setTargetTXFIFOThreshold((I2C_Regs *)config->base, DL_I2C_TX_FIFO_LEVEL_BYTES_1);
 	DL_I2C_setTargetRXFIFOThreshold((I2C_Regs *)config->base, DL_I2C_RX_FIFO_LEVEL_BYTES_1);
 	DL_I2C_enableTargetTXTriggerInTXMode((I2C_Regs *)config->base);
@@ -313,6 +344,31 @@ static int i2c_mspm0g3xxx_target_unregister(const struct device *dev,
 		return 0;
 	}
 
+	if (data->target_config_primary != NULL &&
+	    data->target_config_primary->address == target_config->address) {
+		LOG_DBG("Unregistering primary on addr=%u", target_config->address);
+		data->target_config_primary = NULL;
+		DL_I2C_disableTargetOwnAddress((I2C_Regs *)config->base);
+	} else if (data->target_config_alternate != NULL &&
+		   data->target_config_alternate->address == target_config->address) {
+		LOG_DBG("Unregistering alternate on addr=%u", target_config->address);
+		data->target_config_alternate = NULL;
+		DL_I2C_disableTargetOwnAddressAlternate((I2C_Regs *)config->base);
+	} else {
+		LOG_ERR("Failed to unregister device as none was found at addr=%u",
+			target_config->address);
+		k_sem_give(&data->i2c_busy_sem);
+		return -ENODEV;
+	}
+
+	/* Check if no targets are registered - we'll then re-enable controller mode */
+	if (data->target_config_primary != NULL || data->target_config_alternate != NULL) {
+		k_sem_give(&data->i2c_busy_sem);
+		return 0;
+	}
+
+	LOG_DBG("Enabling controller mode as no targets are registered");
+
 	DL_I2C_disableTarget((I2C_Regs *)config->base);
 
 	/* reconfigure the interrupt to use a slave isr? */
@@ -337,10 +393,30 @@ static int i2c_mspm0g3xxx_target_unregister(const struct device *dev,
 	return 0;
 }
 
+struct i2c_target_config *i2c_mspm0g3xxx_config_from_addr(const struct i2c_mspm0g3xxx_data *data,
+							  uint32_t addr)
+{
+	if (data->target_config_primary->address == addr) {
+		return data->target_config_primary;
+	} else if (data->target_config_alternate->address == addr) {
+		return data->target_config_alternate;
+	}
+
+	return NULL;
+}
+
 static void i2c_mspm0g3xxx_isr(const struct device *dev)
 {
 	const struct i2c_mspm0g3xxx_config *config = dev->config;
 	struct i2c_mspm0g3xxx_data *data = dev->data;
+
+	uint32_t addr_match = 0;
+	struct i2c_target_config *tconfig = NULL;
+
+	if (data->is_target) {
+		addr_match = DL_I2C_getTargetAddressMatch((I2C_Regs *)config->base);
+		tconfig = i2c_mspm0g3xxx_config_from_addr(data, addr_match);
+	}
 
 	switch (DL_I2C_getPendingInterrupt((I2C_Regs *)config->base)) {
 	/* controller interrupts */
@@ -415,22 +491,20 @@ static void i2c_mspm0g3xxx_isr(const struct device *dev)
 	case DL_I2C_IIDX_TARGET_RXFIFO_TRIGGER:
 		if (data->state == I2C_mspm0g3xxx_TARGET_STARTED) {
 			data->state = I2C_mspm0g3xxx_TARGET_RX_INPROGRESS;
-			if (data->target_callbacks->write_requested != NULL) {
-				data->target_rx_valid = data->target_callbacks->write_requested(
-					data->target_config);
+			if (tconfig != NULL && tconfig->callbacks->write_requested != NULL) {
+				data->target_rx_valid =
+					tconfig->callbacks->write_requested(tconfig);
 			}
 		}
 		/* Store received data in buffer */
-		if (data->target_callbacks->write_received != NULL) {
+		if (tconfig != NULL && tconfig->callbacks->write_received != NULL) {
 			uint8_t nextByte;
-
 			while (DL_I2C_isTargetRXFIFOEmpty((I2C_Regs *)config->base) != true) {
 				if (data->target_rx_valid == 0) {
 					nextByte =
 						DL_I2C_receiveTargetData((I2C_Regs *)config->base);
-					data->target_rx_valid =
-						data->target_callbacks->write_received(
-							data->target_config, nextByte);
+					data->target_rx_valid = tconfig->callbacks->write_received(
+						tconfig, nextByte);
 				} else {
 					/* Prevent overflow and just ignore data */
 					DL_I2C_receiveTargetData((I2C_Regs *)config->base);
@@ -442,11 +516,10 @@ static void i2c_mspm0g3xxx_isr(const struct device *dev)
 	case DL_I2C_IIDX_TARGET_TXFIFO_TRIGGER:
 		data->state = I2C_mspm0g3xxx_TARGET_TX_INPROGRESS;
 		/* Fill TX FIFO if there are more bytes to send */
-		if (data->target_callbacks->read_requested != NULL) {
+		if (tconfig != NULL && tconfig->callbacks->read_requested != NULL) {
 			uint8_t nextByte;
-
-			data->target_tx_valid = data->target_callbacks->read_requested(
-				data->target_config, &nextByte);
+			data->target_tx_valid =
+				tconfig->callbacks->read_requested(tconfig, &nextByte);
 			if (data->target_tx_valid == 0) {
 				DL_I2C_transmitTargetData((I2C_Regs *)config->base, nextByte);
 			} else {
@@ -458,17 +531,16 @@ static void i2c_mspm0g3xxx_isr(const struct device *dev)
 		}
 		break;
 	case DL_I2C_IIDX_TARGET_TXFIFO_EMPTY:
-		if (data->target_callbacks->read_processed != NULL) {
+		if (tconfig != NULL && tconfig->callbacks->read_processed != NULL) {
 			/* still using the FIFO, we call read_processed in order to add
 			 * additional data rather than from a buffer. If the write-received
 			 * function chooses to return 0 (no more data present), then 0's will
 			 * be filled in
 			 */
 			uint8_t nextByte;
-
 			if (data->target_tx_valid == 0) {
-				data->target_tx_valid = data->target_callbacks->read_processed(
-					data->target_config, &nextByte);
+				data->target_tx_valid =
+					tconfig->callbacks->read_processed(tconfig, &nextByte);
 			}
 
 			if (data->target_tx_valid == 0) {
@@ -484,8 +556,8 @@ static void i2c_mspm0g3xxx_isr(const struct device *dev)
 	case DL_I2C_IIDX_TARGET_STOP:
 		data->state = I2C_mspm0g3xxx_IDLE;
 		k_sem_give(&data->i2c_busy_sem);
-		if (data->target_callbacks->stop) {
-			data->target_callbacks->stop(data->target_config);
+		if (tconfig->callbacks->stop) {
+			tconfig->callbacks->stop(tconfig);
 		}
 		break;
 	/* Not implemented */

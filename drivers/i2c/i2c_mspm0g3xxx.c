@@ -310,6 +310,7 @@ static int i2c_mspm0g3xxx_target_register(const struct device *dev,
 	DL_I2C_setTargetRXFIFOThreshold((I2C_Regs *)config->base, DL_I2C_RX_FIFO_LEVEL_BYTES_1);
 	DL_I2C_enableTargetTXTriggerInTXMode((I2C_Regs *)config->base);
 	DL_I2C_enableTargetTXEmptyOnTXRequest((I2C_Regs *)config->base);
+	DL_I2C_enableTargetClockStretching((I2C_Regs *)config->base);
 
 	/* reconfigure the interrupt to use a slave isr? */
 	DL_I2C_disableInterrupt(

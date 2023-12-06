@@ -48,6 +48,16 @@
 				gpio-controller;
 				#gpio-cells = <2>;
 			};
+
+			gpiob: gpio@400a2000 {
+				compatible = "ti,mspm0g3xxx-gpio";
+				reg = <0x400a2000 0x2000>;
+				interrupts = <1 0>;
+				status = "disabled";
+				ngpios = <28>;
+				gpio-controller;
+				#gpio-cells = <2>;
+			};
 		};
 
 		uart0: uart@40108000 {

@@ -270,7 +270,6 @@ static int i2c_mspm0g3xxx_target_register(const struct device *dev,
 	/* device is already configured as a target - simply setup the address and callbacks */
 	if (data->is_target == true) {
 		DL_I2C_disableInterrupt((I2C_Regs *)config->base, TI_MSPM0G_TARGET_INTERRUPTS);
-		DL_I2C_disableTarget((I2C_Regs *)config->base);
 
 		if (target_type == TARGET_TYPE_PRIMARY) {
 			DL_I2C_setTargetOwnAddress((I2C_Regs *)config->base,
@@ -292,7 +291,6 @@ static int i2c_mspm0g3xxx_target_register(const struct device *dev,
 		k_sem_give(&data->i2c_busy_sem);
 
 		DL_I2C_enableInterrupt((I2C_Regs *)config->base, TI_MSPM0G_TARGET_INTERRUPTS);
-		DL_I2C_enableTarget((I2C_Regs *)config->base);
 		return 0;
 	}
 

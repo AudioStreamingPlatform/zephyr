@@ -10,6 +10,12 @@ properties:
   reg:
     required: true
 
+  target-mode-only:
+    type: boolean
+    description: |
+      Will skip setup of i2c-controller mode when no target is registered.
+      This can be useful for when only target mode is wanted.
+
   interrupts:
     required: true
 

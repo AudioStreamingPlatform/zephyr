@@ -49,6 +49,7 @@ enum i2c_mspm0g3xxx_state {
 struct i2c_mspm0g3xxx_config {
 	uint32_t base;
 	uint32_t clock_frequency;
+	bool target_mode_only;
 	DL_I2C_ClockConfig gI2CClockConfig;
 	const struct pinctrl_dev_config * pinctrl;
 	void (*interrupt_init_function)(const struct device *);
@@ -365,15 +366,18 @@ static int i2c_mspm0g3xxx_target_unregister(const struct device *dev, struct i2c
 			DL_I2C_INTERRUPT_TARGET_START |
         	DL_I2C_INTERRUPT_TARGET_STOP);
 
-	DL_I2C_enableInterrupt(
-		(I2C_Regs *)config->base,
-		DL_I2C_INTERRUPT_CONTROLLER_ARBITRATION_LOST | DL_I2C_INTERRUPT_CONTROLLER_NACK |
-			DL_I2C_INTERRUPT_CONTROLLER_RXFIFO_TRIGGER |
-			DL_I2C_INTERRUPT_CONTROLLER_RX_DONE | DL_I2C_INTERRUPT_CONTROLLER_TX_DONE);
+	if (!config->target_mode_only) {
+		DL_I2C_enableInterrupt(
+				(I2C_Regs *)config->base,
+				DL_I2C_INTERRUPT_CONTROLLER_ARBITRATION_LOST | DL_I2C_INTERRUPT_CONTROLLER_NACK |
+				DL_I2C_INTERRUPT_CONTROLLER_RXFIFO_TRIGGER |
+				DL_I2C_INTERRUPT_CONTROLLER_RX_DONE | DL_I2C_INTERRUPT_CONTROLLER_TX_DONE);
 
-	DL_I2C_enableController((I2C_Regs *)config->base);
+		DL_I2C_enableController((I2C_Regs *)config->base);
 
-	data->dev_config |= I2C_MODE_CONTROLLER;
+		data->dev_config |= I2C_MODE_CONTROLLER;
+	}
+
 	data->is_target = false;
 
 	k_sem_give(&data->i2c_busy_sem);
@@ -565,7 +569,7 @@ static int i2c_mspm0g3xxx_init(const struct device *dev)
 
 	/* Init GPIO */
 	ret = pinctrl_apply_state(config->pinctrl, PINCTRL_STATE_DEFAULT);
-	if(ret < 0){
+	if (ret < 0) {
 		return ret;
 	}
 
@@ -574,31 +578,39 @@ static int i2c_mspm0g3xxx_init(const struct device *dev)
 			      (DL_I2C_ClockConfig *)&config->gI2CClockConfig);
 	DL_I2C_disableAnalogGlitchFilter((I2C_Regs *)config->base);
 
-	/* Configure Controller Mode */
-	DL_I2C_resetControllerTransfer((I2C_Regs *)config->base);
-
 	/* Set frequency */
-	uint32_t speed_config =
-		i2c_map_dt_bitrate(config->clock_frequency) | I2C_MODE_CONTROLLER;
+	uint32_t speed_config = i2c_map_dt_bitrate(config->clock_frequency);
 
-	k_sem_give(&data->i2c_busy_sem);
-	i2c_mspm0g3xxx_configure(dev, speed_config);
+	if (config->target_mode_only) {
+		k_sem_give(&data->i2c_busy_sem);
 
-	/* Config other settings */
-	DL_I2C_setControllerTXFIFOThreshold((I2C_Regs *)config->base, DL_I2C_TX_FIFO_LEVEL_BYTES_1);
-	DL_I2C_setControllerRXFIFOThreshold((I2C_Regs *)config->base, DL_I2C_RX_FIFO_LEVEL_BYTES_1);
-	DL_I2C_enableControllerClockStretching((I2C_Regs *)config->base);
+		// No need to setup target yet - will be done when a target has been registered
+		i2c_mspm0g3xxx_configure(dev, speed_config);
+	} else {
+		/* Configure Controller Mode */
+		DL_I2C_resetControllerTransfer((I2C_Regs *)config->base);
 
-	/* Configure Interrupts */
-	DL_I2C_enableInterrupt(
-		(I2C_Regs *)config->base,
-		DL_I2C_INTERRUPT_CONTROLLER_ARBITRATION_LOST | DL_I2C_INTERRUPT_CONTROLLER_NACK |
-			DL_I2C_INTERRUPT_CONTROLLER_RXFIFO_TRIGGER |
-			DL_I2C_INTERRUPT_CONTROLLER_RX_DONE |
-			DL_I2C_INTERRUPT_CONTROLLER_TX_DONE);
+		/* Config other settings */
+		DL_I2C_setControllerTXFIFOThreshold((I2C_Regs *)config->base,
+						    DL_I2C_TX_FIFO_LEVEL_BYTES_1);
+		DL_I2C_setControllerRXFIFOThreshold((I2C_Regs *)config->base,
+						    DL_I2C_RX_FIFO_LEVEL_BYTES_1);
+		DL_I2C_enableControllerClockStretching((I2C_Regs *)config->base);
 
-	/* Enable module */
-	DL_I2C_enableController((I2C_Regs *)config->base);
+		k_sem_give(&data->i2c_busy_sem);
+		i2c_mspm0g3xxx_configure(dev, speed_config | I2C_MODE_CONTROLLER);
+
+		/* Configure Interrupts */
+		DL_I2C_enableInterrupt((I2C_Regs *)config->base,
+				       DL_I2C_INTERRUPT_CONTROLLER_ARBITRATION_LOST |
+					       DL_I2C_INTERRUPT_CONTROLLER_NACK |
+					       DL_I2C_INTERRUPT_CONTROLLER_RXFIFO_TRIGGER |
+					       DL_I2C_INTERRUPT_CONTROLLER_RX_DONE |
+					       DL_I2C_INTERRUPT_CONTROLLER_TX_DONE);
+
+		/* Enable module */
+		DL_I2C_enableController((I2C_Regs *)config->base);
+	}
 
 	/* Enable interrupts */
 	config->interrupt_init_function(dev);
@@ -634,6 +646,7 @@ INTERRUPT_INIT_FUNCTION_DECLARATION(index); 								\
 static const struct i2c_mspm0g3xxx_config i2c_mspm0g3xxx_cfg_##index = {	\
 	.base = DT_INST_REG_ADDR(index),										\
 	.clock_frequency = DT_INST_PROP(index, clock_frequency),				\
+	.target_mode_only = DT_INST_PROP_OR(index, target_mode_only, false),                         \
 	.pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(index),						\
 	.interrupt_init_function = i2c_mspm0g3xxx_interrupt_init_##index,		\
 	.gI2CClockConfig = {													\

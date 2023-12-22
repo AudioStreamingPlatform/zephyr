@@ -30,3 +30,6 @@ config USE_MSPM0_DL_WWDT
 config USE_MSPM0_DL_SPI
 	bool
 
+config USE_MSPM0_DL_I2C
+	bool
+

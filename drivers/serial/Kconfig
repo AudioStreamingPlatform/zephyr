@@ -200,6 +200,8 @@ rsource "Kconfig.leuart_gecko"
 
 rsource "Kconfig.msp432p4xx"
 
+rsource "drivers/serial/Kconfig.mspm0g3xxx"
+
 rsource "Kconfig.numicro"
 
 rsource "Kconfig.sam0"

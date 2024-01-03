@@ -4,7 +4,7 @@
 #include <zephyr/dt-bindings/gpio/gpio.h>
 #include <zephyr/dt-bindings/i2c/i2c.h>
 #include <zephyr/dt-bindings/adc/adc.h>
-#include <zephyr/dt-bindings/adc/ti_mspm0_adc.h>
+#include <zephyr/dt-bindings/adc/mspm0_adc.h>
 
 / {
 

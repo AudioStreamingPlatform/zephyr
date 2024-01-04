@@ -357,7 +357,13 @@ static int gpio_mspm0_pin_get_config(const struct device *port, gpio_pin_t pin,
 static int gpio_mspm0_port_get_direction(const struct device *port, gpio_port_pins_t map,
 					 gpio_port_pins_t *inputs, gpio_port_pins_t *outputs)
 {
-	return -ENOTSUP;
+	const struct gpio_mspm0_config *config = port->config;
+
+	map &= config->common.port_pin_mask;
+	*inputs = map & ~config->base->DOE31_0;
+	*outputs = map & config->base->DOE31_0;
+
+	return 0;
 }
 #endif /* CONFIG_GPIO_GET_DIRECTION */
 

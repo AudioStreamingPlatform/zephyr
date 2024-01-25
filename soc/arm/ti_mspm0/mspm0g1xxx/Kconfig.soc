@@ -8,4 +8,6 @@ choice
 
 	config SOC_MSPM0G1106
 		bool "MSPM0G1106"
+	config SOC_MSPM0G1107
+		bool "MSPM0G1107"
 endchoice

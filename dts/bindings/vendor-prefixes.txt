@@ -95,6 +95,7 @@ bitmain	Bitmain Technologies
 blues	Blues Wireless
 blutek	BluTek Power
 boe	BOE Technology Group Co., Ltd.
+beo	Bang & Olufsen A/S
 bosch	Bosch Sensortec GmbH
 boundary	Boundary Devices Inc.
 broadmobi	Shanghai Broadmobi Communication Technology Co.,Ltd.

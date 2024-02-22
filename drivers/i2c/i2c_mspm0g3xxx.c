@@ -436,9 +436,6 @@ static int i2c_mspm0g3xxx_target_register(const struct device *dev,
 		return 0;
 	}
 
-	/* Disable the controller and configure the device to run as a target */
-	DL_I2C_disableController((I2C_Regs *)config->base);
-
 	data->target_config_primary = target_config;
 	data->dev_config &= ~I2C_MODE_CONTROLLER;
 	data->is_target = true;
@@ -446,26 +443,35 @@ static int i2c_mspm0g3xxx_target_register(const struct device *dev,
 
 	DL_I2C_setTargetOwnAddress((I2C_Regs *)config->base, target_config->address);
 	DL_I2C_enableTargetOwnAddress((I2C_Regs *)config->base);
-	DL_I2C_setTargetTXFIFOThreshold((I2C_Regs *)config->base, DL_I2C_TX_FIFO_LEVEL_BYTES_1);
-	DL_I2C_setTargetRXFIFOThreshold((I2C_Regs *)config->base, DL_I2C_RX_FIFO_LEVEL_BYTES_1);
-	DL_I2C_enableTargetTXTriggerInTXMode((I2C_Regs *)config->base);
-	DL_I2C_enableTargetTXEmptyOnTXRequest((I2C_Regs *)config->base);
-	DL_I2C_enableTargetClockStretching((I2C_Regs *)config->base);
 
-	/* reconfigure the interrupt to use a slave isr? */
-	DL_I2C_disableInterrupt(
-		(I2C_Regs *)config->base,
-		DL_I2C_INTERRUPT_CONTROLLER_ARBITRATION_LOST | DL_I2C_INTERRUPT_CONTROLLER_NACK |
-			DL_I2C_INTERRUPT_CONTROLLER_RXFIFO_TRIGGER |
-			DL_I2C_INTERRUPT_CONTROLLER_RX_DONE | DL_I2C_INTERRUPT_CONTROLLER_TX_DONE);
+	if (!config->target_mode_only) {
+		/* Disable the controller and configure the device to run as a target */
+		DL_I2C_disableController((I2C_Regs *)config->base);
 
-	DL_I2C_clearInterruptStatus(
-		(I2C_Regs *)config->base,
-		(DL_I2C_INTERRUPT_TARGET_TXFIFO_TRIGGER | DL_I2C_INTERRUPT_TARGET_TXFIFO_EMPTY));
+		/* reconfigure the interrupt to use a slave isr? */
+		DL_I2C_disableInterrupt((I2C_Regs *)config->base,
+					DL_I2C_INTERRUPT_CONTROLLER_ARBITRATION_LOST |
+						DL_I2C_INTERRUPT_CONTROLLER_NACK |
+						DL_I2C_INTERRUPT_CONTROLLER_RXFIFO_TRIGGER |
+						DL_I2C_INTERRUPT_CONTROLLER_RX_DONE |
+						DL_I2C_INTERRUPT_CONTROLLER_TX_DONE);
 
-	DL_I2C_enableInterrupt((I2C_Regs *)config->base, TI_MSPM0G_TARGET_INTERRUPTS);
+		DL_I2C_setTargetTXFIFOThreshold((I2C_Regs *)config->base,
+						DL_I2C_TX_FIFO_LEVEL_BYTES_1);
+		DL_I2C_setTargetRXFIFOThreshold((I2C_Regs *)config->base,
+						DL_I2C_RX_FIFO_LEVEL_BYTES_1);
+		DL_I2C_enableTargetTXTriggerInTXMode((I2C_Regs *)config->base);
+		DL_I2C_enableTargetTXEmptyOnTXRequest((I2C_Regs *)config->base);
+		DL_I2C_enableTargetClockStretching((I2C_Regs *)config->base);
 
-	DL_I2C_enableTarget((I2C_Regs *)config->base);
+		DL_I2C_clearInterruptStatus((I2C_Regs *)config->base,
+					    (DL_I2C_INTERRUPT_TARGET_TXFIFO_TRIGGER |
+					     DL_I2C_INTERRUPT_TARGET_TXFIFO_EMPTY));
+
+		DL_I2C_enableInterrupt((I2C_Regs *)config->base, TI_MSPM0G_TARGET_INTERRUPTS);
+
+		DL_I2C_enableTarget((I2C_Regs *)config->base);
+	}
 
 	k_sem_give(&data->i2c_busy_sem);
 	return 0;
@@ -665,9 +671,27 @@ static int i2c_mspm0g3xxx_init(const struct device *dev)
 	uint32_t speed_config = i2c_map_dt_bitrate(config->clock_frequency);
 
 	if (config->target_mode_only) {
+		data->dev_config &= ~I2C_MODE_CONTROLLER;
+		data->is_target = true;
+
+		DL_I2C_setTargetTXFIFOThreshold((I2C_Regs *)config->base,
+						DL_I2C_TX_FIFO_LEVEL_BYTES_1);
+		DL_I2C_setTargetRXFIFOThreshold((I2C_Regs *)config->base,
+						DL_I2C_RX_FIFO_LEVEL_BYTES_1);
+		DL_I2C_enableTargetTXTriggerInTXMode((I2C_Regs *)config->base);
+		DL_I2C_enableTargetTXEmptyOnTXRequest((I2C_Regs *)config->base);
+		DL_I2C_enableTargetClockStretching((I2C_Regs *)config->base);
+
+		DL_I2C_clearInterruptStatus((I2C_Regs *)config->base,
+					    (DL_I2C_INTERRUPT_TARGET_TXFIFO_TRIGGER |
+					     DL_I2C_INTERRUPT_TARGET_TXFIFO_EMPTY));
+
+		DL_I2C_enableInterrupt((I2C_Regs *)config->base, TI_MSPM0G_TARGET_INTERRUPTS);
+
+		DL_I2C_enableTarget((I2C_Regs *)config->base);
+
 		k_sem_give(&data->i2c_busy_sem);
 
-		// No need to setup target yet - will be done when a target has been registered
 		i2c_mspm0g3xxx_configure(dev, speed_config);
 	} else {
 		/* Configure Controller Mode */

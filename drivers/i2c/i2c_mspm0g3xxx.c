@@ -132,7 +132,14 @@ void i2c_mspm0g3xxx_target_thread_work(void)
 						data->target_rx_valid =
 							tconfig->callbacks->write_received(
 								tconfig, nextByte);
+
+						DL_I2C_setTargetACKOverrideValue(
+							(I2C_Regs *)config->base,
+							DL_I2C_TARGET_RESPONSE_OVERRIDE_VALUE_ACK);
 					} else {
+						DL_I2C_setTargetACKOverrideValue(
+							(I2C_Regs *)config->base,
+							DL_I2C_TARGET_RESPONSE_OVERRIDE_VALUE_NACK);
 						/* Prevent overflow and just ignore data */
 						DL_I2C_receiveTargetData((I2C_Regs *)config->base);
 					}
@@ -170,9 +177,17 @@ void i2c_mspm0g3xxx_target_thread_work(void)
 				}
 
 				if (data->target_tx_valid == 0) {
+					DL_I2C_setTargetACKOverrideValue(
+						(I2C_Regs *)config->base,
+						DL_I2C_TARGET_RESPONSE_OVERRIDE_VALUE_ACK);
+
 					DL_I2C_transmitTargetData((I2C_Regs *)config->base,
 								  nextByte);
 				} else {
+					DL_I2C_setTargetACKOverrideValue(
+						(I2C_Regs *)config->base,
+						DL_I2C_TARGET_RESPONSE_OVERRIDE_VALUE_NACK);
+
 					/* In this case, no new data is desired to be filled, thus
 					 * 0's are transmitted */
 					DL_I2C_transmitTargetData((I2C_Regs *)config->base, 0x00);
@@ -181,10 +196,11 @@ void i2c_mspm0g3xxx_target_thread_work(void)
 			break;
 		case DL_I2C_IIDX_TARGET_STOP:
 			data->state = I2C_mspm0g3xxx_IDLE;
-			k_sem_give(&data->i2c_busy_sem);
 			if (tconfig->callbacks->stop) {
 				tconfig->callbacks->stop(tconfig);
 			}
+
+			k_sem_give(&data->i2c_busy_sem);
 			break;
 		default:
 			LOG_WRN("Invalid target work!");
@@ -396,7 +412,7 @@ static int i2c_mspm0g3xxx_target_register(const struct device *dev,
 		return -ENOTSUP;
 	}
 
-	k_sem_take(&data->i2c_busy_sem, K_FOREVER);
+	/* k_sem_take(&data->i2c_busy_sem, K_FOREVER); */
 
 	enum i2c_mspm0g3xxx_target_type target_type = i2c_mspm0g3xxx_next_target_type(data);
 	if (target_type == TARGET_TYPE_INVALID) {
@@ -463,6 +479,7 @@ static int i2c_mspm0g3xxx_target_register(const struct device *dev,
 		DL_I2C_enableTargetTXTriggerInTXMode((I2C_Regs *)config->base);
 		DL_I2C_enableTargetTXEmptyOnTXRequest((I2C_Regs *)config->base);
 		DL_I2C_enableTargetClockStretching((I2C_Regs *)config->base);
+		DL_I2C_enableTargetACKOverride((I2C_Regs *)config->base);
 
 		DL_I2C_clearInterruptStatus((I2C_Regs *)config->base,
 					    (DL_I2C_INTERRUPT_TARGET_TXFIFO_TRIGGER |
@@ -483,7 +500,7 @@ static int i2c_mspm0g3xxx_target_unregister(const struct device *dev,
 	const struct i2c_mspm0g3xxx_config *config = dev->config;
 	struct i2c_mspm0g3xxx_data *data = dev->data;
 
-	k_sem_take(&data->i2c_busy_sem, K_FOREVER);
+	/* k_sem_take(&data->i2c_busy_sem, K_FOREVER); */
 
 	if (data->is_target == false) {
 		/* not currently configured as target. Nothing to do. */
@@ -681,6 +698,7 @@ static int i2c_mspm0g3xxx_init(const struct device *dev)
 		DL_I2C_enableTargetTXTriggerInTXMode((I2C_Regs *)config->base);
 		DL_I2C_enableTargetTXEmptyOnTXRequest((I2C_Regs *)config->base);
 		DL_I2C_enableTargetClockStretching((I2C_Regs *)config->base);
+		DL_I2C_enableTargetACKOverride((I2C_Regs *)config->base);
 
 		DL_I2C_clearInterruptStatus((I2C_Regs *)config->base,
 					    (DL_I2C_INTERRUPT_TARGET_TXFIFO_TRIGGER |

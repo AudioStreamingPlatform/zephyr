@@ -257,6 +257,10 @@ static int i2c_mspm0g3xxx_receive(const struct device *dev, struct i2c_msg msg, 
 	const struct i2c_mspm0g3xxx_config *config = dev->config;
 	struct i2c_mspm0g3xxx_data *data = dev->data;
 
+	while (!(DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
+		 DL_I2C_CONTROLLER_STATUS_IDLE))
+		;
+
 	/* Update cached msg and addr */
 	data->msg = msg;
 	data->addr = addr;
@@ -271,8 +275,9 @@ static int i2c_mspm0g3xxx_receive(const struct device *dev, struct i2c_msg msg, 
 	while (data->state != I2C_mspm0g3xxx_RX_COMPLETE && (data->state != I2C_mspm0g3xxx_ERROR))
 		;
 
-	/* If error, return error */
-	if (DL_I2C_getControllerStatus((I2C_Regs *)config->base) & DL_I2C_CONTROLLER_STATUS_ERROR) {
+	/* transfer should be done - if controller is still busy something went wrong */
+	if (DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
+	    DL_I2C_CONTROLLER_STATUS_BUSY_BUS) {
 		return -EIO;
 	}
 

@@ -224,10 +224,10 @@ static int i2c_mspm0g3xxx_configure(const struct device *dev, uint32_t dev_confi
 	/* Config I2C speed */
 	switch (I2C_SPEED_GET(dev_config)) {
 	case I2C_SPEED_STANDARD:
-		bitrate = 7;
+		bitrate = 31;
 		break;
 	case I2C_SPEED_FAST:
-		bitrate = 31;
+		bitrate = 7;
 		break;
 	default:
 		k_sem_give(&data->i2c_busy_sem);

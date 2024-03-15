@@ -470,6 +470,15 @@ static int i2c_mspm0g3xxx_target_register(const struct device *dev,
 
 	DL_I2C_enableInterrupt((I2C_Regs *)config->base, TI_MSPM0G_TARGET_INTERRUPTS);
 
+       /* There is a logical error within the target wake up enable feature
+        * controlled by the bit SCTR.SWUEN which has the ability to stretch
+        * the Clock Signal indefinitely when experiencing unexpected traffic
+        * on the bus (ex. some other transaction). Thus it is recommended
+        * to turn off the feature by writing 0 to this bit after the
+        * device emerges from a reset. TODO: to be updated with official
+        * errata document from TI (currently unavailable) */
+	DL_I2C_disableTargetWakeup((I2C_Regs *)config->base);
+
 	DL_I2C_enableTarget((I2C_Regs *)config->base);
 
 	k_sem_give(&data->i2c_busy_sem);

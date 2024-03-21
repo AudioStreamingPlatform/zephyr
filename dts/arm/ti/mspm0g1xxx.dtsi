@@ -117,6 +117,30 @@
 			status = "disabled";
 		};
 
+		uart1: uart@40100000 {
+			compatible = "ti,mspm0g3xxx-uart";
+			reg = <0x40100000 0x2000>;
+			interrupts = <13 0>;
+			clocks = <&sysclk>;
+			status = "disabled";
+		};
+
+		uart2: uart@40102000 {
+			compatible = "ti,mspm0g3xxx-uart";
+			reg = <0x40102000 0x2000>;
+			interrupts = <14 0>;
+			clocks = <&sysclk>;
+			status = "disabled";
+		};
+
+		uart3: uart@40500000 {
+			compatible = "ti,mspm0g3xxx-uart";
+			reg = <0x40500000 0x2000>;
+			interrupts = <3 0>;
+			clocks = <&sysclk>;
+			status = "disabled";
+		};
+
 		i2c0: i2c@400f0000 {
 		    compatible = "ti,mspm0g3xxx-i2c";
 		    clocks = <&sysclk>;

@@ -5,6 +5,7 @@
 #include <zephyr/dt-bindings/i2c/i2c.h>
 #include <zephyr/dt-bindings/adc/adc.h>
 #include <zephyr/dt-bindings/adc/mspm0_adc.h>
+#include <zephyr/dt-bindings/clock/mspm0_defines.h>
 
 / {
 
@@ -59,6 +60,54 @@
 				#gpio-cells = <2>;
 			};
 		};
+
+		timg0: timg0@40084000 {
+                    compatible = "ti,mspm0-counter";
+                    status = "disabled";
+                    clock-frequency = <32000000>;
+                    prescaler = <255>;
+                    reg = <0x40084000 0x2000>;
+                    divide-ratio = <RATE_2>;
+                    interrupts = <16 0>;
+                    resolution = <16>;
+                    mode = <PERIODIC_DOWN>;
+                };
+
+                timg6: timg6@40868000 {
+                    compatible = "ti,mspm0-counter";
+                    status = "disabled";
+                    clock-frequency = <32000000>;
+                    prescaler = <255>;
+                    reg = <0x40868000 0x2000>;
+                    divide-ratio = <RATE_1>;
+                    interrupts = <17 0>;
+                    resolution = <16>;
+                    mode = <PERIODIC_DOWN>;
+                };
+
+                timg7: timg7@4086a000 {
+                    compatible = "ti,mspm0-counter";
+                    status = "disabled";
+                    prescaler = <255>;
+                    clock-frequency = <32000000>;
+                    reg = <0x4086a000 0x2000>;
+                    divide-ratio = <RATE_1>;
+                    interrupts = <20 0>;
+                    resolution = <16>;
+                    mode = <PERIODIC_DOWN>;
+                };
+
+                timg12: timg12@40870000 {
+                    compatible = "ti,mspm0-counter";
+                    status = "disabled";
+                    clock-frequency = <32000000>;
+                    prescaler = <0>; // prescaler is unused
+                    reg = <0x40870000 0x2000>;
+                    divide-ratio = <RATE_1>;
+                    interrupts = <21 0>;
+                    resolution = <32>;
+                    mode = <PERIODIC_DOWN>;
+                };
 
 		uart0: uart@40108000 {
 			compatible = "ti,mspm0g3xxx-uart";

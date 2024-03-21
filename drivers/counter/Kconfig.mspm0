@@ -1,0 +1,6 @@
+config COUNTER_MSPM0
+    bool "Driver to interface with MSPM0 hardware clocks"
+    default n
+    depends on DT_HAS_TI_MSPM0_COUNTER_ENABLED
+        help
+            Enables support for TIMERG{0, 6, 7, 12}

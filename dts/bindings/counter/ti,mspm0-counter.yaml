@@ -1,0 +1,30 @@
+# Copyright (C) 2024 Bang & Olufsen A/S, Denmark
+#
+# SPDX-License-Identifier: LicenseRef-BnOProprietary
+
+description: Driver to enable MSPM0 Hardware Timers. Currently it only supports TIMG{0, 6, 7, 12}.
+
+include: [base.yaml]
+
+compatible: "ti,mspm0-counter"
+
+properties:
+  prescaler:
+    type: int
+    required: true
+  mode:
+    type: int
+    required: true
+  divide-ratio:
+    type: int
+    required: true
+  reg:
+    required: true
+  interrupts:
+    required: true
+  resolution:
+    type: int
+    required: true
+  clock-frequency:
+    type: int
+    required: true

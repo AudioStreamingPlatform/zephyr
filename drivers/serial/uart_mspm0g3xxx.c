@@ -14,7 +14,7 @@
 #define UART_0_FBRD_33_kHZ_9600_BAUD (9)
 
 /* Driverlib includes */
-#include <ti/driverlib/dl_uart_main.h>
+#include <ti/driverlib/dl_uart.h>
 
 struct uart_mspm0g3xxx_config {
 	UART_Regs *regs;
@@ -23,9 +23,9 @@ struct uart_mspm0g3xxx_config {
 
 struct uart_mspm0g3xxx_data {
 	/* UART clock structure */
-	DL_UART_Main_ClockConfig UART_ClockConfig;
+	DL_UART_ClockConfig UART_ClockConfig;
 	/* UART config structure */
-	DL_UART_Main_Config UART_Config;
+	DL_UART_Config UART_Config;
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	uart_irq_callback_user_data_t cb; /* Callback function pointer */
 	void *cb_data;                    /* Callback function arg */
@@ -46,8 +46,8 @@ static int uart_mspm0g3xxx_init(const struct device *dev)
 	int ret;
 
 	/* Reset power */
-	DL_UART_Main_reset(config->regs);
-	DL_UART_Main_enablePower(config->regs);
+	DL_UART_reset(config->regs);
+	DL_UART_enablePower(config->regs);
 	delay_cycles(POWER_STARTUP_DELAY);
 
 	/* Init UART pins */
@@ -57,18 +57,17 @@ static int uart_mspm0g3xxx_init(const struct device *dev)
 	}
 
 	/* Set UART configs */
-	DL_UART_Main_setClockConfig(config->regs,
-				    (DL_UART_Main_ClockConfig *)&data->UART_ClockConfig);
-	DL_UART_Main_init(config->regs, (DL_UART_Main_Config *)&data->UART_Config);
+	DL_UART_setClockConfig(config->regs, (DL_UART_ClockConfig *)&data->UART_ClockConfig);
+	DL_UART_init(config->regs, (DL_UART_Config *)&data->UART_Config);
 
 	/*
 	 * Configure baud rate by setting oversampling and baud rate divisors.
 	 *  Target baud rate: 9600
 	 *  Actual baud rate: 9576.04
 	 */
-	DL_UART_Main_setOversampling(config->regs, DL_UART_MAIN_OVERSAMPLING_RATE_3X);
-	DL_UART_Main_setBaudRateDivisor(config->regs, UART_0_IBRD_33_kHZ_9600_BAUD,
-					UART_0_FBRD_33_kHZ_9600_BAUD);
+	DL_UART_setOversampling(config->regs, DL_UART_OVERSAMPLING_RATE_3X);
+	DL_UART_setBaudRateDivisor(config->regs, UART_0_IBRD_33_kHZ_9600_BAUD,
+				   UART_0_FBRD_33_kHZ_9600_BAUD);
 
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	IRQ_CONNECT(DT_INST_IRQN(0), DT_INST_IRQ(0, priority), uart_mspm0g3xxx_isr,
@@ -77,7 +76,7 @@ static int uart_mspm0g3xxx_init(const struct device *dev)
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 
 	/* Enable UART */
-	DL_UART_Main_enable(config->regs);
+	DL_UART_enable(config->regs);
 
 	return 0;
 }
@@ -93,7 +92,7 @@ static void uart_mspm0g3xxx_poll_out(const struct device *dev, unsigned char c)
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
 
-	DL_UART_Main_transmitDataBlocking(config->regs, c);
+	DL_UART_transmitDataBlocking(config->regs, c);
 }
 
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
@@ -101,71 +100,71 @@ static int uart_mspm0g3xxx_fifo_fill(const struct device *dev, const uint8_t *tx
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
 
-	return (int)DL_UART_Main_fillTXFIFO(config->regs, (uint8_t *)tx_data, size);
+	return (int)DL_UART_fillTXFIFO(config->regs, (uint8_t *)tx_data, size);
 }
 
 static int uart_mspm0g3xxx_fifo_read(const struct device *dev, uint8_t *rx_data, const int size)
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
 
-	return (int)DL_UART_Main_drainRXFIFO(config->regs, rx_data, size);
+	return (int)DL_UART_drainRXFIFO(config->regs, rx_data, size);
 }
 
 static void uart_mspm0g3xxx_irq_tx_enable(const struct device *dev)
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
 
-	DL_UART_Main_enableInterrupt(config->regs, DL_UART_MAIN_INTERRUPT_TX);
+	DL_UART_enableInterrupt(config->regs, DL_UART_INTERRUPT_TX);
 }
 
 static void uart_mspm0g3xxx_irq_tx_disable(const struct device *dev)
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
 
-	DL_UART_Main_disableInterrupt(config->regs, DL_UART_MAIN_INTERRUPT_TX);
+	DL_UART_disableInterrupt(config->regs, DL_UART_INTERRUPT_TX);
 }
 
 static int uart_mspm0g3xxx_irq_tx_ready(const struct device *dev)
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
 
-	return (DL_UART_getEnabledInterruptStatus(config->regs, DL_UART_MAIN_INTERRUPT_TX)) ? 0 : 1;
+	return (DL_UART_getEnabledInterruptStatus(config->regs, DL_UART_INTERRUPT_TX)) ? 0 : 1;
 }
 
 static void uart_mspm0g3xxx_irq_rx_enable(const struct device *dev)
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
 
-	DL_UART_Main_enableInterrupt(config->regs, DL_UART_MAIN_INTERRUPT_RX);
+	DL_UART_enableInterrupt(config->regs, DL_UART_INTERRUPT_RX);
 }
 
 static void uart_mspm0g3xxx_irq_rx_disable(const struct device *dev)
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
 
-	DL_UART_Main_disableInterrupt(config->regs, DL_UART_MAIN_INTERRUPT_RX);
+	DL_UART_disableInterrupt(config->regs, DL_UART_INTERRUPT_RX);
 }
 
 static int uart_mspm0g3xxx_irq_tx_complete(const struct device *dev)
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
 
-	return (DL_UART_Main_isTXFIFOEmpty(config->regs)) ? 1 : 0;
+	return (DL_UART_isTXFIFOEmpty(config->regs)) ? 1 : 0;
 }
 
 static int uart_mspm0g3xxx_irq_rx_ready(const struct device *dev)
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
 
-	return (DL_UART_getEnabledInterruptStatus(config->regs, DL_UART_MAIN_INTERRUPT_RX)) ? 1 : 0;
+	return (DL_UART_getEnabledInterruptStatus(config->regs, DL_UART_INTERRUPT_RX)) ? 1 : 0;
 }
 
 static int uart_mspm0g3xxx_irq_is_pending(const struct device *dev)
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
 
-	return (DL_UART_getEnabledInterruptStatus(config->regs, DL_UART_MAIN_INTERRUPT_RX |
-									DL_UART_MAIN_INTERRUPT_TX))
+	return (DL_UART_getEnabledInterruptStatus(config->regs,
+						  DL_UART_INTERRUPT_RX | DL_UART_INTERRUPT_TX))
 		       ? 1
 		       : 0;
 }
@@ -200,7 +199,7 @@ static void uart_mspm0g3xxx_isr(const struct device *dev)
 
 	/* Get the pending interrupt */
 	int int_status = DL_UART_getEnabledInterruptStatus(
-		config->regs, DL_UART_MAIN_INTERRUPT_RX | DL_UART_MAIN_INTERRUPT_TX);
+		config->regs, DL_UART_INTERRUPT_RX | DL_UART_INTERRUPT_TX);
 
 	/* Perform callback if defined */
 	if (dev_data->cb) {
@@ -211,7 +210,7 @@ static void uart_mspm0g3xxx_isr(const struct device *dev)
 	 * Clear interrupts only after cb called, as Zephyr UART clients expect
 	 * to check interrupt status during the callback.
 	 */
-	DL_UART_Main_clearInterruptStatus(config->regs, int_status);
+	DL_UART_clearInterruptStatus(config->regs, int_status);
 }
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 
@@ -244,16 +243,16 @@ static const struct uart_driver_api uart_mspm0g3xxx_driver_api = {
 	};                                                                                         \
                                                                                                    \
 	static struct uart_mspm0g3xxx_data uart_mspm0g3xxx_data_##index = {                        \
-		.UART_ClockConfig = {.clockSel = DL_UART_MAIN_CLOCK_LFCLK,                         \
-				     .divideRatio = DL_UART_MAIN_CLOCK_DIVIDE_RATIO_1},            \
+		.UART_ClockConfig = {.clockSel = DL_UART_CLOCK_LFCLK,                              \
+				     .divideRatio = DL_UART_CLOCK_DIVIDE_RATIO_1},                 \
 		.UART_Config =                                                                     \
 			{                                                                          \
-				.mode = DL_UART_MAIN_MODE_NORMAL,                                  \
-				.direction = DL_UART_MAIN_DIRECTION_TX_RX,                         \
-				.flowControl = DL_UART_MAIN_FLOW_CONTROL_NONE,                     \
-				.parity = DL_UART_MAIN_PARITY_NONE,                                \
-				.wordLength = DL_UART_MAIN_WORD_LENGTH_8_BITS,                     \
-				.stopBits = DL_UART_MAIN_STOP_BITS_ONE,                            \
+				.mode = DL_UART_MODE_NORMAL,                                       \
+				.direction = DL_UART_DIRECTION_TX_RX,                              \
+				.flowControl = DL_UART_FLOW_CONTROL_NONE,                          \
+				.parity = DL_UART_PARITY_NONE,                                     \
+				.wordLength = DL_UART_WORD_LENGTH_8_BITS,                          \
+				.stopBits = DL_UART_STOP_BITS_ONE,                                 \
 			},                                                                         \
 		MSP_INTERRUPT_CALLBACK_FN(index)};                                                 \
                                                                                                    \

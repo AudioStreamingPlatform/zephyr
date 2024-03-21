@@ -17,6 +17,9 @@ struct uart_mspm0g3xxx_config {
 	const struct pinctrl_dev_config *pinctrl;
 	uint32_t clock_frequency;
 	uint32_t current_speed; /* baud rate */
+#ifdef CONFIG_UART_INTERRUPT_DRIVEN
+	void (*irq_config_func)(const struct device *dev);
+#endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 };
 
 struct uart_mspm0g3xxx_data {
@@ -29,13 +32,6 @@ struct uart_mspm0g3xxx_data {
 	void *cb_data;                    /* Callback function arg */
 #endif                                    /* CONFIG_UART_INTERRUPT_DRIVEN */
 };
-
-#ifdef CONFIG_UART_INTERRUPT_DRIVEN
-static void uart_mspm0g3xxx_isr(const struct device *dev);
-#define MSP_INTERRUPT_CALLBACK_FN(index) .cb = NULL,
-#else
-#define MSP_INTERRUPT_CALLBACK_FN(index)
-#endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 
 static int uart_mspm0g3xxx_init(const struct device *dev)
 {
@@ -61,9 +57,7 @@ static int uart_mspm0g3xxx_init(const struct device *dev)
 	DL_UART_configBaudRate(config->regs, config->clock_frequency, config->current_speed);
 
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
-	IRQ_CONNECT(DT_INST_IRQN(0), DT_INST_IRQ(0, priority), uart_mspm0g3xxx_isr,
-		    DEVICE_DT_INST_GET(0), 0);
-	irq_enable(DT_INST_IRQN(0));
+	config->irq_config_func(dev);
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 
 	/* Enable UART */
@@ -224,16 +218,29 @@ static const struct uart_driver_api uart_mspm0g3xxx_driver_api = {
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 };
 
+#ifdef CONFIG_UART_INTERRUPT_DRIVEN
+#define MSP_UART_IRQ_DEFINE(inst)                                                                  \
+	static void uart_mspm0g3xxx_##inst##_irq_register(const struct device *dev)                \
+	{                                                                                          \
+		IRQ_CONNECT(DT_INST_IRQN(inst), DT_INST_IRQ(inst, priority), uart_mspm0g3xxx_isr,  \
+			    DEVICE_DT_INST_GET(inst), 0);                                          \
+		irq_enable(DT_INST_IRQN(inst));                                                    \
+	}
+#else
+#define MSP_UART_IRQ_DEFINE(inst)
+#endif
+
 #define MSP_UART_INIT_FN(inst)                                                                     \
-                                                                                                   \
 	PINCTRL_DT_INST_DEFINE(inst);                                                              \
+	MSP_UART_IRQ_DEFINE(inst);                                                                 \
                                                                                                    \
 	static const struct uart_mspm0g3xxx_config uart_mspm0g3xxx_cfg_##inst = {                  \
 		.regs = (UART_Regs *)DT_INST_REG_ADDR(inst),                                       \
 		.pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),                                   \
 		.clock_frequency = DT_PROP(DT_INST_CLOCKS_CTLR(inst), clock_frequency),            \
 		.current_speed = DT_INST_PROP(inst, current_speed),                                \
-	};                                                                                         \
+		IF_ENABLED(CONFIG_UART_INTERRUPT_DRIVEN,                                           \
+			   (.irq_config_func = uart_mspm0g3xxx_##inst##_irq_register, ))};         \
                                                                                                    \
 	static struct uart_mspm0g3xxx_data uart_mspm0g3xxx_data_##inst = {                         \
 		.UART_ClockConfig = {.clockSel = DL_UART_CLOCK_BUSCLK,                             \
@@ -247,7 +254,7 @@ static const struct uart_driver_api uart_mspm0g3xxx_driver_api = {
 				.wordLength = DL_UART_WORD_LENGTH_8_BITS,                          \
 				.stopBits = DL_UART_STOP_BITS_ONE,                                 \
 			},                                                                         \
-		MSP_INTERRUPT_CALLBACK_FN(inst)};                                                  \
+		IF_ENABLED(CONFIG_UART_INTERRUPT_DRIVEN, (.cb = NULL, ))};                         \
                                                                                                    \
 	DEVICE_DT_INST_DEFINE(inst, &uart_mspm0g3xxx_init, NULL, &uart_mspm0g3xxx_data_##inst,     \
 			      &uart_mspm0g3xxx_cfg_##inst, PRE_KERNEL_1,                           \

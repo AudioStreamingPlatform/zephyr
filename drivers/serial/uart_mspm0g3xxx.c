@@ -224,18 +224,18 @@ static const struct uart_driver_api uart_mspm0g3xxx_driver_api = {
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 };
 
-#define MSP_UART_INIT_FN(index)                                                                    \
+#define MSP_UART_INIT_FN(inst)                                                                     \
                                                                                                    \
-	PINCTRL_DT_INST_DEFINE(index);                                                             \
+	PINCTRL_DT_INST_DEFINE(inst);                                                              \
                                                                                                    \
-	static const struct uart_mspm0g3xxx_config uart_mspm0g3xxx_cfg_##index = {                 \
-		.regs = (UART_Regs *)DT_INST_REG_ADDR(index),                                      \
-		.pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(index),                                  \
-		.clock_frequency = DT_PROP(DT_INST_CLOCKS_CTLR(index), clock_frequency),           \
-		.current_speed = DT_INST_PROP(index, current_speed),                               \
+	static const struct uart_mspm0g3xxx_config uart_mspm0g3xxx_cfg_##inst = {                  \
+		.regs = (UART_Regs *)DT_INST_REG_ADDR(inst),                                       \
+		.pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),                                   \
+		.clock_frequency = DT_PROP(DT_INST_CLOCKS_CTLR(inst), clock_frequency),            \
+		.current_speed = DT_INST_PROP(inst, current_speed),                                \
 	};                                                                                         \
                                                                                                    \
-	static struct uart_mspm0g3xxx_data uart_mspm0g3xxx_data_##index = {                        \
+	static struct uart_mspm0g3xxx_data uart_mspm0g3xxx_data_##inst = {                         \
 		.UART_ClockConfig = {.clockSel = DL_UART_CLOCK_BUSCLK,                             \
 				     .divideRatio = DL_UART_CLOCK_DIVIDE_RATIO_1},                 \
 		.UART_Config =                                                                     \
@@ -247,10 +247,10 @@ static const struct uart_driver_api uart_mspm0g3xxx_driver_api = {
 				.wordLength = DL_UART_WORD_LENGTH_8_BITS,                          \
 				.stopBits = DL_UART_STOP_BITS_ONE,                                 \
 			},                                                                         \
-		MSP_INTERRUPT_CALLBACK_FN(index)};                                                 \
+		MSP_INTERRUPT_CALLBACK_FN(inst)};                                                  \
                                                                                                    \
-	DEVICE_DT_INST_DEFINE(index, &uart_mspm0g3xxx_init, NULL, &uart_mspm0g3xxx_data_##index,   \
-			      &uart_mspm0g3xxx_cfg_##index, PRE_KERNEL_1,                          \
+	DEVICE_DT_INST_DEFINE(inst, &uart_mspm0g3xxx_init, NULL, &uart_mspm0g3xxx_data_##inst,     \
+			      &uart_mspm0g3xxx_cfg_##inst, PRE_KERNEL_1,                           \
 			      CONFIG_SERIAL_INIT_PRIORITY, &uart_mspm0g3xxx_driver_api);
 
 DT_INST_FOREACH_STATUS_OKAY(MSP_UART_INIT_FN)

@@ -185,6 +185,15 @@
 			status = "disabled";
 		};
 
+		uart3: uart@40500000 {
+			compatible = "ti,mspm0g3xxx-uart";
+			reg = <0x40500000 0x2000>;
+			interrupts = <3 0>;
+			current-speed = <115200>;
+			clocks = <&clkmux MSPM0_CLOCK_BUS_ULPCLK>;
+			status = "disabled";
+		};
+
 		i2c0: i2c@400f0000 {
 			compatible = "ti,mspm0-i2c";
 			clocks = <&clkmux MSPM0_CLOCK_BUS_ULPCLK>;

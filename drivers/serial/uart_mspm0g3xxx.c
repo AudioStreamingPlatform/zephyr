@@ -81,6 +81,10 @@ static void uart_mspm0g3xxx_poll_out(const struct device *dev, unsigned char c)
 }
 
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
+
+#define UART_MSPM0_TX_INTERRUPTS (DL_UART_INTERRUPT_TX | DL_UART_INTERRUPT_EOT_DONE)
+#define UART_MSPM0_RX_INTERRUPTS (DL_UART_INTERRUPT_RX)
+
 static int uart_mspm0g3xxx_fifo_fill(const struct device *dev, const uint8_t *tx_data, int size)
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
@@ -99,35 +103,35 @@ static void uart_mspm0g3xxx_irq_tx_enable(const struct device *dev)
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
 
-	DL_UART_enableInterrupt(config->regs, DL_UART_INTERRUPT_TX);
+	DL_UART_enableInterrupt(config->regs, UART_MSPM0_TX_INTERRUPTS);
 }
 
 static void uart_mspm0g3xxx_irq_tx_disable(const struct device *dev)
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
 
-	DL_UART_disableInterrupt(config->regs, DL_UART_INTERRUPT_TX);
+	DL_UART_disableInterrupt(config->regs, UART_MSPM0_TX_INTERRUPTS);
 }
 
 static int uart_mspm0g3xxx_irq_tx_ready(const struct device *dev)
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
 
-	return (DL_UART_getEnabledInterruptStatus(config->regs, DL_UART_INTERRUPT_TX)) ? 0 : 1;
+	return (DL_UART_getEnabledInterruptStatus(config->regs, UART_MSPM0_TX_INTERRUPTS)) ? 1 : 0;
 }
 
 static void uart_mspm0g3xxx_irq_rx_enable(const struct device *dev)
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
 
-	DL_UART_enableInterrupt(config->regs, DL_UART_INTERRUPT_RX);
+	DL_UART_enableInterrupt(config->regs, UART_MSPM0_RX_INTERRUPTS);
 }
 
 static void uart_mspm0g3xxx_irq_rx_disable(const struct device *dev)
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
 
-	DL_UART_disableInterrupt(config->regs, DL_UART_INTERRUPT_RX);
+	DL_UART_disableInterrupt(config->regs, UART_MSPM0_RX_INTERRUPTS);
 }
 
 static int uart_mspm0g3xxx_irq_tx_complete(const struct device *dev)
@@ -141,15 +145,15 @@ static int uart_mspm0g3xxx_irq_rx_ready(const struct device *dev)
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
 
-	return (DL_UART_getEnabledInterruptStatus(config->regs, DL_UART_INTERRUPT_RX)) ? 1 : 0;
+	return (DL_UART_getEnabledInterruptStatus(config->regs, UART_MSPM0_RX_INTERRUPTS)) ? 1 : 0;
 }
 
 static int uart_mspm0g3xxx_irq_is_pending(const struct device *dev)
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
 
-	return (DL_UART_getEnabledInterruptStatus(config->regs,
-						  DL_UART_INTERRUPT_RX | DL_UART_INTERRUPT_TX))
+	return (DL_UART_getEnabledInterruptStatus(config->regs, UART_MSPM0_RX_INTERRUPTS |
+									UART_MSPM0_TX_INTERRUPTS))
 		       ? 1
 		       : 0;
 }
@@ -184,7 +188,7 @@ static void uart_mspm0g3xxx_isr(const struct device *dev)
 
 	/* Get the pending interrupt */
 	int int_status = DL_UART_getEnabledInterruptStatus(
-		config->regs, DL_UART_INTERRUPT_RX | DL_UART_INTERRUPT_TX);
+		config->regs, UART_MSPM0_RX_INTERRUPTS | UART_MSPM0_TX_INTERRUPTS);
 
 	/* Perform callback if defined */
 	if (dev_data->cb) {

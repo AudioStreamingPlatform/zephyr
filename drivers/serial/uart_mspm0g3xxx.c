@@ -9,16 +9,14 @@
 #include <zephyr/irq.h>
 #include <soc.h>
 
-/* Defines for UART0 */
-#define UART_0_IBRD_33_kHZ_9600_BAUD (1)
-#define UART_0_FBRD_33_kHZ_9600_BAUD (9)
-
 /* Driverlib includes */
 #include <ti/driverlib/dl_uart.h>
 
 struct uart_mspm0g3xxx_config {
 	UART_Regs *regs;
 	const struct pinctrl_dev_config *pinctrl;
+	uint32_t clock_frequency;
+	uint32_t current_speed; /* baud rate */
 };
 
 struct uart_mspm0g3xxx_data {
@@ -60,14 +58,7 @@ static int uart_mspm0g3xxx_init(const struct device *dev)
 	DL_UART_setClockConfig(config->regs, (DL_UART_ClockConfig *)&data->UART_ClockConfig);
 	DL_UART_init(config->regs, (DL_UART_Config *)&data->UART_Config);
 
-	/*
-	 * Configure baud rate by setting oversampling and baud rate divisors.
-	 *  Target baud rate: 9600
-	 *  Actual baud rate: 9576.04
-	 */
-	DL_UART_setOversampling(config->regs, DL_UART_OVERSAMPLING_RATE_3X);
-	DL_UART_setBaudRateDivisor(config->regs, UART_0_IBRD_33_kHZ_9600_BAUD,
-				   UART_0_FBRD_33_kHZ_9600_BAUD);
+	DL_UART_configBaudRate(config->regs, config->clock_frequency, config->current_speed);
 
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	IRQ_CONNECT(DT_INST_IRQN(0), DT_INST_IRQ(0, priority), uart_mspm0g3xxx_isr,
@@ -240,10 +231,12 @@ static const struct uart_driver_api uart_mspm0g3xxx_driver_api = {
 	static const struct uart_mspm0g3xxx_config uart_mspm0g3xxx_cfg_##index = {                 \
 		.regs = (UART_Regs *)DT_INST_REG_ADDR(index),                                      \
 		.pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(index),                                  \
+		.clock_frequency = DT_PROP(DT_INST_CLOCKS_CTLR(index), clock_frequency),           \
+		.current_speed = DT_INST_PROP(index, current_speed),                               \
 	};                                                                                         \
                                                                                                    \
 	static struct uart_mspm0g3xxx_data uart_mspm0g3xxx_data_##index = {                        \
-		.UART_ClockConfig = {.clockSel = DL_UART_CLOCK_LFCLK,                              \
+		.UART_ClockConfig = {.clockSel = DL_UART_CLOCK_BUSCLK,                             \
 				     .divideRatio = DL_UART_CLOCK_DIVIDE_RATIO_1},                 \
 		.UART_Config =                                                                     \
 			{                                                                          \

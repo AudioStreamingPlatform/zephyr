@@ -70,6 +70,7 @@ zephyr_library_sources_ifdef(CONFIG_UART_INTEL_LW uart_intel_lw.c)
 zephyr_library_sources_ifdef(CONFIG_UART_RA uart_ra.c)
 zephyr_library_sources_ifdef(CONFIG_UART_RZT2M uart_rzt2m.c)
 
+zephyr_library_sources_ifdef(CONFIG_SERIAL_SHELL  serial_shell.c)
 zephyr_library_sources_ifdef(CONFIG_USERSPACE   uart_handlers.c)
 
 if(CONFIG_UART_NATIVE_POSIX)

@@ -111,6 +111,8 @@ zephyr_library_sources_ifdef(CONFIG_USART_SAM usart_sam.c)
 zephyr_library_sources_ifdef(CONFIG_USERSPACE uart_handlers.c)
 # zephyr-keep-sorted-stop
 
+zephyr_library_sources_ifdef(CONFIG_SERIAL_SHELL serial_shell.c)
+
 if(CONFIG_UART_NATIVE_PTY)
   zephyr_library_compile_definitions(NO_POSIX_CHEATS)
   zephyr_library_sources(uart_native_pty.c)

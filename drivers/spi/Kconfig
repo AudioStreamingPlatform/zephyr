@@ -139,4 +139,6 @@ source "drivers/spi/Kconfig.sedi"
 
 source "drivers/spi/Kconfig.npcx"
 
+source "drivers/spi/Kconfig.mspm0"
+
 endif # SPI

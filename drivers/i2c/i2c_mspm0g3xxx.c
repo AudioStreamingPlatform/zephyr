@@ -289,11 +289,6 @@ static int i2c_mspm0g3xxx_transmit(const struct device *dev, struct i2c_msg msg,
 	const struct i2c_mspm0g3xxx_config *config = dev->config;
 	struct i2c_mspm0g3xxx_data *data = dev->data;
 
-	/* Sending address without data is not supported */
-	if (msg.len == 0) {
-		return -EIO;
-	}
-
 	/* Update cached msg and addr */
 	data->msg = msg;
 	data->addr = addr;

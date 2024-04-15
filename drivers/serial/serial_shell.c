@@ -95,6 +95,7 @@ static int cmd_serial_enable(const struct shell *sh, size_t argc, char **argv)
 	k_sem_take(&busy_sem, K_FOREVER);
 	if (enabled_device != NULL) {
 		shell_error(sh, "already enabled");
+		k_sem_give(&busy_sem);
 		return -EBUSY;
 	}
 

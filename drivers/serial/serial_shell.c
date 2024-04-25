@@ -19,6 +19,7 @@ const struct device *enabled_device = NULL;
 static char rx_buffer[CONFIG_SERIAL_SHELL_RX_BUFFER_SIZE];
 static char tx_buffer[CONFIG_SERIAL_SHELL_TX_BUFFER_SIZE];
 static uint8_t tx_write_amount;
+static uint8_t tx_buffer_index;
 
 static void uart_isr(const struct device *dev, void *user_data)
 {
@@ -46,16 +47,15 @@ static void uart_isr(const struct device *dev, void *user_data)
 	}
 
 	if (uart_irq_tx_ready(dev)) {
-		uint8_t tx_buffer_index = 0;
-		while (tx_buffer_index < tx_write_amount) {
-			if (uart_fifo_fill(dev, &tx_buffer[tx_buffer_index++], 1) == 0) {
+		int size = uart_fifo_fill(dev, &tx_buffer[tx_buffer_index++], 1);
+		if (size == 0 || (tx_buffer_index >= tx_write_amount)) {
+			if (size == 0) {
 				LOG_WRN("TX stopped early %u/%u", tx_buffer_index, tx_write_amount);
-				break;
 			}
-		}
 
-		uart_irq_tx_disable(dev);
-		k_sem_give(&busy_sem);
+			uart_irq_tx_disable(dev);
+			k_sem_give(&busy_sem);
+		}
 	}
 }
 
@@ -77,6 +77,7 @@ static int cmd_serial_write(const struct shell *sh, size_t argc, char **argv)
 	}
 
 	tx_write_amount = (uint8_t)write_amount;
+	tx_buffer_index = 0;
 	memcpy(tx_buffer, argv[ARGV_TX_DATA], write_amount);
 
 	uart_irq_tx_enable(enabled_device);

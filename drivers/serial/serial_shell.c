@@ -61,7 +61,7 @@ static void uart_isr(const struct device *dev, void *user_data)
 
 static int cmd_serial_write(const struct shell *sh, size_t argc, char **argv)
 {
-	const uint8_t write_amount = argc - ARGV_TX_DATA;
+	const int write_amount = strlen(argv[ARGV_TX_DATA]);
 	if (write_amount > CONFIG_SERIAL_SHELL_TX_BUFFER_SIZE) {
 		shell_error(sh, "input data (%u) > tx buffer (%u)", write_amount,
 			    CONFIG_SERIAL_SHELL_TX_BUFFER_SIZE);
@@ -76,8 +76,9 @@ static int cmd_serial_write(const struct shell *sh, size_t argc, char **argv)
 		return -ENODEV;
 	}
 
-	tx_write_amount = write_amount;
-	memcpy(tx_buffer, &argv[ARGV_TX_DATA], write_amount);
+	tx_write_amount = (uint8_t)write_amount;
+	memcpy(tx_buffer, argv[ARGV_TX_DATA], write_amount);
+
 	uart_irq_tx_enable(enabled_device);
 
 	return 0;

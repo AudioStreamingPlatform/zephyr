@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2024 Texas Instruments
+
+config LIN_MSPM0
+	bool "MSPM0 LIN protocol over UART driver"
+	default y
+	depends on DT_HAS_TI_MSPM0_LIN_ENABLED
+	select LIN_HAS_DRIVER
+	select LIN_SUPPORT_INTERRUPT
+	help
+  This option enables the TI MSPM0 LIN UART driver.

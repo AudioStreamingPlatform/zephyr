@@ -1,0 +1,26 @@
+# LIN driver configuration options
+
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LIN
+    bool "LIN Drivers"
+    help
+      Enable LIN Driver Configuration
+
+if LIN
+
+module = LIN
+module-str = lin
+source "subsys/logging/Kconfig.template.log_config"
+
+config LIN_INIT_PRIORITY
+  int "LIN driver init priority"
+  default KERNEL_INIT_PRIORITY_DEVICE
+  help
+    LIN driver device initialization priority.
+
+source "drivers/lin/Kconfig.mspm0"
+
+source "drivers/lin/Kconfig.uart"
+
+endif # LIN

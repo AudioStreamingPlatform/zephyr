@@ -1,0 +1,3 @@
+&lin0 {
+    status = "okay";
+};

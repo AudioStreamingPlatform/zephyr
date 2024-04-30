@@ -81,6 +81,42 @@ static void uart_mspm0g3xxx_poll_out(const struct device *dev, unsigned char c)
 	DL_UART_transmitDataBlocking(config->regs, c);
 }
 
+static int uart_mspm0_err_check(const struct device *dev)
+{
+	const struct uart_mspm0g3xxx_config *config = dev->config;
+	int err = 0;
+
+	if (DL_UART_Main_getErrorStatus(config->regs, DL_UART_ERROR_OVERRUN)) {
+		DL_UART_Main_clearInterruptStatus(config->regs, DL_UART_INTERRUPT_OVERRUN_ERROR);
+		err |= UART_ERROR_OVERRUN;
+	}
+
+	if (DL_UART_Main_getErrorStatus(config->regs, DL_UART_ERROR_PARITY)) {
+		DL_UART_Main_clearInterruptStatus(config->regs, DL_UART_INTERRUPT_PARITY_ERROR);
+		err |= UART_ERROR_PARITY;
+	}
+
+	// if (DL_UART_Main_getErrorStatus(config->regs, DL_UART_ERROR_FRAMING))
+	// {
+	//  	DL_UART_Main_clearInterruptStatus(config->regs, DL_UART_INTERRUPT_FRAMING_ERROR);
+	//     err |= UART_ERROR_FRAMING;
+	// }
+
+	return err;
+}
+
+#ifdef CONFIG_UART_USE_RUNTIME_CONFIGURE
+static int uart_mspm0g3xxx_configure(const struct device *dev, const struct uart_config *cfg)
+{
+	const struct uart_mspm0g3xxx_config *config = dev->config;
+
+	DL_UART_configBaudRate(config->regs, config->clock_frequency, cfg->baudrate);
+
+	return 0;
+}
+
+#endif /* CONFIG_UART_USE_RUNTIME_CONFIGURE */
+
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 
 #define UART_MSPM0_TX_INTERRUPTS (DL_UART_INTERRUPT_TX | DL_UART_INTERRUPT_EOT_DONE)
@@ -147,6 +183,24 @@ static int uart_mspm0g3xxx_irq_rx_ready(const struct device *dev)
 	return data->pending_interrupt & DL_UART_IIDX_RX ? 1 : 0;
 }
 
+static void uart_mspm0g3xxx_irq_err_enable(const struct device *dev)
+{
+	const struct uart_mspm0g3xxx_config *config = dev->config;
+	// DL_UART_Main_enableInterrupt(config->regs, (DL_UART_INTERRUPT_OVERRUN_ERROR |
+	// DL_UART_INTERRUPT_PARITY_ERROR | DL_UART_INTERRUPT_FRAMING_ERROR));
+	DL_UART_Main_enableInterrupt(
+		config->regs, (DL_UART_INTERRUPT_OVERRUN_ERROR | DL_UART_INTERRUPT_PARITY_ERROR));
+}
+
+static void uart_mspm0g3xxx_irq_err_disable(const struct device *dev)
+{
+	const struct uart_mspm0g3xxx_config *config = dev->config;
+	// DL_UART_Main_disableInterrupt(config->regs, (DL_UART_INTERRUPT_OVERRUN_ERROR |
+	// DL_UART_INTERRUPT_PARITY_ERROR | DL_UART_INTERRUPT_FRAMING_ERROR));
+	DL_UART_Main_disableInterrupt(
+		config->regs, (DL_UART_INTERRUPT_OVERRUN_ERROR | DL_UART_INTERRUPT_PARITY_ERROR));
+}
+
 static int uart_mspm0g3xxx_irq_is_pending(const struct device *dev)
 {
 	return uart_mspm0g3xxx_irq_tx_ready(dev) || uart_mspm0g3xxx_irq_rx_ready(dev);
@@ -196,6 +250,9 @@ static void uart_mspm0g3xxx_isr(const struct device *dev)
 static const struct uart_driver_api uart_mspm0g3xxx_driver_api = {
 	.poll_in = uart_mspm0g3xxx_poll_in,
 	.poll_out = uart_mspm0g3xxx_poll_out,
+#ifdef CONFIG_UART_USE_RUNTIME_CONFIGURE
+	.configure = uart_mspm0g3xxx_configure,
+#endif /* CONFIG_UART_USE_RUNTIME_CONFIGURE */
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	.fifo_fill = uart_mspm0g3xxx_fifo_fill,
 	.fifo_read = uart_mspm0g3xxx_fifo_read,
@@ -206,6 +263,8 @@ static const struct uart_driver_api uart_mspm0g3xxx_driver_api = {
 	.irq_rx_disable = uart_mspm0g3xxx_irq_rx_disable,
 	.irq_tx_complete = uart_mspm0g3xxx_irq_tx_complete,
 	.irq_rx_ready = uart_mspm0g3xxx_irq_rx_ready,
+	.irq_err_enable = uart_mspm0g3xxx_irq_err_enable,
+	.irq_err_disable = uart_mspm0g3xxx_irq_err_disable,
 	.irq_is_pending = uart_mspm0g3xxx_irq_is_pending,
 	.irq_update = uart_mspm0g3xxx_irq_update,
 	.irq_callback_set = uart_mspm0g3xxx_irq_callback_set,

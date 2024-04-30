@@ -473,6 +473,7 @@ SECTION_PROLOGUE(.last_section,,)
 	. = ALIGN(8);
 #endif
 #endif
+    . = ALIGN(8);
 } GROUP_LINK_IN(ROMABLE_REGION)
 
 /* To provide the image size as a const expression,

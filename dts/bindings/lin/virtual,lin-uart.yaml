@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: Virtual LIN UART driver
+
+compatible: "virtual,lin-uart"
+
+include: lin-controller.yaml
+
+properties:
+    max-wait-percent:
+      type: int
+      default: 140
+      description: Duration as percent of nominal transmission time to allow space between bytes (LIN 2.2A spec is 40% additional)
+    uart: 
+      type: phandle
+      required: true
+      description: The underlying UART instance

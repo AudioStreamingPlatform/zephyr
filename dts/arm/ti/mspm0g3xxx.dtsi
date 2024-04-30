@@ -143,6 +143,13 @@
 			status = "disabled";
 		};
 
+		lin0: lin0 {
+			compatible = "virtual,lin-uart";
+			status = "disabled";
+			uart = <&uart1>;
+			bitrate = <19200>;
+		};
+
 		i2c0: i2c@400f0000 {
 		    compatible = "ti,mspm0g3xxx-i2c";
 		    clocks = <&sysclk>;

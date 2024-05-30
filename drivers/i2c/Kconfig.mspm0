@@ -16,4 +16,12 @@ config I2C_MSPM0G3XXX_TARGET_SUPPORT
 	  Enable support for i2c-target functionality
 	  for TI MSPM0G3XXX driver.
 
+config I2C_MSPM0G3XXX_TRANSFER_TIMEOUT
+	int "Transfer timeout [ms]"
+	default 100
+	help
+	  Timeout in milliseconds used for each I2C transfer.
+	  0 means that the driver should use the K_FOREVER value,
+	  i.e. it should wait as long as necessary.
+
 endif # I2C_MSPM0G3XXX

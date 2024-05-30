@@ -18,6 +18,12 @@ LOG_MODULE_REGISTER(i2c_mspm0g3xxx);
 #include <ti/driverlib/dl_i2c.h>
 #include <ti/driverlib/dl_gpio.h>
 
+#if CONFIG_I2C_MSPM0G3XXX_TRANSFER_TIMEOUT
+#define I2C_TRANSFER_TIMEOUT_MSEC K_MSEC(CONFIG_I2C_MSPM0G3XXX_TRANSFER_TIMEOUT)
+#else
+#define I2C_TRANSFER_TIMEOUT_MSEC K_FOREVER
+#endif
+
 #define TI_MSPM0G_TARGET_INTERRUPTS                                                                \
 	(DL_I2C_INTERRUPT_TARGET_RXFIFO_TRIGGER | DL_I2C_INTERRUPT_TARGET_TXFIFO_TRIGGER |         \
 	 DL_I2C_INTERRUPT_TARGET_TXFIFO_EMPTY | DL_I2C_INTERRUPT_TARGET_START |                    \
@@ -67,6 +73,7 @@ struct i2c_mspm0g3xxx_data {
 	int target_tx_valid;
 	int target_rx_valid;
 	struct k_sem i2c_busy_sem;
+	struct k_sem transfer_timeout_sem;
 };
 
 #ifdef CONFIG_I2C_MSPM0G3XXX_TARGET_SUPPORT
@@ -271,9 +278,11 @@ static int i2c_mspm0g3xxx_receive(const struct device *dev, struct i2c_msg msg, 
 	DL_I2C_startControllerTransfer((I2C_Regs *)config->base, data->addr,
 				       DL_I2C_CONTROLLER_DIRECTION_RX, data->msg.len);
 
-	/* Wait for all bytes to be received in interrupt */
-	while (data->state != I2C_mspm0g3xxx_RX_COMPLETE && (data->state != I2C_mspm0g3xxx_ERROR))
-		;
+	/* Wait until the Controller receives all bytes */
+	int ret = k_sem_take(&data->transfer_timeout_sem, I2C_TRANSFER_TIMEOUT_MSEC);
+	if (ret != 0) {
+		return -ETIMEDOUT;
+	}
 
 	/* transfer should be done - if controller is still busy something went wrong */
 	if (DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
@@ -325,8 +334,10 @@ static int i2c_mspm0g3xxx_transmit(const struct device *dev, struct i2c_msg msg,
 				       DL_I2C_CONTROLLER_DIRECTION_TX, data->msg.len);
 
 	/* Wait until the Controller sends all bytes */
-	while ((data->state != I2C_mspm0g3xxx_TX_COMPLETE) && (data->state != I2C_mspm0g3xxx_ERROR))
-		;
+	int ret = k_sem_take(&data->transfer_timeout_sem, I2C_TRANSFER_TIMEOUT_MSEC);
+	if (ret != 0) {
+		return -ETIMEDOUT;
+	}
 
 	/* If error, return error */
 	if (DL_I2C_getControllerStatus((I2C_Regs *)config->base) & DL_I2C_CONTROLLER_STATUS_ERROR) {
@@ -358,10 +369,17 @@ static int i2c_mspm0g3xxx_transfer(const struct device *dev, struct i2c_msg *msg
 
 	/* Transmit each message */
 	for (int i = 0; i < num_msgs; i++) {
+		/* initial lock to be able to wait for unlock by irq */
+		k_sem_take(&data->transfer_timeout_sem, K_NO_WAIT);
+
 		if ((msgs[i].flags & I2C_MSG_RW_MASK) == I2C_MSG_WRITE) {
 			ret = i2c_mspm0g3xxx_transmit(dev, msgs[i], addr);
 		} else {
 			ret = i2c_mspm0g3xxx_receive(dev, msgs[i], addr);
+		}
+
+		if (ret != 0) {
+			break;
 		}
 	}
 
@@ -571,11 +589,13 @@ static void i2c_mspm0g3xxx_isr(const struct device *dev)
 	/* controller interrupts */
 	case DL_I2C_IIDX_CONTROLLER_RX_DONE:
 		data->state = I2C_mspm0g3xxx_RX_COMPLETE;
+		k_sem_give(&data->transfer_timeout_sem);
 		break;
 	case DL_I2C_IIDX_CONTROLLER_TX_DONE:
 		DL_I2C_disableInterrupt((I2C_Regs *)config->base,
 					DL_I2C_INTERRUPT_CONTROLLER_TXFIFO_TRIGGER);
 		data->state = I2C_mspm0g3xxx_TX_COMPLETE;
+		k_sem_give(&data->transfer_timeout_sem);
 		break;
 	case DL_I2C_IIDX_CONTROLLER_RXFIFO_TRIGGER:
 		if (data->state != I2C_mspm0g3xxx_RX_COMPLETE) {
@@ -608,6 +628,7 @@ static void i2c_mspm0g3xxx_isr(const struct device *dev)
 		    (data->state == I2C_mspm0g3xxx_TX_STARTED)) {
 			/* NACK interrupt if I2C Target is disconnected */
 			data->state = I2C_mspm0g3xxx_ERROR;
+			k_sem_give(&data->transfer_timeout_sem);
 		}
 
 	/* Not implemented */
@@ -653,6 +674,7 @@ static int i2c_mspm0g3xxx_init(const struct device *dev)
 	int ret;
 
 	k_sem_init(&data->i2c_busy_sem, 0, 1);
+	k_sem_init(&data->transfer_timeout_sem, 1, 1);
 
 	/* Init power */
 	DL_I2C_reset((I2C_Regs *)config->base);

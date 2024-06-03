@@ -423,7 +423,7 @@ static int i2c_mspm0g3xxx_target_register(const struct device *dev,
 		return -ENODEV;
 	}
 
-	LOG_DBG("Register %s target on addr=%u",
+	LOG_DBG("Register %s target on addr=0x%02x",
 		target_type == TARGET_TYPE_PRIMARY ? "primary" : "alternate",
 		target_config->address);
 
@@ -514,16 +514,16 @@ static int i2c_mspm0g3xxx_target_unregister(const struct device *dev,
 
 	if (data->target_config_primary != NULL &&
 	    data->target_config_primary->address == target_config->address) {
-		LOG_DBG("Unregistering primary on addr=%u", target_config->address);
+		LOG_DBG("Unregistering primary on addr=0x%02x", target_config->address);
 		data->target_config_primary = NULL;
 		DL_I2C_disableTargetOwnAddress((I2C_Regs *)config->base);
 	} else if (data->target_config_alternate != NULL &&
 		   data->target_config_alternate->address == target_config->address) {
-		LOG_DBG("Unregistering alternate on addr=%u", target_config->address);
+		LOG_DBG("Unregistering alternate on addr=0x%02x", target_config->address);
 		data->target_config_alternate = NULL;
 		DL_I2C_disableTargetOwnAddressAlternate((I2C_Regs *)config->base);
 	} else {
-		LOG_ERR("Failed to unregister device as none was found at addr=%u",
+		LOG_ERR("Failed to unregister device as none was found at addr=0x%02x",
 			target_config->address);
 		k_sem_give(&data->i2c_busy_sem);
 		return -ENODEV;

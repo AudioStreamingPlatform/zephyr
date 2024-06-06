@@ -413,6 +413,19 @@ enum i2c_mspm0g3xxx_target_type i2c_mspm0g3xxx_next_target_type(struct i2c_mspm0
 	return TARGET_TYPE_INVALID;
 }
 
+/* helper to lock given sem if not omitted
+ * requires that res has already been declared */
+#define LOCK_IF_NOT_OMITTED(_sem, _timeout, _omitted)                                              \
+	if (!_omitted) {                                                                           \
+		res = k_sem_take(_sem, _timeout);                                                  \
+	}
+
+/* helper to unlock given sem if not omitted */
+#define UNLOCK_IF_NOT_OMITTED(_sem, _omitted)                                                      \
+	if (!_omitted) {                                                                           \
+		k_sem_give(_sem);                                                                  \
+	}
+
 static int i2c_mspm0g3xxx_target_register(const struct device *dev,
 					  struct i2c_target_config *target_config)
 {
@@ -427,12 +440,27 @@ static int i2c_mspm0g3xxx_target_register(const struct device *dev,
 		return -ENOTSUP;
 	}
 
-	k_sem_take(&data->i2c_busy_sem, K_FOREVER);
+	/*
+	 * this method can be a little delicate:
+	 *  1: msgq context (no need to worry about locking)
+	 *  2: isr context (don't ever lock here)
+	 *  3: non-isr context (locking is safe)
+	 *
+	 *  To handle all cases in a generic way use the provided lock helpers
+	 *  */
+	const bool omit_lock = k_current_get() == &i2c_mspm0g3xxx_target_thread;
+	const k_timeout_t timeout = k_is_in_isr() ? K_NO_WAIT : K_FOREVER;
+	int res = 0;
+
+	LOCK_IF_NOT_OMITTED(&data->i2c_busy_sem, timeout, omit_lock);
+	if (res != 0) {
+		return res;
+	}
 
 	enum i2c_mspm0g3xxx_target_type target_type = i2c_mspm0g3xxx_next_target_type(data);
 	if (target_type == TARGET_TYPE_INVALID) {
 		LOG_ERR("Both primary and alternate target are already configured");
-		k_sem_give(&data->i2c_busy_sem);
+		UNLOCK_IF_NOT_OMITTED(&data->i2c_busy_sem, omit_lock);
 		return -ENODEV;
 	}
 
@@ -461,7 +489,7 @@ static int i2c_mspm0g3xxx_target_register(const struct device *dev,
 						    TI_MSPM0G_TARGET_INTERRUPTS);
 		}
 
-		k_sem_give(&data->i2c_busy_sem);
+		UNLOCK_IF_NOT_OMITTED(&data->i2c_busy_sem, omit_lock);
 
 		DL_I2C_enableInterrupt((I2C_Regs *)config->base, TI_MSPM0G_TARGET_INTERRUPTS);
 		return 0;
@@ -508,7 +536,7 @@ static int i2c_mspm0g3xxx_target_register(const struct device *dev,
 
 	DL_I2C_enableTarget((I2C_Regs *)config->base);
 
-	k_sem_give(&data->i2c_busy_sem);
+	UNLOCK_IF_NOT_OMITTED(&data->i2c_busy_sem, omit_lock);
 	return 0;
 }
 
@@ -518,11 +546,26 @@ static int i2c_mspm0g3xxx_target_unregister(const struct device *dev,
 	const struct i2c_mspm0g3xxx_config *config = dev->config;
 	struct i2c_mspm0g3xxx_data *data = dev->data;
 
-	k_sem_take(&data->i2c_busy_sem, K_FOREVER);
+	/*
+	 * this method can be a little delicate:
+	 *  1: msgq context (no need to worry about locking)
+	 *  2: isr context (don't ever lock here)
+	 *  3: non-isr context (locking is safe)
+	 *
+	 *  To handle all cases in a generic way use the provided lock helpers
+	 *  */
+	const bool omit_lock = k_current_get() == &i2c_mspm0g3xxx_target_thread;
+	const k_timeout_t timeout = k_is_in_isr() ? K_NO_WAIT : K_FOREVER;
+	int res = 0;
+
+	LOCK_IF_NOT_OMITTED(&data->i2c_busy_sem, timeout, omit_lock);
+	if (res != 0) {
+		return res;
+	}
 
 	if (data->is_target == false) {
 		/* not currently configured as target. Nothing to do. */
-		k_sem_give(&data->i2c_busy_sem);
+		UNLOCK_IF_NOT_OMITTED(&data->i2c_busy_sem, omit_lock);
 		return 0;
 	}
 
@@ -539,13 +582,13 @@ static int i2c_mspm0g3xxx_target_unregister(const struct device *dev,
 	} else {
 		LOG_ERR("Failed to unregister device as none was found at addr=0x%02x",
 			target_config->address);
-		k_sem_give(&data->i2c_busy_sem);
+		UNLOCK_IF_NOT_OMITTED(&data->i2c_busy_sem, omit_lock);
 		return -ENODEV;
 	}
 
 	/* Check if no targets are registered - we'll then re-enable controller mode */
 	if (data->target_config_primary != NULL || data->target_config_alternate != NULL) {
-		k_sem_give(&data->i2c_busy_sem);
+		UNLOCK_IF_NOT_OMITTED(&data->i2c_busy_sem, omit_lock);
 		return 0;
 	}
 
@@ -571,7 +614,7 @@ static int i2c_mspm0g3xxx_target_unregister(const struct device *dev,
 
 	data->is_target = false;
 
-	k_sem_give(&data->i2c_busy_sem);
+	UNLOCK_IF_NOT_OMITTED(&data->i2c_busy_sem, omit_lock);
 	return 0;
 }
 

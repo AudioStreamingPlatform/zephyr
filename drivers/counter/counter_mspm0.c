@@ -42,16 +42,6 @@ static int counter_mspm0_start(const struct device *dev)
 	struct counter_mspm0_data *data = dev->data;
 	const struct counter_mspm0_config *cfg = dev->config;
 	K_SPINLOCK(&data->spinlock) {
-		DL_Timer_reset(cfg->timer);
-		DL_Timer_enablePower(cfg->timer);
-
-		DL_Timer_setClockConfig(cfg->timer, (DL_Timer_ClockConfig *)&cfg->clock_cfg);
-		DL_Timer_initTimerMode(cfg->timer, &data->time_cfg);
-
-		DL_Timer_enableInterrupt(cfg->timer, DL_TIMER_INTERRUPT_ZERO_EVENT);
-		cfg->interrupt_init_function(dev);
-
-		DL_Timer_enableClock(cfg->timer);
 		DL_Timer_startCounter(cfg->timer);
 	}
 	return 0;
@@ -78,6 +68,7 @@ static int counter_mspm0_set_alarm(const struct device *dev, uint8_t chan,
 
 	struct counter_mspm0_data *data = dev->data;
 	struct counter_mspm0_channel_data *channel_data = &data->channel_data[chan];
+	const struct counter_mspm0_config *cfg = dev->config;
 	int err = 0;
 	K_SPINLOCK(&data->spinlock) {
 		if (channel_data->callback) {
@@ -88,6 +79,7 @@ static int counter_mspm0_set_alarm(const struct device *dev, uint8_t chan,
 		channel_data->callback = alarm_cfg->callback;
 		channel_data->user_data = alarm_cfg->user_data;
 		data->time_cfg.period = alarm_cfg->ticks;
+		DL_Timer_initTimerMode(cfg->timer, &data->time_cfg);
 	}
 	return err;
 }
@@ -138,6 +130,18 @@ static void counter_mspm0_isr(const struct device *dev)
 	}
 }
 
+static int counter_mspm0_init(const struct device *dev)
+{
+	const struct counter_mspm0_config *cfg = dev->config;
+	DL_Timer_reset(cfg->timer);
+	DL_Timer_enablePower(cfg->timer);
+	DL_Timer_setClockConfig(cfg->timer, (DL_Timer_ClockConfig *)&cfg->clock_cfg);
+	DL_Timer_enableInterrupt(cfg->timer, DL_TIMER_INTERRUPT_ZERO_EVENT);
+	cfg->interrupt_init_function(dev);
+	DL_Timer_enableClock(cfg->timer);
+	return 0;
+}
+
 #define INTERRUPT_INIT_FUNCTION(inst)                                                              \
 	static void counter_mspm0_interrupt_init_##inst(const struct device *dev)                  \
 	{                                                                                          \
@@ -182,7 +186,7 @@ static void counter_mspm0_isr(const struct device *dev)
 			},                                                                         \
 	};                                                                                         \
                                                                                                    \
-	DEVICE_DT_INST_DEFINE(inst, NULL, NULL, &counter_mspm0_##inst##_data,                      \
+	DEVICE_DT_INST_DEFINE(inst, counter_mspm0_init, NULL, &counter_mspm0_##inst##_data,        \
 			      &counter_mspm0_##inst##_cfg, POST_KERNEL,                            \
 			      CONFIG_COUNTER_INIT_PRIORITY, &counter_mspm0_driver_api);
 

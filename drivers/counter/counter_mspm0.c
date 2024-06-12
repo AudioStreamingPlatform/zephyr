@@ -34,14 +34,14 @@ struct counter_mspm0_data {
 	struct counter_mspm0_channel_data *channel_data;
 	uint32_t freq;
 	DL_Timer_TimerConfig time_cfg;
-	struct k_sem busy_sem;
+	struct k_spinlock spinlock;
 };
 
 static int counter_mspm0_start(const struct device *dev)
 {
 	struct counter_mspm0_data *data = dev->data;
-	if (k_sem_take(&data->busy_sem, K_FOREVER) == 0) {
-		const struct counter_mspm0_config *cfg = dev->config;
+	const struct counter_mspm0_config *cfg = dev->config;
+	K_SPINLOCK(&data->spinlock) {
 		DL_Timer_reset(cfg->timer);
 		DL_Timer_enablePower(cfg->timer);
 
@@ -53,8 +53,6 @@ static int counter_mspm0_start(const struct device *dev)
 
 		DL_Timer_enableClock(cfg->timer);
 		DL_Timer_startCounter(cfg->timer);
-
-		k_sem_give(&data->busy_sem);
 	}
 	return 0;
 }
@@ -62,11 +60,9 @@ static int counter_mspm0_start(const struct device *dev)
 static int counter_mspm0_stop(const struct device *dev)
 {
 	struct counter_mspm0_data *data = dev->data;
-	if (k_sem_take(&data->busy_sem, K_FOREVER) == 0) {
-		const struct counter_mspm0_config *cfg = dev->config;
+	const struct counter_mspm0_config *cfg = dev->config;
+	K_SPINLOCK(&data->spinlock) {
 		DL_Timer_stopCounter(cfg->timer);
-
-		k_sem_give(&data->busy_sem);
 	}
 	return 0;
 }
@@ -81,22 +77,19 @@ static int counter_mspm0_set_alarm(const struct device *dev, uint8_t chan,
 	}
 
 	struct counter_mspm0_data *data = dev->data;
-	if (k_sem_take(&data->busy_sem, K_FOREVER) == 0) {
-
-		struct counter_mspm0_channel_data *channel_data = &data->channel_data[chan];
+	struct counter_mspm0_channel_data *channel_data = &data->channel_data[chan];
+	int err = 0;
+	K_SPINLOCK(&data->spinlock) {
 		if (channel_data->callback) {
-			LOG_ERR("Callback is already registered");
-			k_sem_give(&data->busy_sem);
-			return -EBUSY;
+			err = -EBUSY;
+			K_SPINLOCK_BREAK;
 		}
 
 		channel_data->callback = alarm_cfg->callback;
 		channel_data->user_data = alarm_cfg->user_data;
 		data->time_cfg.period = alarm_cfg->ticks;
-
-		k_sem_give(&data->busy_sem);
 	}
-	return 0;
+	return err;
 }
 
 static int counter_mspm0_cancel_alarm(const struct device *dev, uint8_t chan)
@@ -108,14 +101,11 @@ static int counter_mspm0_cancel_alarm(const struct device *dev, uint8_t chan)
 	}
 
 	struct counter_mspm0_data *data = dev->data;
-	if (k_sem_take(&data->busy_sem, K_FOREVER) == 0) {
-
-		struct counter_mspm0_channel_data *channel_data = &data->channel_data[chan];
+	struct counter_mspm0_channel_data *channel_data = &data->channel_data[chan];
+	K_SPINLOCK(&data->spinlock) {
 		if (channel_data) {
 			channel_data[chan].callback = NULL;
 		}
-
-		k_sem_give(&data->busy_sem);
 	}
 	return 0;
 }
@@ -140,36 +130,13 @@ static const struct counter_driver_api counter_mspm0_driver_api = {
 static void counter_mspm0_isr(const struct device *dev)
 {
 	struct counter_mspm0_data *data = dev->data;
-	// NOTE: can this be problematic (?) when multiple points call a
-	// critical function (?)
-	if (k_sem_take(&data->busy_sem, K_NO_WAIT) == 0) {
-		// NOTE: its hardcoded to always fetch the 1st available channel
-		struct counter_mspm0_channel_data *channel_data = &data->channel_data[0];
-		counter_alarm_callback_t cb = channel_data->callback;
-		if (cb) {
-			cb(dev, 0, 0, channel_data->user_data);
-		}
-
-		k_sem_give(&data->busy_sem);
+	// NOTE: its hardcoded to always fetch the 1st available channel
+	struct counter_mspm0_channel_data *channel_data = &data->channel_data[0];
+	counter_alarm_callback_t cb = channel_data->callback;
+	if (cb) {
+		cb(dev, 0, 0, channel_data->user_data);
 	}
 }
-
-static int counter_mspm0_init(const struct device *dev)
-{
-	struct counter_mspm0_data *data = dev->data;
-	int err = k_sem_init(&data->busy_sem, 0, 1);
-	if (err != 0) {
-		LOG_ERR("Failed to create semaphore: %d", err);
-		return err;
-	}
-
-	k_sem_give(&data->busy_sem);
-	return 0;
-}
-
-/* Macros to assist with the device-specific initialization */
-#define INTERRUPT_INIT_FUNCTION_DECLARATION(inst)                                                  \
-	static void counter_mspm0_interrupt_init_##inst(const struct device *dev)
 
 #define INTERRUPT_INIT_FUNCTION(inst)                                                              \
 	static void counter_mspm0_interrupt_init_##inst(const struct device *dev)                  \
@@ -180,8 +147,7 @@ static int counter_mspm0_init(const struct device *dev)
 	}
 
 #define COUNTER_MSPM0_INIT(inst)                                                                   \
-                                                                                                   \
-	INTERRUPT_INIT_FUNCTION_DECLARATION(inst);                                                 \
+	INTERRUPT_INIT_FUNCTION(inst)                                                              \
                                                                                                    \
 	static struct counter_mspm0_channel_data counter##inst##_channel_data[MAX_CHANNELS];       \
                                                                                                    \
@@ -216,10 +182,8 @@ static int counter_mspm0_init(const struct device *dev)
 			},                                                                         \
 	};                                                                                         \
                                                                                                    \
-	DEVICE_DT_INST_DEFINE(inst, counter_mspm0_init, NULL, &counter_mspm0_##inst##_data,        \
+	DEVICE_DT_INST_DEFINE(inst, NULL, NULL, &counter_mspm0_##inst##_data,                      \
 			      &counter_mspm0_##inst##_cfg, POST_KERNEL,                            \
-			      CONFIG_COUNTER_INIT_PRIORITY, &counter_mspm0_driver_api);            \
-                                                                                                   \
-	INTERRUPT_INIT_FUNCTION(inst)
+			      CONFIG_COUNTER_INIT_PRIORITY, &counter_mspm0_driver_api);
 
 DT_INST_FOREACH_STATUS_OKAY(COUNTER_MSPM0_INIT)

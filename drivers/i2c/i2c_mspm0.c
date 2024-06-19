@@ -294,16 +294,21 @@ static int i2c_mspm0g3xxx_receive(const struct device *dev, struct i2c_msg msg, 
 	/* Wait until the Controller receives all bytes */
 	int ret = k_sem_take(&data->transfer_timeout_sem, I2C_TRANSFER_TIMEOUT_MSEC);
 	if (ret != 0) {
-		return -ETIMEDOUT;
+		goto error;
 	}
 
 	/* transfer should be done - if controller is still busy something went wrong */
 	if (DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
 	    DL_I2C_CONTROLLER_STATUS_BUSY_BUS) {
-		return -EIO;
+		ret = -EIO;
+		goto error;
 	}
 
 	return 0;
+
+error:
+	DL_I2C_flushControllerRXFIFO((I2C_Regs *)config->base);
+	return ret;
 }
 
 static int i2c_mspm0g3xxx_transmit(const struct device *dev, struct i2c_msg msg, uint16_t addr)
@@ -349,15 +354,20 @@ static int i2c_mspm0g3xxx_transmit(const struct device *dev, struct i2c_msg msg,
 	/* Wait until the Controller sends all bytes */
 	int ret = k_sem_take(&data->transfer_timeout_sem, I2C_TRANSFER_TIMEOUT_MSEC);
 	if (ret != 0) {
-		return -ETIMEDOUT;
+		goto error;
 	}
 
 	/* If error, return error */
 	if (DL_I2C_getControllerStatus((I2C_Regs *)config->base) & DL_I2C_CONTROLLER_STATUS_ERROR) {
-		return -EIO;
+		ret = -EIO;
+		goto error;
 	}
 
 	return 0;
+
+error:
+	DL_I2C_flushControllerTXFIFO((I2C_Regs *)config->base);
+	return ret;
 }
 
 static int i2c_mspm0g3xxx_transfer(const struct device *dev, struct i2c_msg *msgs, uint8_t num_msgs,

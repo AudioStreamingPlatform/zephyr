@@ -16,7 +16,6 @@ struct uart_mspm0g3xxx_config {
 	UART_Regs *regs;
 	const struct pinctrl_dev_config *pinctrl;
 	uint32_t clock_frequency;
-	uint32_t current_speed; /* baud rate */
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	void (*irq_config_func)(const struct device *dev);
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
@@ -27,6 +26,7 @@ struct uart_mspm0g3xxx_data {
 	DL_UART_ClockConfig UART_ClockConfig;
 	/* UART config structure */
 	DL_UART_Config UART_Config;
+	uint32_t current_speed; /* baud rate */
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	uart_irq_callback_user_data_t cb; /* Callback function pointer */
 	void *cb_data;                    /* Callback function arg */
@@ -55,7 +55,7 @@ static int uart_mspm0g3xxx_init(const struct device *dev)
 	DL_UART_setClockConfig(config->regs, (DL_UART_ClockConfig *)&data->UART_ClockConfig);
 	DL_UART_init(config->regs, (DL_UART_Config *)&data->UART_Config);
 
-	DL_UART_configBaudRate(config->regs, config->clock_frequency, config->current_speed);
+	DL_UART_configBaudRate(config->regs, config->clock_frequency, data->current_speed);
 
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	config->irq_config_func(dev);
@@ -109,8 +109,18 @@ static int uart_mspm0_err_check(const struct device *dev)
 static int uart_mspm0g3xxx_configure(const struct device *dev, const struct uart_config *cfg)
 {
 	const struct uart_mspm0g3xxx_config *config = dev->config;
+	struct uart_mspm0g3xxx_data *data = dev->data;
 
+	data->current_speed = cfg->baudrate;
 	DL_UART_configBaudRate(config->regs, config->clock_frequency, cfg->baudrate);
+
+	return 0;
+}
+
+static int uart_mspm0g3xxx_config_get(const struct device *dev, struct uart_config *cfg)
+{
+	struct uart_mspm0g3xxx_data *data = dev->data;
+	cfg->baudrate = data->current_speed;
 
 	return 0;
 }
@@ -252,6 +262,7 @@ static const struct uart_driver_api uart_mspm0g3xxx_driver_api = {
 	.poll_out = uart_mspm0g3xxx_poll_out,
 #ifdef CONFIG_UART_USE_RUNTIME_CONFIGURE
 	.configure = uart_mspm0g3xxx_configure,
+	.config_get = uart_mspm0g3xxx_config_get,
 #endif /* CONFIG_UART_USE_RUNTIME_CONFIGURE */
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	.fifo_fill = uart_mspm0g3xxx_fifo_fill,
@@ -291,13 +302,13 @@ static const struct uart_driver_api uart_mspm0g3xxx_driver_api = {
 		.regs = (UART_Regs *)DT_INST_REG_ADDR(inst),                                       \
 		.pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),                                   \
 		.clock_frequency = DT_PROP(DT_INST_CLOCKS_CTLR(inst), clock_frequency),            \
-		.current_speed = DT_INST_PROP(inst, current_speed),                                \
 		IF_ENABLED(CONFIG_UART_INTERRUPT_DRIVEN,                                           \
 			   (.irq_config_func = uart_mspm0g3xxx_##inst##_irq_register, ))};         \
                                                                                                    \
 	static struct uart_mspm0g3xxx_data uart_mspm0g3xxx_data_##inst = {                         \
 		.UART_ClockConfig = {.clockSel = DL_UART_CLOCK_BUSCLK,                             \
 				     .divideRatio = DL_UART_CLOCK_DIVIDE_RATIO_1},                 \
+		.current_speed = DT_INST_PROP(inst, current_speed),                                \
 		.UART_Config =                                                                     \
 			{                                                                          \
 				.mode = DL_UART_MODE_NORMAL,                                       \

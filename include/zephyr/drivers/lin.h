@@ -14,7 +14,26 @@ extern "C" {
 #define LIN_ID_MASK  0x3FU
 #define LIN_NUM_ID   64U
 #define LIN_MAX_DLEN 8U
+#define LIN_BREAK_BITS 13U
 /** @endcond */
+
+static const uint8_t lin_pid[LIN_NUM_ID] = {
+    0x80, 0xc1, 0x42, 0x03, 0xc4, 0x85, 0x06, 0x47,
+    0x08, 0x49, 0xca, 0x8b, 0x4c, 0x0d, 0x8e, 0xcf,
+    0x50, 0x11, 0x92, 0xd3, 0x14, 0x55, 0xd6, 0x97,
+    0xd8, 0x99, 0x1a, 0x5b, 0x9c, 0xdd, 0x5e, 0x1f,
+    0x20, 0x61, 0xe2, 0xa3, 0x64, 0x25, 0xa6, 0xe7,
+    0xa8, 0xe9, 0x6a, 0x2b, 0xec, 0xad, 0x2e, 0x6f,
+    0xf0, 0xb1, 0x32, 0x73, 0xb4, 0xf5, 0x76, 0x37,
+    0x78, 0x39, 0xba, 0xfb, 0x3c, 0x7d, 0xfe, 0xbf,
+};
+
+/**
+ * Sync field: The commander sends a sync field, which 
+ * is a predefined pattern (0x55). This allows all nodes 
+ * to synchronize their baud rates with the commander. 
+ */
+#define LIN_SYNC_FIELD 0x55
 
 /**
  * @brief LIN controller mode
@@ -111,6 +130,15 @@ typedef void (*lin_tx_callback_t)(const struct device *dev, int error, void *use
  * @param user_data User data provided when the filter was added.
  */
 typedef void (*lin_rx_callback_t)(const struct device *dev, int error, const struct lin_frame *frame, void *user_data);
+
+struct lin_callbacks {
+	lin_header_callback_t header;
+	void *header_data;
+	lin_tx_callback_t tx;
+	void *tx_data;
+	lin_rx_callback_t rx;
+	void *rx_data;
+};
 
 /**
  * @cond INTERNAL_HIDDEN
@@ -307,6 +335,43 @@ __syscall int lin_receive(const struct device *dev, uint8_t id, enum lin_checksu
 static inline int z_impl_lin_receive(const struct device *dev, uint8_t id, enum lin_checksum type, uint8_t len) {
     const struct lin_driver_api *api = (const struct lin_driver_api *)dev->api;
     return api->receive(dev, id, type, len);
+}
+
+/* FIXME: add documentation */
+static inline uint8_t lin_pid_from_index(uint8_t index)
+{
+	__ASSERT(index < LIN_NUM_ID,
+		 "index exceeds lin_num_id (64)");
+	return lin_pid[index];
+}
+
+static inline uint8_t lin_calculate_checksum(const struct lin_frame *frame, enum lin_checksum type)
+{
+	uint16_t checksum = type == LIN_CHECKSUM_ENHANCED ? lin_pid_from_index(frame->id) : 0;
+	for (uint8_t i = 0; i < frame->len; i++) {
+		checksum += frame->data[i];
+		if (checksum > 0xff) {
+			checksum -= 0xff;
+		}
+	}
+	return (uint8_t)(255 - checksum);
+}
+
+static inline bool lin_verify_checksum(const struct lin_frame *frame, uint8_t expected)
+{
+	if (frame->type == LIN_CHECKSUM_AUTO) {
+		const uint8_t classic = lin_calculate_checksum(frame, LIN_CHECKSUM_CLASSIC);
+		const uint8_t enhanced = lin_calculate_checksum(frame, LIN_CHECKSUM_ENHANCED);
+
+		return (classic == expected) || (enhanced == expected);
+	}
+
+	return lin_calculate_checksum(frame, frame->type) == expected;
+}
+
+static inline k_timeout_t lin_break_time(const uint32_t baud_rate)
+{
+	return K_USEC(((float)LIN_BREAK_BITS / baud_rate) * Z_HZ_us);
 }
 
 #ifdef __cplusplus

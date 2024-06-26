@@ -1,0 +1,9 @@
+# Copyright (C) 2024 Bang & Olufsen A/S, Denmark
+#
+# SPDX-License-Identifier: Apache-2.0
+
+description: TI MSPM0 LIN uart driver
+
+compatible: "ti,mspm0-lin"
+
+include: lin-controller.yaml

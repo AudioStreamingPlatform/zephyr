@@ -125,6 +125,11 @@
 			interrupts = <13 0>;
 			clocks = <&sysclk>;
 			status = "disabled";
+
+			lin0: lin0 {
+				compatible = "ti,mspm0-lin";
+				status = "disabled";
+			};
 		};
 
 		uart2: uart@40102000 {
@@ -141,13 +146,6 @@
 			interrupts = <3 0>;
 			clocks = <&sysclk>;
 			status = "disabled";
-		};
-
-		lin0: lin0 {
-			compatible = "virtual,lin-uart";
-			status = "disabled";
-			uart = <&uart1>;
-			bitrate = <19200>;
 		};
 
 		i2c0: i2c@400f0000 {

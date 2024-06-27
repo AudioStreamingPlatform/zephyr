@@ -13,6 +13,14 @@ module = LIN
 module-str = lin
 source "subsys/logging/Kconfig.template.log_config"
 
+config LIN_SHELL
+	bool "LIN Shell"
+	depends on SHELL
+	help
+	  Enable LIN Shell.
+
+	  The LIN shell supports reading and writing (update me)
+
 config LIN_INIT_PRIORITY
   int "LIN driver init priority"
   default KERNEL_INIT_PRIORITY_DEVICE

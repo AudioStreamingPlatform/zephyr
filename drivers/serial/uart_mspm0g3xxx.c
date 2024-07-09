@@ -81,6 +81,20 @@ static void uart_mspm0g3xxx_poll_out(const struct device *dev, unsigned char c)
 	DL_UART_transmitDataBlocking(config->regs, c);
 }
 
+static int uart_mspm0g3xxx_err_check(const struct device *dev)
+{
+	struct uart_mspm0g3xxx_data *data = dev->data;
+
+	switch (data->pending_interrupt) {
+	case DL_UART_IIDX_BREAK_ERROR:
+		return UART_BREAK;
+	case DL_UART_IIDX_FRAMING_ERROR:
+		return UART_ERROR_FRAMING;
+	default:
+		return 0;
+	}
+}
+
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 
 #define UART_MSPM0_TX_INTERRUPTS (DL_UART_INTERRUPT_TX | DL_UART_INTERRUPT_EOT_DONE)
@@ -168,6 +182,23 @@ static void uart_mspm0g3xxx_irq_callback_set(const struct device *dev,
 	dev_data->cb_data = cb_data;
 }
 
+#define UART_MSPM0_ERROR_INTERRUPTS                                                                \
+	(DL_UART_INTERRUPT_BREAK_ERROR | DL_UART_INTERRUPT_FRAMING_ERROR)
+
+static void uart_mspm0g3xxx_irq_error_enable(const struct device *dev)
+{
+	const struct uart_mspm0g3xxx_config *config = dev->config;
+
+	DL_UART_enableInterrupt(config->regs, UART_MSPM0_ERROR_INTERRUPTS);
+}
+
+static void uart_mspm0g3xxx_irq_error_disable(const struct device *dev)
+{
+	const struct uart_mspm0g3xxx_config *config = dev->config;
+
+	DL_UART_disableInterrupt(config->regs, UART_MSPM0_ERROR_INTERRUPTS);
+}
+
 /**
  * @brief Interrupt service routine.
  *
@@ -196,6 +227,7 @@ static void uart_mspm0g3xxx_isr(const struct device *dev)
 static const struct uart_driver_api uart_mspm0g3xxx_driver_api = {
 	.poll_in = uart_mspm0g3xxx_poll_in,
 	.poll_out = uart_mspm0g3xxx_poll_out,
+	.err_check = uart_mspm0g3xxx_err_check,
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	.fifo_fill = uart_mspm0g3xxx_fifo_fill,
 	.fifo_read = uart_mspm0g3xxx_fifo_read,
@@ -209,6 +241,8 @@ static const struct uart_driver_api uart_mspm0g3xxx_driver_api = {
 	.irq_is_pending = uart_mspm0g3xxx_irq_is_pending,
 	.irq_update = uart_mspm0g3xxx_irq_update,
 	.irq_callback_set = uart_mspm0g3xxx_irq_callback_set,
+	.irq_err_enable = uart_mspm0g3xxx_irq_error_enable,
+	.irq_err_disable = uart_mspm0g3xxx_irq_error_disable,
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 };
 

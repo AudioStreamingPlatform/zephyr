@@ -1,0 +1,10 @@
+# Copyright (C) 2024 Bang & Olufsen A/S, Denmark
+#
+# SPDX-License-Identifier: Apache-2.0
+
+config PWM_MSPM0
+	bool "Driver to interface with MSPM0 hardware pwm"
+        default n
+        depends on DT_HAS_TI_MSPM0_PWM_ENABLED
+        help
+          Enables support for PWM driver for TIMx Modules for mspm0gxxx family of chips

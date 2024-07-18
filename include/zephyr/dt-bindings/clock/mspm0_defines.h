@@ -25,4 +25,9 @@
 #define RATE_7 6
 #define RATE_8 7
 
+// check DL_TIMER_PWM_MODE
+#define EDGE_ALIGN    0
+#define EDGE_ALIGN_UP 32
+#define CENTER_ALIGN  16
+
 #endif

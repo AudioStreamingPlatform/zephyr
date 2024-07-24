@@ -130,8 +130,10 @@ static void uart_mspm0g3xxx_irq_tx_disable(const struct device *dev)
 
 static int uart_mspm0g3xxx_irq_tx_ready(const struct device *dev)
 {
+	const struct uart_mspm0g3xxx_config *config = dev->config;
 	struct uart_mspm0g3xxx_data *data = dev->data;
-	return data->pending_interrupt & (DL_UART_IIDX_TX | DL_UART_IIDX_EOT_DONE) ? 1 : 0;
+	return (data->pending_interrupt & (DL_UART_IIDX_TX | DL_UART_IIDX_EOT_DONE))
+		&& !DL_UART_isTXFIFOFull(config->regs) ? 1 : 0;
 }
 
 static void uart_mspm0g3xxx_irq_rx_enable(const struct device *dev)
@@ -157,8 +159,10 @@ static int uart_mspm0g3xxx_irq_tx_complete(const struct device *dev)
 
 static int uart_mspm0g3xxx_irq_rx_ready(const struct device *dev)
 {
+	const struct uart_mspm0g3xxx_config *config = dev->config;
 	struct uart_mspm0g3xxx_data *data = dev->data;
-	return data->pending_interrupt & DL_UART_IIDX_RX ? 1 : 0;
+	return (data->pending_interrupt & DL_UART_IIDX_RX) &&
+		!DL_UART_isRXFIFOEmpty(config->regs)? 1 : 0;
 }
 
 static int uart_mspm0g3xxx_irq_is_pending(const struct device *dev)

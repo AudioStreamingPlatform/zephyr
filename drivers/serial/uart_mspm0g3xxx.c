@@ -167,12 +167,15 @@ static int uart_mspm0g3xxx_irq_rx_ready(const struct device *dev)
 
 static int uart_mspm0g3xxx_irq_is_pending(const struct device *dev)
 {
-	return uart_mspm0g3xxx_irq_tx_ready(dev) || uart_mspm0g3xxx_irq_rx_ready(dev);
+	struct uart_mspm0g3xxx_data *data = dev->data;
+	return data->pending_interrupt != DL_UART_IIDX_NO_INTERRUPT;
 }
 
 static int uart_mspm0g3xxx_irq_update(const struct device *dev)
 {
-	ARG_UNUSED(dev);
+	struct uart_mspm0g3xxx_data *data = dev->data;
+	const struct uart_mspm0g3xxx_config *config = dev->config;
+	data->pending_interrupt = DL_UART_getPendingInterrupt(config->regs);
 	return 1;
 }
 
@@ -215,16 +218,11 @@ static void uart_mspm0g3xxx_isr(const struct device *dev)
 	const struct uart_mspm0g3xxx_config *config = dev->config;
 	struct uart_mspm0g3xxx_data *const dev_data = dev->data;
 
-	/* pending interrupt will be used by the provided callback */
-	dev_data->pending_interrupt = DL_UART_getPendingInterrupt(config->regs);
-
+	dev_data->pending_interrupt = DL_UART_IIDX_NO_INTERRUPT;
 	/* Perform callback if defined */
 	if (dev_data->cb) {
 		dev_data->cb(dev, dev_data->cb_data);
 	}
-
-	/* clear in case someone accidentally calls the irq methods outside of the ISR */
-	dev_data->pending_interrupt = DL_UART_IIDX_NO_INTERRUPT;
 }
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 

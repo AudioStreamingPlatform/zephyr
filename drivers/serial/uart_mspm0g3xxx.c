@@ -215,7 +215,6 @@ static void uart_mspm0g3xxx_irq_error_disable(const struct device *dev)
  */
 static void uart_mspm0g3xxx_isr(const struct device *dev)
 {
-	const struct uart_mspm0g3xxx_config *config = dev->config;
 	struct uart_mspm0g3xxx_data *const dev_data = dev->data;
 
 	dev_data->pending_interrupt = DL_UART_IIDX_NO_INTERRUPT;

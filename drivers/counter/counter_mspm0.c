@@ -107,8 +107,8 @@ static uint32_t counter_mspm0_get_freq(const struct device *dev)
 	struct counter_mspm0_data *data = dev->data;
 	const struct counter_mspm0_config *cfg = dev->config;
 	const DL_Timer_ClockConfig clock_cfg = cfg->clock_cfg;
-	// freq = (timer_clk_source / (div_ratio * (prescale + 1))
-	return data->freq / (clock_cfg.divideRatio * (clock_cfg.prescale + 1));
+	// freq = (timer_clk_source / ((div_ratio + 1) * (prescale + 1))
+	return data->freq / ((clock_cfg.divideRatio + 1) * (clock_cfg.prescale + 1));
 }
 
 static const struct counter_driver_api counter_mspm0_driver_api = {

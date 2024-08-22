@@ -57,8 +57,9 @@ find_package(Dtc 1.4.6)
 #    - ${PROJECT_BINARY_DIR}/zephyr.dts exists
 #    - ${PROJECT_BINARY_DIR}/edt.pickle exists
 #    - ${KCONFIG_BINARY_DIR}/Kconfig.dts exists
-#    - the build system will be regenerated if any devicetree files
-#      used in this build change, including transitive includes
+#    - DTS_INCLUDE_FILES is set to a ;-list of all devicetree files
+#      used in this build, including transitive includes (the build
+#      system will be regenerated if any of those files change)
 #    - the devicetree extensions in the extensions.cmake module
 #      will be ready for use in other CMake list files that run
 #      after this module
@@ -75,7 +76,7 @@ find_package(Dtc 1.4.6)
 # - DTC_OVERLAY_FILE: list of devicetree overlay files which will be
 #   used to modify or extend the base devicetree.
 # - EXTRA_DTC_OVERLAY_FILE: list of extra devicetree overlay files.
-#   This variable is is similar to DTC_OVERLAY_FILE but the files in
+#   This variable is similar to DTC_OVERLAY_FILE but the files in
 #   EXTRA_DTC_OVERLAY_FILE will be applied after DTC_OVERLAY_FILE and
 #   thus files specified by EXTRA_DTC_OVERLAY_FILE have higher precedence.
 # - EXTRA_DTC_FLAGS: list of extra command line options to pass to
@@ -122,12 +123,39 @@ set(DTS_CMAKE                   ${PROJECT_BINARY_DIR}/dts.cmake)
 # modules.
 set(VENDOR_PREFIXES             dts/bindings/vendor-prefixes.txt)
 
-set_ifndef(DTS_SOURCE ${BOARD_DIR}/${BOARD}.dts)
-if(EXISTS ${DTS_SOURCE})
-  # We found a devicetree. Check for a board revision overlay.
-  if(DEFINED BOARD_REVISION AND EXISTS ${BOARD_DIR}/${BOARD}_${BOARD_REVISION_STRING}.overlay)
-    list(APPEND DTS_SOURCE ${BOARD_DIR}/${BOARD}_${BOARD_REVISION_STRING}.overlay)
+if(NOT DEFINED DTS_SOURCE)
+  zephyr_build_string(board_string SHORT shortened_board_string
+                      BOARD ${BOARD} BOARD_QUALIFIERS ${BOARD_QUALIFIERS}
+  )
+  if(EXISTS ${BOARD_DIR}/${shortened_board_string}.dts AND NOT BOARD_${BOARD}_SINGLE_SOC)
+    message(FATAL_ERROR "Board ${ZFILE_BOARD} defines multiple SoCs.\nShortened file name "
+            "(${shortened_board_string}.dts) not allowed, use '<board>_<soc>.dts' naming"
+    )
+  elseif(EXISTS ${BOARD_DIR}/${board_string}.dts AND EXISTS ${BOARD_DIR}/${shortened_board_string}.dts)
+    message(FATAL_ERROR "Conflicting file names discovered. Cannot use both "
+            "${board_string}.dts and ${shortened_board_string}.dts. "
+            "Please choose one naming style, ${board_string}.dts is recommended."
+    )
+  elseif(EXISTS ${BOARD_DIR}/${board_string}.dts)
+    set(DTS_SOURCE ${BOARD_DIR}/${board_string}.dts)
+  elseif(EXISTS ${BOARD_DIR}/${shortened_board_string}.dts)
+    set(DTS_SOURCE ${BOARD_DIR}/${shortened_board_string}.dts)
   endif()
+endif()
+
+if(EXISTS ${DTS_SOURCE})
+  # We found a devicetree. Append all relevant dts overlays we can find...
+  zephyr_file(CONF_FILES ${BOARD_DIR} DTS DTS_SOURCE)
+
+  zephyr_file(
+    CONF_FILES ${BOARD_DIR}
+    DTS no_rev_suffix_dts_board_overlays
+    BOARD ${BOARD}
+    BOARD_QUALIFIERS ${BOARD_QUALIFIERS}
+  )
+
+  # ...but remove the ones that do not include the revision suffix
+  list(REMOVE_ITEM DTS_SOURCE ${no_rev_suffix_dts_board_overlays})
 else()
   # If we don't have a devicetree, provide an empty stub
   set(DTS_SOURCE ${ZEPHYR_BASE}/boards/common/stub.dts)
@@ -230,14 +258,14 @@ zephyr_dt_preprocess(
 # Parse the generated dependency file to find the DT sources that
 # were included, including any transitive includes.
 toolchain_parse_make_rule(${DTS_DEPS}
-  include_files # Output parameter
+  DTS_INCLUDE_FILES # Output parameter
   )
 
 # Add the results to the list of files that, when change, force the
 # build system to re-run CMake.
 set_property(DIRECTORY APPEND PROPERTY
   CMAKE_CONFIGURE_DEPENDS
-  ${include_files}
+  ${DTS_INCLUDE_FILES}
   ${GEN_DEFINES_SCRIPT}
   ${GEN_DRIVER_KCONFIG_SCRIPT}
   ${GEN_DTS_CMAKE_SCRIPT}
@@ -262,10 +290,25 @@ execute_process(
   COMMAND ${CMD_GEN_DEFINES}
   WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
   RESULT_VARIABLE ret
+  ERROR_VARIABLE stderr
   )
 if(NOT "${ret}" STREQUAL "0")
+  if (stderr)
+    # gen_defines.py failed after printing message(s) to stderr.
+    # Append stream content to the FATAL_ERROR message on a new line.
+    set(stderr "\n${stderr}")
+  else()
+    # gen_defines.py did not print anything on stderr. To inform users
+    # of this condition, set ${stderr} to "<empty>" to have this printed
+    # in the error message. Note that we do NOT want a newline, such that
+    # the error message is printed as a single line, e.g.:
+    #
+    #  gen_defines.py failed with result code: 1 - stderr contents: <empty>
+    #
+    set(stderr "<empty>")
+  endif()
   message(STATUS "In: ${PROJECT_BINARY_DIR}, command: ${CMD_GEN_DEFINES}")
-  message(FATAL_ERROR "gen_defines.py failed with return code: ${ret}")
+  message(FATAL_ERROR "gen_defines.py failed with result code: ${ret} - stderr contents: ${stderr}")
 else()
   zephyr_file_copy(${ZEPHYR_DTS}.new ${ZEPHYR_DTS} ONLY_IF_DIFFERENT)
   zephyr_file_copy(${DEVICETREE_GENERATED_H}.new ${DEVICETREE_GENERATED_H} ONLY_IF_DIFFERENT)
@@ -349,9 +392,14 @@ execute_process(
   OUTPUT_QUIET # Discard stdout
   WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
   RESULT_VARIABLE ret
+  ERROR_VARIABLE stderr
   )
 
 if(NOT "${ret}" STREQUAL "0")
-  message(FATAL_ERROR "command failed with return code: ${ret}")
+  message(FATAL_ERROR "dtc failed with return code: ${ret}")
+elseif(stderr)
+  # dtc printed warnings on stderr but did not fail.
+  # Display them as CMake warnings to draw attention.
+  message(WARNING "dtc raised one or more warnings:\n${stderr}")
 endif()
 endif(DTC)

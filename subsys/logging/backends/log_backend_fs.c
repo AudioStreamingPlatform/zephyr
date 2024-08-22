@@ -35,7 +35,7 @@ static int get_log_file_id(struct fs_dirent *ent);
 static uint32_t log_format_current = CONFIG_LOG_BACKEND_FS_OUTPUT_DEFAULT;
 #endif
 
-static int check_log_volumen_available(void)
+static int check_log_volume_available(void)
 {
 	int index = 0;
 	char const *name;
@@ -152,7 +152,7 @@ int write_log_to_file(uint8_t *data, size_t length, void *ctx)
 	struct fs_file_t *f = &fs_file;
 
 	if (backend_state == BACKEND_FS_NOT_INITIALIZED) {
-		if (check_log_volumen_available()) {
+		if (check_log_volume_available()) {
 			return length;
 		}
 		rc = create_log_dir(CONFIG_LOG_BACKEND_FS_DIR);
@@ -348,7 +348,8 @@ static int allocate_new_file(struct fs_file_t *file)
 			goto out;
 		}
 		file_size = fs_tell(file);
-		if (file_size < CONFIG_LOG_BACKEND_FS_FILE_SIZE) {
+		if (IS_ENABLED(CONFIG_LOG_BACKEND_FS_APPEND_TO_NEWEST_FILE) &&
+		    file_size < CONFIG_LOG_BACKEND_FS_FILE_SIZE) {
 			/* There is space left to log to the latest file, no need to create
 			 * a new one or delete old ones at this point.
 			 */

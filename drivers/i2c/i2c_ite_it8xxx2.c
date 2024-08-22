@@ -53,6 +53,7 @@ struct i2c_it8xxx2_config {
 	const struct pinctrl_dev_config *pcfg;
 	uint32_t clock_gate_offset;
 	bool fifo_enable;
+	bool push_pull_recovery;
 };
 
 enum i2c_pin_fun {
@@ -210,6 +211,15 @@ static void i2c_standard_port_timing_regs_400khz(uint8_t port)
 	/* Port clock frequency depends on setting of timing registers. */
 	IT8XXX2_SMB_SCLKTS(port) = 0;
 	/* Suggested setting of timing registers of 400kHz. */
+#ifdef CONFIG_SOC_IT8XXX2_EC_BUS_24MHZ
+	IT8XXX2_SMB_4P7USL = 0x16;
+	IT8XXX2_SMB_4P0USL = 0x11;
+	IT8XXX2_SMB_300NS = 0x8;
+	IT8XXX2_SMB_250NS = 0x8;
+	IT8XXX2_SMB_45P3USL = 0xff;
+	IT8XXX2_SMB_45P3USH = 0x3;
+	IT8XXX2_SMB_4P7A4P0H = 0;
+#else
 	IT8XXX2_SMB_4P7USL = 0x3;
 	IT8XXX2_SMB_4P0USL = 0;
 	IT8XXX2_SMB_300NS = 0x1;
@@ -217,6 +227,7 @@ static void i2c_standard_port_timing_regs_400khz(uint8_t port)
 	IT8XXX2_SMB_45P3USL = 0x6a;
 	IT8XXX2_SMB_45P3USH = 0x1;
 	IT8XXX2_SMB_4P7A4P0H = 0;
+#endif
 }
 
 /* Set clock frequency for i2c port A, B , or C */
@@ -1180,10 +1191,12 @@ static int i2c_it8xxx2_recover_bus(const struct device *dev)
 	const struct i2c_it8xxx2_config *config = dev->config;
 	int i, status;
 
+	/* Output type selection */
+	gpio_flags_t flags = GPIO_OUTPUT | (config->push_pull_recovery ? 0 : GPIO_OPEN_DRAIN);
 	/* Set SCL of I2C as GPIO pin */
-	gpio_pin_configure_dt(&config->scl_gpios, GPIO_OUTPUT);
+	gpio_pin_configure_dt(&config->scl_gpios, flags);
 	/* Set SDA of I2C as GPIO pin */
-	gpio_pin_configure_dt(&config->sda_gpios, GPIO_OUTPUT);
+	gpio_pin_configure_dt(&config->sda_gpios, flags);
 
 	/*
 	 * In I2C recovery bus, 1ms sleep interval for bitbanging i2c
@@ -1259,6 +1272,14 @@ BUILD_ASSERT((DT_PROP(DT_NODELABEL(i2c2), fifo_enable) == false),
 	     "Channel C cannot use FIFO mode.");
 #endif
 
+#ifdef CONFIG_SOC_IT8XXX2_EC_BUS_24MHZ
+#define I2C_IT8XXX2_CHECK_SUPPORTED_CLOCK(inst)                                 \
+	BUILD_ASSERT((DT_INST_PROP(inst, clock_frequency) ==                    \
+		     I2C_BITRATE_FAST), "Only supports 400 KHz");
+
+DT_INST_FOREACH_STATUS_OKAY(I2C_IT8XXX2_CHECK_SUPPORTED_CLOCK)
+#endif
+
 #define I2C_ITE_IT8XXX2_INIT(inst)                                              \
 	PINCTRL_DT_INST_DEFINE(inst);                                           \
 	BUILD_ASSERT((DT_INST_PROP(inst, clock_frequency) ==                    \
@@ -1284,6 +1305,7 @@ BUILD_ASSERT((DT_PROP(DT_NODELABEL(i2c2), fifo_enable) == false),
 		.clock_gate_offset = DT_INST_PROP(inst, clock_gate_offset),     \
 		.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),                   \
 		.fifo_enable = DT_INST_PROP(inst, fifo_enable),                 \
+		.push_pull_recovery = DT_INST_PROP(inst, push_pull_recovery),   \
 	};                                                                      \
 										\
 	static struct i2c_it8xxx2_data i2c_it8xxx2_data_##inst;                 \

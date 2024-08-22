@@ -173,7 +173,7 @@ struct dai_intel_dmic {
 	/* hardware parameters */
 	uint32_t reg_base;
 	uint32_t shim_base;
-#ifdef CONFIG_SOC_INTEL_ACE20_LNL
+#if defined(CONFIG_SOC_INTEL_ACE20_LNL) || defined(CONFIG_SOC_INTEL_ACE30_PTL)
 	uint32_t hdamldmic_base;
 	uint32_t vshim_base;
 #endif
@@ -205,11 +205,13 @@ static inline int dmic_get_unmute_ramp_from_samplerate(int rate)
 
 	time_ms = Q_MULTSR_32X32((int32_t)rate, LOGRAMP_TIME_COEF_Q15, 0, 15, 0) +
 		LOGRAMP_TIME_OFFS_Q0;
-	if (time_ms > LOGRAMP_TIME_MAX_MS)
+	if (time_ms > LOGRAMP_TIME_MAX_MS) {
 		return LOGRAMP_TIME_MAX_MS;
+	}
 
-	if (time_ms < LOGRAMP_TIME_MIN_MS)
+	if (time_ms < LOGRAMP_TIME_MIN_MS) {
 		return LOGRAMP_TIME_MIN_MS;
+	}
 
 	return time_ms;
 }

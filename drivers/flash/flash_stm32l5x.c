@@ -161,7 +161,7 @@ static int write_nwords(const struct device *dev, off_t offset, const uint32_t *
 {
 	FLASH_TypeDef *regs = FLASH_STM32_REGS(dev);
 	volatile uint32_t *flash = (uint32_t *)(offset
-						+ CONFIG_FLASH_BASE_ADDRESS);
+						+ FLASH_STM32_BASE_ADDRESS);
 	bool full_zero = true;
 	uint32_t tmp;
 	int rc;
@@ -367,10 +367,16 @@ int flash_stm32_write_range(const struct device *dev, unsigned int offset,
 	}
 
 	if (icache_enabled) {
+		int rc2;
+
 		/* Since i-cache was disabled, this would start the
 		 * invalidation procedure, so wait for completion.
 		 */
-		rc = icache_wait_for_invalidate_complete();
+		rc2 = icache_wait_for_invalidate_complete();
+
+		if (!rc) {
+			rc = rc2;
+		}
 
 		/* I-cache should be enabled only after the
 		 * invalidation is complete.

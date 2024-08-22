@@ -8,6 +8,7 @@
 #define NRFX_CONFIG_H__
 
 #include <zephyr/devicetree.h>
+#include <zephyr/sys/util_macro.h>
 
 /*
  * These are mappings of Kconfig options enabling nrfx drivers and particular
@@ -31,7 +32,7 @@
 #endif
 
 #ifdef CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC
-#if defined(CONFIG_SOC_SERIES_NRF91X) || defined(CONFIG_SOC_SERIES_NRF53X)
+#if defined(CONFIG_SOC_SERIES_NRF91X) || defined(CONFIG_SOC_COMPATIBLE_NRF53X)
 #define NRFX_CLOCK_CONFIG_LF_SRC 1
 #else
 #define NRFX_CLOCK_CONFIG_LF_SRC 0
@@ -39,7 +40,7 @@
 #endif // CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC
 
 #ifdef CONFIG_CLOCK_CONTROL_NRF_K32SRC_XTAL
-#if defined(CONFIG_SOC_SERIES_NRF91X) || defined(CONFIG_SOC_SERIES_NRF53X)
+#if defined(CONFIG_SOC_SERIES_NRF91X) || defined(CONFIG_SOC_COMPATIBLE_NRF53X)
 #define NRFX_CLOCK_CONFIG_LF_SRC 2
 #else
 #define NRFX_CLOCK_CONFIG_LF_SRC 1
@@ -47,7 +48,7 @@
 #endif // CONFIG_CLOCK_CONTROL_NRF_K32SRC_XTAL
 
 #ifdef CONFIG_CLOCK_CONTROL_NRF_K32SRC_SYNTH
-#ifdef CONFIG_SOC_SERIES_NRF53X
+#ifdef CONFIG_SOC_COMPATIBLE_NRF53X
 #define NRFX_CLOCK_CONFIG_LF_SRC 3
 #else
 #define NRFX_CLOCK_CONFIG_LF_SRC 2
@@ -107,6 +108,38 @@
 #endif
 #ifdef CONFIG_NRFX_EGU5
 #define NRFX_EGU5_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_EGU10
+#define NRFX_EGU10_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_EGU20
+#define NRFX_EGU20_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_EGU020
+#define NRFX_EGU020_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_EGU130
+#define NRFX_EGU130_ENABLED 1
+#endif
+
+#ifdef CONFIG_NRFX_GRTC
+#define NRFX_GRTC_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_GRTC_LOG
+#define NRFX_GRTC_CONFIG_LOG_ENABLED 1
+#endif
+
+#ifdef CONFIG_NRF_GRTC_TIMER_CLOCK_MANAGEMENT
+#define NRF_GRTC_HAS_EXTENDED 1
+#endif
+#ifdef CONFIG_NRF_GRTC_SLEEP_ALLOWED
+#define NRFX_GRTC_CONFIG_SLEEP_ALLOWED 1
+#endif
+#ifdef CONFIG_NRF_GRTC_TIMER_AUTO_KEEP_ALIVE
+#define NRFX_GRTC_CONFIG_AUTOEN 1
+#endif
+#ifdef CONFIG_NRF_GRTC_START_SYSCOUNTER
+#define NRFX_GRTC_CONFIG_AUTOSTART 1
 #endif
 
 #ifdef CONFIG_NRFX_GPIOTE
@@ -237,6 +270,30 @@
 #ifdef CONFIG_NRFX_PWM3
 #define NRFX_PWM3_ENABLED 1
 #endif
+#ifdef CONFIG_NRFX_PWM20
+#define NRFX_PWM20_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_PWM21
+#define NRFX_PWM21_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_PWM22
+#define NRFX_PWM22_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_PWM120
+#define NRFX_PWM120_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_PWM130
+#define NRFX_PWM130_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_PWM131
+#define NRFX_PWM131_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_PWM132
+#define NRFX_PWM132_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_PWM133
+#define NRFX_PWM133_ENABLED 1
+#endif
 
 #ifdef CONFIG_NRFX_QDEC
 #define NRFX_QDEC_ENABLED 1
@@ -277,6 +334,10 @@
 #define NRFX_RNG_CONFIG_LOG_ENABLED 1
 #endif
 
+#ifdef CONFIG_NRFX_RRAMC
+#define NRFX_RRAMC_ENABLED 1
+#endif
+
 #ifdef CONFIG_NRFX_RTC
 #define NRFX_RTC_ENABLED 1
 #endif
@@ -291,6 +352,12 @@
 #endif
 #ifdef CONFIG_NRFX_RTC2
 #define NRFX_RTC2_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_RTC130
+#define NRFX_RTC130_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_RTC131
+#define NRFX_RTC131_ENABLED 1
 #endif
 
 #ifdef CONFIG_NRFX_SAADC
@@ -340,8 +407,10 @@
 #ifdef CONFIG_NRFX_SPIM4
 #define NRFX_SPIM4_ENABLED 1
 #endif
-#if (DT_PROP(DT_NODELABEL(spi3), rx_delay_supported) || \
-	DT_PROP(DT_NODELABEL(spi4), rx_delay_supported))
+
+#define NRFX_SPIM_DT_HAS_RX_DELAY(node) DT_PROP(node, rx_delay_supported) +
+
+#if DT_FOREACH_STATUS_OKAY(nordic_nrf_spim, NRFX_SPIM_DT_HAS_RX_DELAY) 0
 #define NRFX_SPIM_EXTENDED_ENABLED 1
 #endif
 #ifdef CONFIG_NRFX_SPIM00
@@ -408,6 +477,48 @@
 #ifdef CONFIG_NRFX_SPIS3
 #define NRFX_SPIS3_ENABLED 1
 #endif
+#ifdef CONFIG_NRFX_SPIS00
+#define NRFX_SPIS00_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_SPIS20
+#define NRFX_SPIS20_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_SPIS21
+#define NRFX_SPIS21_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_SPIS22
+#define NRFX_SPIS22_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_SPIS30
+#define NRFX_SPIS30_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_SPIS120
+#define NRFX_SPIS120_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_SPIS130
+#define NRFX_SPIS130_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_SPIS131
+#define NRFX_SPIS131_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_SPIS132
+#define NRFX_SPIS132_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_SPIS133
+#define NRFX_SPIS133_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_SPIS134
+#define NRFX_SPIS134_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_SPIS135
+#define NRFX_SPIS135_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_SPIS136
+#define NRFX_SPIS136_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_SPIS137
+#define NRFX_SPIS137_ENABLED 1
+#endif
 
 #ifdef CONFIG_NRFX_SYSTICK
 #define NRFX_SYSTICK_ENABLED 1
@@ -443,6 +554,66 @@
 #endif
 #ifdef CONFIG_NRFX_TIMER4
 #define NRFX_TIMER4_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER00
+#define NRFX_TIMER00_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER10
+#define NRFX_TIMER10_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER20
+#define NRFX_TIMER20_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER21
+#define NRFX_TIMER21_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER22
+#define NRFX_TIMER22_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER23
+#define NRFX_TIMER23_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER24
+#define NRFX_TIMER24_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER020
+#define NRFX_TIMER020_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER021
+#define NRFX_TIMER021_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER022
+#define NRFX_TIMER022_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER120
+#define NRFX_TIMER120_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER121
+#define NRFX_TIMER121_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER130
+#define NRFX_TIMER130_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER131
+#define NRFX_TIMER131_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER132
+#define NRFX_TIMER132_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER133
+#define NRFX_TIMER133_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER134
+#define NRFX_TIMER134_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER135
+#define NRFX_TIMER135_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER136
+#define NRFX_TIMER136_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TIMER137
+#define NRFX_TIMER137_ENABLED 1
 #endif
 
 #ifdef CONFIG_NRFX_TWI
@@ -534,6 +705,42 @@
 #ifdef CONFIG_NRFX_TWIS3
 #define NRFX_TWIS3_ENABLED 1
 #endif
+#ifdef CONFIG_NRFX_TWIS20
+#define NRFX_TWIS20_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TWIS21
+#define NRFX_TWIS21_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TWIS22
+#define NRFX_TWIS22_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TWIS30
+#define NRFX_TWIS30_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TWIS130
+#define NRFX_TWIS130_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TWIS131
+#define NRFX_TWIS131_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TWIS132
+#define NRFX_TWIS132_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TWIS133
+#define NRFX_TWIS133_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TWIS134
+#define NRFX_TWIS134_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TWIS135
+#define NRFX_TWIS135_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TWIS136
+#define NRFX_TWIS136_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_TWIS137
+#define NRFX_TWIS137_ENABLED 1
+#endif
 
 #ifdef CONFIG_NRFX_UART
 #define NRFX_UART_ENABLED 1
@@ -563,6 +770,60 @@
 #ifdef CONFIG_NRFX_UARTE3
 #define NRFX_UARTE3_ENABLED 1
 #endif
+#ifdef CONFIG_NRFX_UARTE00
+#define NRFX_UARTE00_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_UARTE20
+#define NRFX_UARTE20_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_UARTE21
+#define NRFX_UARTE21_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_UARTE22
+#define NRFX_UARTE22_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_UARTE30
+#define NRFX_UARTE30_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_UARTE120
+#define NRFX_UARTE120_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_UARTE130
+#define NRFX_UARTE130_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_UARTE131
+#define NRFX_UARTE131_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_UARTE132
+#define NRFX_UARTE132_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_UARTE133
+#define NRFX_UARTE133_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_UARTE134
+#define NRFX_UARTE134_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_UARTE135
+#define NRFX_UARTE135_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_UARTE136
+#define NRFX_UARTE136_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_UARTE137
+#define NRFX_UARTE137_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_UARTE_CONFIG_SKIP_GPIO_CONFIG
+#define NRFX_UARTE_CONFIG_SKIP_GPIO_CONFIG 1
+#endif
+#ifdef CONFIG_NRFX_UARTE_CONFIG_SKIP_PSEL_CONFIG
+#define NRFX_UARTE_CONFIG_SKIP_PSEL_CONFIG 1
+#endif
+#ifdef CONFIG_NRFX_UARTE_CONFIG_TX_LINK
+#define NRFX_UARTE_CONFIG_TX_LINK 1
+#endif
+#ifdef CONFIG_NRFX_UARTE_CONFIG_RX_CACHE_ENABLED
+#define NRFX_UARTE_CONFIG_RX_CACHE_ENABLED 1
+#endif
 
 #ifdef CONFIG_NRFX_USBREG
 #define NRFX_USBREG_ENABLED 1
@@ -589,8 +850,20 @@
 #ifdef CONFIG_NRFX_WDT31
 #define NRFX_WDT31_ENABLED 1
 #endif
+#ifdef CONFIG_NRFX_WDT010
+#define NRFX_WDT010_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_WDT011
+#define NRFX_WDT011_ENABLED 1
+#endif
 #ifdef CONFIG_NRFX_WDT130
 #define NRFX_WDT130_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_WDT131
+#define NRFX_WDT131_ENABLED 1
+#endif
+#ifdef CONFIG_NRFX_WDT132
+#define NRFX_WDT132_ENABLED 1
 #endif
 
 #ifdef CONFIG_NRF52_ANOMALY_109_WORKAROUND
@@ -620,6 +893,127 @@
 #define NRF_PERIPH(P) P##_S
 #endif
 
+#define NRFX_CONFIG_BIT_DT(node_id, prop, idx) BIT(DT_PROP_BY_IDX(node_id, prop, idx))
+#define NRFX_CONFIG_MASK_DT(node_id, prop) \
+	(COND_CODE_1(DT_NODE_HAS_PROP(node_id, prop), \
+		(DT_FOREACH_PROP_ELEM_SEP(node_id, prop, NRFX_CONFIG_BIT_DT, (|))), \
+		(0)))
+
+/* If the GRTC system timer driver is to be used, prepare definitions required
+ * by the nrfx_grtc driver (NRFX_GRTC_CONFIG_ALLOWED_CC_CHANNELS_MASK and
+ * NRFX_GRTC_CONFIG_NUM_OF_CC_CHANNELS) based on information from devicetree.
+ */
+#if DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_grtc)
+#define NRFX_GRTC_CONFIG_ALLOWED_CC_CHANNELS_MASK \
+	(NRFX_CONFIG_MASK_DT(DT_INST(0, nordic_nrf_grtc), owned_channels) & \
+	 ~NRFX_CONFIG_MASK_DT(DT_INST(0, nordic_nrf_grtc), child_owned_channels))
+#define NRFX_GRTC_CONFIG_NUM_OF_CC_CHANNELS \
+	(DT_PROP_LEN_OR(DT_INST(0, nordic_nrf_grtc), owned_channels, 0) - \
+	 DT_PROP_LEN_OR(DT_INST(0, nordic_nrf_grtc), child_owned_channels, 0))
+#endif /* DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_grtc) */
+
+/* If global of local DPPIC peripherals are used, provide the following macro
+ * definitions required by the interconnect/apb layer:
+ * - NRFX_DPPI_PUB_CONFIG_ALLOWED_CHANNELS_MASK_BY_INST_NUM(inst_num)
+ * - NRFX_DPPI_SUB_CONFIG_ALLOWED_CHANNELS_MASK_BY_INST_NUM(inst_num)
+ * - NRFX_DPPI_PUB_OR_SUB_MASK(inst_num)
+ * - NRFX_DPPI_CHANNELS_SINGLE_VAR_NAME_BY_INST_NUM(inst_num)
+ * - NRFX_INTERCONNECT_APB_GLOBAL_DPPI_DEFINE
+ * - NRFX_INTERCONNECT_APB_LOCAL_DPPI_DEFINE
+ * based on information from devicetree.
+ */
+#if	DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_dppic_global) || \
+	DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_dppic_local)
+#ifndef NRFX_DPPI_ENABLED
+#define NRFX_DPPI_ENABLED 1
+#endif
+/* Source (publish) channels masks generation. */
+#define NRFX_DPPI_PUB_CONFIG_ALLOWED_CHANNELS_MASK_BY_INST_NUM(inst_num) \
+	NRFX_CONFIG_MASK_DT(DT_NODELABEL(_CONCAT(dppic, inst_num)), source_channels)
+
+/* Sink (subscribe) channels masks generation. */
+#define NRFX_DPPI_SUB_CONFIG_ALLOWED_CHANNELS_MASK_BY_INST_NUM(inst_num) \
+	NRFX_CONFIG_MASK_DT(DT_NODELABEL(_CONCAT(dppic, inst_num)), sink_channels)
+
+#define NRFX_DPPI_PUB_OR_SUB_MASK(inst_num) \
+	UTIL_OR(DT_NODE_HAS_PROP(DT_NODELABEL(_CONCAT(dppic, inst_num)), source_channels), \
+		DT_NODE_HAS_PROP(DT_NODELABEL(_CONCAT(dppic, inst_num)), sink_channels))
+
+/* Variables names generation. */
+#define NRFX_CONFIG_DPPI_CHANNELS_ENTRY_NAME(node_id) _CONCAT(_CONCAT(m_, node_id), _channels)
+#define NRFX_DPPI_CHANNELS_SINGLE_VAR_NAME_BY_INST_NUM(inst_num) \
+	NRFX_CONFIG_DPPI_CHANNELS_ENTRY_NAME(DT_NODELABEL(_CONCAT(dppic, inst_num)))
+
+/* Variables entries generation. */
+#define NRFX_CONFIG_DPPI_CHANNELS_ENTRY(node_id) \
+	static nrfx_atomic_t NRFX_CONFIG_DPPI_CHANNELS_ENTRY_NAME(node_id) \
+		__attribute__((used)) = \
+		NRFX_CONFIG_MASK_DT(node_id, source_channels) | \
+		NRFX_CONFIG_MASK_DT(node_id, sink_channels);
+#define NRFX_INTERCONNECT_APB_GLOBAL_DPPI_DEFINE \
+	DT_FOREACH_STATUS_OKAY(nordic_nrf_dppic_global, NRFX_CONFIG_DPPI_CHANNELS_ENTRY)
+#define NRFX_INTERCONNECT_APB_LOCAL_DPPI_DEFINE \
+	DT_FOREACH_STATUS_OKAY(nordic_nrf_dppic_local, NRFX_CONFIG_DPPI_CHANNELS_ENTRY)
+#endif /* DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_dppic_global) || ... */
+
+/* If local or global DPPIC peripherals are used, provide the following macro
+ * definitions required by the interconnect/ipct layer:
+ * - NRFX_IPCTx_PUB_CONFIG_ALLOWED_CHANNELS_MASK_BY_INST_NUM(inst_num)
+ * - NRFX_IPCTx_SUB_CONFIG_ALLOWED_CHANNELS_MASK_BY_INST_NUM(inst_num)
+ * - NRFX_IPCT_PUB_OR_SUB_MASK(inst_num)
+ * - NRFX_IPCTx_CHANNELS_SINGLE_VAR_NAME_BY_INST_NUM(inst_num)
+ * - NRFX_INTERCONNECT_IPCT_GLOBAL_DEFINE
+ * - NRFX_INTERCONNECT_IPCT_LOCAL_DEFINE
+ * based on information from devicetree.
+ */
+#if	DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_ipct_global) || \
+	DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_ipct_local)
+/* Channels masks generation. */
+#define NRFX_CONFIG_IPCT_MASK_DT(node_id) \
+	COND_CODE_1(DT_NODE_HAS_PROP(node_id, owned_channels), \
+		(NRFX_CONFIG_MASK_DT(node_id, owned_channels)), \
+		(COND_CODE_1(DT_NODE_HAS_COMPAT(node_id, nordic_nrf_ipct_local), \
+			(BIT_MASK(DT_PROP(node_id, channels))), (0))))
+
+#if defined(NRF_APPLICATION)
+#define NRFX_CONFIG_IPCT_LOCAL_NODE DT_NODELABEL(cpuapp_ipct)
+#elif defined(NRF_RADIOCORE)
+#define NRFX_CONFIG_IPCT_LOCAL_NODE DT_NODELABEL(cpurad_ipct)
+#endif
+#define NRFX_CONFIG_IPCT_NODE_BY_INST_NUM(inst_num) \
+	COND_CODE_1(IS_EMPTY(inst_num), \
+		(NRFX_CONFIG_IPCT_LOCAL_NODE), \
+		(DT_NODELABEL(_CONCAT(ipct, inst_num))))
+
+#define NRFX_IPCTx_PUB_CONFIG_ALLOWED_CHANNELS_MASK_BY_INST_NUM(inst_num) \
+	NRFX_CONFIG_IPCT_MASK_DT(NRFX_CONFIG_IPCT_NODE_BY_INST_NUM(inst_num))
+
+#define NRFX_IPCTx_SUB_CONFIG_ALLOWED_CHANNELS_MASK_BY_INST_NUM(inst_num) \
+	NRFX_CONFIG_IPCT_MASK_DT(NRFX_CONFIG_IPCT_NODE_BY_INST_NUM(inst_num))
+
+#define NRFX_IPCT_PUB_OR_SUB_MASK(inst_num) \
+	COND_CODE_1(IS_EMPTY(inst_num), \
+		(DT_NODE_HAS_STATUS(NRFX_CONFIG_IPCT_LOCAL_NODE, okay)), \
+		(DT_NODE_HAS_PROP(DT_NODELABEL(_CONCAT(ipct, inst_num)), owned_channels)))
+
+/* Variables names generation. */
+#define NRFX_CONFIG_IPCT_CHANNELS_ENTRY_NAME(node_id) _CONCAT(_CONCAT(m_, node_id), _channels)
+#define NRFX_IPCTx_CHANNELS_SINGLE_VAR_NAME_BY_INST_NUM(inst_num) \
+	COND_CODE_1(IS_EMPTY(inst_num), \
+		(NRFX_CONFIG_IPCT_CHANNELS_ENTRY_NAME(NRFX_CONFIG_IPCT_LOCAL_NODE)), \
+		(NRFX_CONFIG_IPCT_CHANNELS_ENTRY_NAME(DT_NODELABEL(_CONCAT(ipct, inst_num)))))
+
+/* Variables entries generation. */
+#define NRFX_CONFIG_IPCT_CHANNELS_ENTRY(node_id) \
+	static nrfx_atomic_t NRFX_CONFIG_IPCT_CHANNELS_ENTRY_NAME(node_id) \
+		__attribute__((used)) = \
+		NRFX_CONFIG_IPCT_MASK_DT(node_id);
+#define NRFX_INTERCONNECT_IPCT_LOCAL_DEFINE \
+	DT_FOREACH_STATUS_OKAY(nordic_nrf_ipct_local, NRFX_CONFIG_IPCT_CHANNELS_ENTRY)
+#define NRFX_INTERCONNECT_IPCT_GLOBAL_DEFINE \
+	DT_FOREACH_STATUS_OKAY(nordic_nrf_ipct_global, NRFX_CONFIG_IPCT_CHANNELS_ENTRY)
+#endif /* DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_ipct_global) || ... */
+
 #include <nrfx_config_common.h>
 #if defined(NRF51)
     #include <nrfx_config_nrf51.h>
@@ -641,6 +1035,18 @@
     #include <nrfx_config_nrf5340_application.h>
 #elif defined(NRF5340_XXAA_NETWORK)
     #include <nrfx_config_nrf5340_network.h>
+#elif defined(NRF54H20_XXAA) && defined(NRF_APPLICATION)
+    #include <nrfx_config_nrf54h20_application.h>
+#elif defined(NRF54H20_XXAA) && defined(NRF_RADIOCORE)
+    #include <nrfx_config_nrf54h20_radiocore.h>
+#elif defined(NRF54H20_XXAA) && defined(NRF_PPR)
+    #include <nrfx_config_nrf54h20_ppr.h>
+#elif defined(NRF54H20_XXAA) && defined(NRF_FLPR)
+    #include <nrfx_config_nrf54h20_flpr.h>
+#elif (defined(NRF54L15_XXAA) || defined(NRF54L15_ENGA_XXAA)) && defined(NRF_APPLICATION)
+    #include <nrfx_config_nrf54l15_enga_application.h>
+#elif (defined(NRF54L15_XXAA) || defined(NRF54L15_ENGA_XXAA)) && defined(NRF_FLPR)
+    #include <nrfx_config_nrf54l15_enga_flpr.h>
 #elif defined(NRF9120_XXAA) || defined(NRF9160_XXAA)
     #include <nrfx_config_nrf91.h>
 #else

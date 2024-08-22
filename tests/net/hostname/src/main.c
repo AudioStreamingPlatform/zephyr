@@ -82,7 +82,7 @@ static uint8_t *net_iface_get_mac(const struct device *dev)
 		data->mac_addr[2] = 0x5E;
 		data->mac_addr[3] = 0x00;
 		data->mac_addr[4] = 0x53;
-		data->mac_addr[5] = sys_rand32_get();
+		data->mac_addr[5] = sys_rand8_get();
 	}
 
 	data->ll_addr.addr = data->mac_addr;
@@ -173,7 +173,7 @@ static void eth_fake_iface_init(struct net_if *iface)
 	ctx->mac_address[2] = 0x5E;
 	ctx->mac_address[3] = 0x00;
 	ctx->mac_address[4] = 0x53;
-	ctx->mac_address[5] = sys_rand32_get();
+	ctx->mac_address[5] = sys_rand8_get();
 
 	net_if_set_link_addr(iface, ctx->mac_address,
 			     sizeof(ctx->mac_address),
@@ -380,6 +380,14 @@ ZTEST(net_hostname, test_hostname_set)
 		ret = net_hostname_set_postfix("foobar", sizeof("foobar") - 1);
 		zassert_equal(ret, -EALREADY,
 			      "Could set hostname postfix (%d)", ret);
+	}
+
+	if (IS_ENABLED(CONFIG_NET_HOSTNAME_DYNAMIC)) {
+		int ret;
+
+		ret = net_hostname_set("foobar", sizeof("foobar") - 1);
+		zassert_equal(ret, 0, "Could not set hostname (%d)", ret);
+		zassert_mem_equal("foobar", net_hostname_get(), sizeof("foobar")-1);
 	}
 }
 

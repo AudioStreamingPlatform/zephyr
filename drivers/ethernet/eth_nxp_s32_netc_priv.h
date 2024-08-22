@@ -1,5 +1,5 @@
 /*
- * Copyright 2022-2023 NXP
+ * Copyright 2022-2024 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -44,7 +44,7 @@
 #define NETC_MSIX(node, name, cb)					\
 	{								\
 		.handler = cb,						\
-		.mbox_channel = MBOX_DT_CHANNEL_GET(node, name),	\
+		.mbox_spec = MBOX_DT_SPEC_GET(node, name),		\
 	}
 
 /* Tx/Rx ENETC ring definitions */
@@ -99,8 +99,8 @@
 #define _CONCAT3(a, b, c)	DT_CAT3(a, b, c)
 
 struct nxp_s32_eth_msix {
-	void (*handler)(uint8_t chan, const uint32_t *buf, uint8_t buf_size);
-	struct mbox_channel mbox_channel;
+	void (*handler)(uint8_t chan, const uint32 *buf, uint8_t buf_size);
+	struct mbox_dt_spec mbox_spec;
 };
 
 struct nxp_s32_eth_config {
@@ -131,7 +131,7 @@ struct nxp_s32_eth_data {
 int nxp_s32_eth_initialize_common(const struct device *dev);
 int nxp_s32_eth_tx(const struct device *dev, struct net_pkt *pkt);
 enum ethernet_hw_caps nxp_s32_eth_get_capabilities(const struct device *dev);
-void nxp_s32_eth_mcast_cb(struct net_if *iface, const struct net_addr *addr, bool is_joined);
+void nxp_s32_eth_mcast_filter(const struct device *dev, const struct ethernet_filter *filter);
 int nxp_s32_eth_set_config(const struct device *dev, enum ethernet_config_type type,
 			   const struct ethernet_config *config);
 extern void Netc_Eth_Ip_MSIX_Rx(uint8_t si_idx);

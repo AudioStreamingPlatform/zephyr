@@ -18,7 +18,10 @@
 #include <zephyr/kernel.h>
 #include <kernel_internal.h>
 #include <string.h>
+
+/* internal kernel APIs */
 #include <ksched.h>
+#include <kthread.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(test);
@@ -229,7 +232,7 @@ static void umode_entry(void *thread_id, void *p2, void *p3)
 	ARG_UNUSED(p2);
 	ARG_UNUSED(p3);
 
-	if (!z_is_thread_essential() &&
+	if (!z_is_thread_essential(_current) &&
 	    (k_current_get() == (k_tid_t)thread_id)) {
 		ztest_test_pass();
 	} else {
@@ -246,9 +249,9 @@ static void umode_entry(void *thread_id, void *p2, void *p3)
  */
 static void enter_user_mode_entry(void *p1, void *p2, void *p3)
 {
-	z_thread_essential_set();
+	z_thread_essential_set(_current);
 
-	zassert_true(z_is_thread_essential(), "Thread isn't set"
+	zassert_true(z_is_thread_essential(_current), "Thread isn't set"
 		     " as essential\n");
 
 	k_thread_user_mode_enter(umode_entry,
@@ -633,7 +636,7 @@ ZTEST_USER(threads_lifecycle, test_k_thread_stack_space_get_user)
 	large_stack(&b);
 	/* FIXME: Ideally, the follow condition will assert true:
 	 * (a - b) == INT_ARRAY_SIZE * sizeof(int)
-	 * but it is not the case in native_posix, qemu_leon3 and
+	 * but it is not the case in native_sim, qemu_leon3 and
 	 * qemu_cortex_a53. Relax check condition here
 	 */
 	zassert_true(b <= a);

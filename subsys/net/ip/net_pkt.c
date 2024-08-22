@@ -129,9 +129,9 @@ NET_BUF_POOL_FIXED_DEFINE(tx_bufs, CONFIG_NET_BUF_TX_COUNT, CONFIG_NET_BUF_DATA_
 
 #else /* !CONFIG_NET_BUF_FIXED_DATA_SIZE */
 
-NET_BUF_POOL_VAR_DEFINE(rx_bufs, CONFIG_NET_BUF_RX_COUNT, CONFIG_NET_BUF_DATA_POOL_SIZE,
+NET_BUF_POOL_VAR_DEFINE(rx_bufs, CONFIG_NET_BUF_RX_COUNT, CONFIG_NET_PKT_BUF_RX_DATA_POOL_SIZE,
 			CONFIG_NET_PKT_BUF_USER_DATA_SIZE, NULL);
-NET_BUF_POOL_VAR_DEFINE(tx_bufs, CONFIG_NET_BUF_TX_COUNT, CONFIG_NET_BUF_DATA_POOL_SIZE,
+NET_BUF_POOL_VAR_DEFINE(tx_bufs, CONFIG_NET_BUF_TX_COUNT, CONFIG_NET_PKT_BUF_TX_DATA_POOL_SIZE,
 			CONFIG_NET_PKT_BUF_USER_DATA_SIZE, NULL);
 
 #endif /* CONFIG_NET_BUF_FIXED_DATA_SIZE */
@@ -263,7 +263,7 @@ void net_pkt_allocs_foreach(net_pkt_allocs_cb_t cb, void *user_data)
 			NET_ERR("**ERROR** frag %p not in use (%s:%s():%d)", \
 				frag, __FILE__, __func__, __LINE__);     \
 		}                                                       \
-	} while (0)
+	} while (false)
 
 const char *net_pkt_slab2str(struct k_mem_slab *slab)
 {
@@ -315,10 +315,10 @@ void net_pkt_print_frags(struct net_pkt *pkt)
 	while (frag) {
 		total += frag->len;
 
-		frag_size = frag->size;
+		frag_size = net_buf_max_len(frag);
 
 		NET_INFO("[%d] frag %p len %d max len %u size %d pool %p",
-			 count, frag, frag->len, net_buf_max_len(frag),
+			 count, frag, frag->len, frag->size,
 			 frag_size, net_buf_pool_get(frag->pool_id));
 
 		count++;
@@ -1246,7 +1246,7 @@ int net_pkt_alloc_buffer_raw(struct net_pkt *pkt, size_t size,
 
 	net_pkt_append_buffer(pkt, buf);
 
-#if IS_ENABLED(CONFIG_NET_BUF_FIXED_DATA_SIZE)
+#if defined(CONFIG_NET_BUF_FIXED_DATA_SIZE)
 	/* net_buf allocators shrink the buffer size to the requested size.
 	 * We don't want this behavior here, so restore the real size of the
 	 * last fragment.
@@ -1274,7 +1274,8 @@ static struct net_pkt *pkt_alloc(struct k_mem_slab *slab, k_timeout_t timeout)
 	}
 
 	if (IS_ENABLED(CONFIG_NET_PKT_RXTIME_STATS) ||
-	    IS_ENABLED(CONFIG_NET_PKT_TXTIME_STATS)) {
+	    IS_ENABLED(CONFIG_NET_PKT_TXTIME_STATS) ||
+	    IS_ENABLED(CONFIG_TRACING_NET_CORE)) {
 		create_time = k_cycle_get_32();
 	} else {
 		ARG_UNUSED(create_time);
@@ -1313,7 +1314,8 @@ static struct net_pkt *pkt_alloc(struct k_mem_slab *slab, k_timeout_t timeout)
 	}
 
 	if (IS_ENABLED(CONFIG_NET_PKT_RXTIME_STATS) ||
-	    IS_ENABLED(CONFIG_NET_PKT_TXTIME_STATS)) {
+	    IS_ENABLED(CONFIG_NET_PKT_TXTIME_STATS) ||
+	    IS_ENABLED(CONFIG_TRACING_NET_CORE)) {
 		net_pkt_set_create_time(pkt, create_time);
 	}
 
@@ -1817,7 +1819,7 @@ static int32_t net_pkt_find_offset(struct net_pkt *pkt, uint8_t *ptr)
 	buf = pkt->buffer;
 
 	while (buf) {
-		if (buf->data <= ptr && ptr <= (buf->data + buf->len)) {
+		if (buf->data <= ptr && ptr < (buf->data + buf->len)) {
 			ret = offset + (ptr - buf->data);
 			break;
 		}
@@ -1833,8 +1835,9 @@ static void clone_pkt_lladdr(struct net_pkt *pkt, struct net_pkt *clone_pkt,
 {
 	int32_t ll_addr_offset;
 
-	if (!lladdr->addr)
+	if (!lladdr->addr) {
 		return;
+	}
 
 	ll_addr_offset = net_pkt_find_offset(pkt, lladdr->addr);
 
@@ -1872,6 +1875,8 @@ static void clone_pkt_attributes(struct net_pkt *pkt, struct net_pkt *clone_pkt)
 	net_pkt_set_captured(clone_pkt, net_pkt_is_captured(pkt));
 	net_pkt_set_eof(clone_pkt, net_pkt_eof(pkt));
 	net_pkt_set_ptp(clone_pkt, net_pkt_is_ptp(pkt));
+	net_pkt_set_tx_timestamping(clone_pkt, net_pkt_is_tx_timestamping(pkt));
+	net_pkt_set_rx_timestamping(clone_pkt, net_pkt_is_rx_timestamping(pkt));
 	net_pkt_set_forwarding(clone_pkt, net_pkt_forwarding(pkt));
 	net_pkt_set_chksum_done(clone_pkt, net_pkt_is_chksum_done(pkt));
 	net_pkt_set_ip_reassembled(pkt, net_pkt_is_ip_reassembled(pkt));
@@ -2130,8 +2135,9 @@ size_t net_pkt_get_contiguous_len(struct net_pkt *pkt)
 		size_t len;
 
 		len = net_pkt_is_being_overwritten(pkt) ?
-			pkt->cursor.buf->len : pkt->cursor.buf->size;
+			pkt->cursor.buf->len : net_buf_max_len(pkt->cursor.buf);
 		len -= pkt->cursor.pos - pkt->cursor.buf->data;
+
 		return len;
 	}
 

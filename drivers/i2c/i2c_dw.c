@@ -124,7 +124,7 @@ int32_t i2c_dw_idma_rx_transfer(const struct device *dev)
 	dma_cfg.dma_callback = cb_i2c_idma_transfer;
 	dma_cfg.user_data = (void *)dev;
 	dma_cfg.complete_callback_en = 0U;
-	dma_cfg.error_callback_en = 1U;
+	dma_cfg.error_callback_dis = 0U;
 	dma_cfg.block_count = 1U;
 	dma_cfg.head_block = &dma_block_cfg;
 
@@ -172,7 +172,7 @@ int32_t i2c_dw_idma_tx_transfer(const struct device *dev,
 	dma_cfg.dma_callback = cb_i2c_idma_transfer;
 	dma_cfg.user_data = (void *)dev;
 	dma_cfg.complete_callback_en = 0U;
-	dma_cfg.error_callback_en = 1U;
+	dma_cfg.error_callback_dis = 0U;
 	dma_cfg.block_count = 1U;
 	dma_cfg.head_block = &dma_block_cfg;
 
@@ -187,7 +187,7 @@ int32_t i2c_dw_idma_tx_transfer(const struct device *dev,
 	}
 
 	if (dma_start(rom->dma_dev, DMA_INTEL_LPSS_TX_CHAN)) {
-		LOG_DBG("Error trnasfer");
+		LOG_DBG("Error transfer");
 		return  -EIO;
 	}
 	i2c_dw_enable_idma(dev, true);
@@ -252,7 +252,9 @@ static inline void i2c_dw_data_ask(const struct device *dev)
 			data |= IC_DATA_CMD_STOP;
 		}
 
+#ifdef CONFIG_I2C_TARGET
 		clear_bit_intr_mask_tx_empty(reg_base);
+#endif /* CONFIG_I2C_TARGET */
 
 		write_cmd_data(data, reg_base);
 
@@ -413,6 +415,7 @@ static void i2c_dw_isr(const struct device *port)
 			i2c_dw_data_read(port);
 		}
 
+#ifdef CONFIG_I2C_TARGET
 		/* Check if the TX FIFO is ready for commands.
 		 * TX FIFO also serves as command queue where read requests
 		 * are written to TX FIFO.
@@ -421,6 +424,7 @@ static void i2c_dw_isr(const struct device *port)
 			    == I2C_MSG_READ) {
 			set_bit_intr_mask_tx_empty(reg_base);
 		}
+#endif /* CONFIG_I2C_TARGET */
 
 		if (intr_stat.bits.tx_empty) {
 			if ((dw->xfr_flags & I2C_MSG_RW_MASK)
@@ -462,10 +466,13 @@ static void i2c_dw_isr(const struct device *port)
 					slave_cb->write_requested(dw->slave_cfg);
 				}
 			}
-			data = i2c_dw_read_byte_non_blocking(port);
-			if (slave_cb->write_received) {
-				slave_cb->write_received(dw->slave_cfg, data);
-			}
+			/* FIFO needs to be drained here so we don't miss the next interrupt */
+			do {
+				data = i2c_dw_read_byte_non_blocking(port);
+				if (slave_cb->write_received) {
+					slave_cb->write_received(dw->slave_cfg, data);
+				}
+			} while (test_bit_status_rfne(reg_base));
 		}
 
 		if (intr_stat.bits.rd_req) {
@@ -628,6 +635,7 @@ static int i2c_dw_transfer(const struct device *dev,
 	uint8_t pflags;
 	int ret;
 	uint32_t reg_base = get_regs(dev);
+	uint32_t value = 0;
 
 	__ASSERT_NO_MSG(msgs);
 	if (!num_msgs) {
@@ -671,6 +679,11 @@ static int i2c_dw_transfer(const struct device *dev,
 
 		/* Process all the messages */
 	while (msg_left > 0) {
+		/* Workaround for I2C scanner as DW HW does not support 0 byte transfers.*/
+		if ((cur_msg->len == 0) && (cur_msg->buf != NULL)) {
+			cur_msg->len = 1;
+		}
+
 		pflags = dw->xfr_flags;
 
 		dw->xfr_buf = cur_msg->buf;
@@ -682,11 +695,6 @@ static int i2c_dw_transfer(const struct device *dev,
 		if ((pflags & I2C_MSG_RW_MASK)
 		    != (dw->xfr_flags & I2C_MSG_RW_MASK)) {
 			dw->xfr_flags |= I2C_MSG_RESTART;
-		}
-
-		/* Send STOP if this is the last message */
-		if (msg_left == 1U) {
-			dw->xfr_flags |= I2C_MSG_STOP;
 		}
 
 		dw->state &= ~(I2C_DW_CMD_SEND | I2C_DW_CMD_RECV);
@@ -710,7 +718,12 @@ static int i2c_dw_transfer(const struct device *dev,
 		}
 
 		/* Wait for transfer to be done */
-		k_sem_take(&dw->device_sync_sem, K_FOREVER);
+		ret = k_sem_take(&dw->device_sync_sem, K_MSEC(CONFIG_I2C_DW_RW_TIMEOUT_MS));
+		if (ret != 0) {
+			write_intr_mask(DW_DISABLE_ALL_I2C_INT, reg_base);
+			value = read_clr_intr(reg_base);
+			break;
+		}
 
 		if (dw->state & I2C_DW_CMD_ERROR) {
 			ret = -EIO;
@@ -909,7 +922,7 @@ static int i2c_dw_set_slave_mode(const struct device *dev, uint8_t addr)
 	write_tx_tl(0, reg_base);
 	write_rx_tl(0, reg_base);
 
-	LOG_DBG("I2C: Host registed as Slave Device");
+	LOG_DBG("I2C: Host registered as Slave Device");
 
 	return 0;
 }
@@ -926,8 +939,7 @@ static int i2c_dw_slave_register(const struct device *dev,
 	write_intr_mask(DW_INTR_MASK_RX_FULL |
 			DW_INTR_MASK_RD_REQ |
 			DW_INTR_MASK_TX_ABRT |
-			DW_INTR_MASK_STOP_DET |
-			DW_INTR_MASK_START_DET, reg_base);
+			DW_INTR_MASK_STOP_DET, reg_base);
 
 	return ret;
 }

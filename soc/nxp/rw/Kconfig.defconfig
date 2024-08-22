@@ -1,0 +1,39 @@
+# Copyright 2022-2024 NXP
+# SPDX-License-Identifier: Apache-2.0
+
+if SOC_SERIES_RW6XX
+
+config ROM_START_OFFSET
+	default 0x400 if BOOTLOADER_MCUBOOT
+	default 0x1300 if NXP_RW6XX_BOOT_HEADER
+
+config NUM_IRQS
+	default 129
+
+config SYS_CLOCK_HW_CYCLES_PER_SEC
+	default 1000000 if MCUX_OS_TIMER
+	default 260000000 if CORTEX_M_SYSTICK
+
+if BT
+
+config NXP_MONOLITHIC_BT
+	default y
+
+config HCI_NXP_ENABLE_AUTO_SLEEP
+	default y
+
+config HCI_NXP_SET_CAL_DATA
+	default y
+
+endif # BT
+
+config NXP_MONOLITHIC_WIFI
+	default y if WIFI
+
+config NXP_FW_LOADER
+	default y if (BT || WIFI)
+
+config NXP_RF_IMU
+	default y if (BT || WIFI)
+
+endif # SOC_SERIES_RW6XX

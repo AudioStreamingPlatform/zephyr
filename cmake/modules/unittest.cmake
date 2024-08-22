@@ -2,14 +2,17 @@
 
 cmake_minimum_required(VERSION 3.20.0)
 
+include(extensions)
+include(west)
 include(root)
+include(zephyr_module)
 include(boards)
-include(arch)
+include(hwm_v2)
 include(configuration_files)
 
-include(west)
-include(zephyr_module)
 include(kconfig)
+include(arch_v2)
+include(soc_v2)
 
 find_package(TargetTools)
 
@@ -55,8 +58,30 @@ include(${ZEPHYR_BASE}/cmake/kobj.cmake)
 add_dependencies(test_interface ${KOBJ_TYPES_H_TARGET})
 gen_kobj(KOBJ_GEN_DIR)
 
+# Generates empty header files to build
+set(INCL_GENERATED_DIR ${APPLICATION_BINARY_DIR}/zephyr/include/generated/zephyr)
+set(INCL_GENERATED_SYSCALL_DIR ${INCL_GENERATED_DIR}/syscalls)
+list(APPEND INCL_GENERATED_HEADERS
+  ${INCL_GENERATED_DIR}/devicetree_generated.h
+  ${INCL_GENERATED_DIR}/offsets.h
+  ${INCL_GENERATED_DIR}/syscall_list.h
+  ${INCL_GENERATED_DIR}/syscall_macros.h
+  ${INCL_GENERATED_SYSCALL_DIR}/kernel.h
+  ${INCL_GENERATED_SYSCALL_DIR}/kobject.h
+  ${INCL_GENERATED_SYSCALL_DIR}/log_core.h
+  ${INCL_GENERATED_SYSCALL_DIR}/log_ctrl.h
+  ${INCL_GENERATED_SYSCALL_DIR}/log_msg.h
+  ${INCL_GENERATED_SYSCALL_DIR}/sys_clock.h
+)
+
+file(MAKE_DIRECTORY ${INCL_GENERATED_SYSCALL_DIR})
+foreach(header ${INCL_GENERATED_HEADERS})
+  file(TOUCH ${header})
+endforeach()
+
 list(APPEND INCLUDE
   subsys/testsuite/ztest/include/zephyr
+  subsys/testsuite/ztest/unittest/include
   subsys/testsuite/include/zephyr
   subsys/testsuite/ztest/include
   subsys/testsuite/include

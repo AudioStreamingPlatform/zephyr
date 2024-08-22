@@ -52,6 +52,7 @@
 			interrupts = <88 0>, <89 0>;
 			interrupt-names = "ltdc", "ltdc_er";
 			clocks = <&rcc STM32_CLOCK_BUS_APB3 0x00000008>;
+			resets = <&rctl STM32_RESET(APB3, 4U)>;
 			status = "disabled";
 		};
 
@@ -96,6 +97,15 @@
 			nist-config = <0xf00d00>;
 			health-test-magic = <0x17590abc>;
 			health-test-config = <0x72ac>;
+		};
+
+		digi_die_temp: digi_dietemp@58006800 {
+			compatible = "st,stm32-digi-temp";
+			reg = <0x58006800 0x400>;
+			interrupts = <147 0>;
+			interrupt-names = "digi_temp";
+			clocks = <&rcc STM32_CLOCK_BUS_APB4 0x04000000>;
+			status = "disabled";
 		};
 	};
 
@@ -150,6 +160,13 @@
 		compatible = "zephyr,memory-region", "arm,itcm";
 		reg = <0x00000000 DT_SIZE_K(64)>;
 		zephyr,memory-region = "ITCM";
+	};
+
+	ext_memory2: memory@70000000 {
+		compatible = "zephyr,memory-region";
+		reg = <0x70000000 DT_SIZE_M(256)>; /* max addressable area */
+		zephyr,memory-region = "EXTMEM2";
+		zephyr,memory-attr = <( DT_MEM_ARM(ATTR_MPU_EXTMEM) )>;
 	};
 
 	otghs_fs_phy: otghs_fs_phy {

@@ -177,21 +177,21 @@ static int spi_bitbang_transceive(const struct device *dev,
 
 			k_busy_wait(wait_us);
 
-			/* first clock edge */
-			gpio_pin_set_dt(&info->clk_gpio, !clock_state);
-
 			if (!loop && do_read && !cpha) {
 				b = gpio_pin_get_dt(miso);
 			}
 
-			k_busy_wait(wait_us);
+			/* first (leading) clock edge */
+			gpio_pin_set_dt(&info->clk_gpio, !clock_state);
 
-			/* second clock edge */
-			gpio_pin_set_dt(&info->clk_gpio, clock_state);
+			k_busy_wait(wait_us);
 
 			if (!loop && do_read && cpha) {
 				b = gpio_pin_get_dt(miso);
 			}
+
+			/* second (trailing) clock edge */
+			gpio_pin_set_dt(&info->clk_gpio, clock_state);
 
 			if (loop) {
 				b = d;
@@ -231,7 +231,8 @@ static int spi_bitbang_transceive_async(const struct device *dev,
 				    const struct spi_config *spi_cfg,
 				    const struct spi_buf_set *tx_bufs,
 				    const struct spi_buf_set *rx_bufs,
-				    struct k_poll_signal *async)
+				    spi_callback_t cb,
+				    void *userdata)
 {
 	return -ENOTSUP;
 }

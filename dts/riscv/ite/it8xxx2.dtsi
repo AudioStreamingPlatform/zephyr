@@ -28,7 +28,7 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 		cpu0: cpu@0 {
-			compatible = "ite,riscv-ite";
+			compatible = "ite,riscv-ite", "riscv";
 			riscv,isa = "rv32imafc_zifencei";
 			device_type = "cpu";
 			reg = <0>;
@@ -707,12 +707,6 @@
 				   &wuc_wu37>; /* KSI[7] */
 			kso16-gpios = <&gpioc 3 (GPIO_OPEN_DRAIN | GPIO_PULL_UP)>;
 			kso17-gpios = <&gpioc 5 (GPIO_OPEN_DRAIN | GPIO_PULL_UP)>;
-		};
-
-		sha0: sha@f0202d {
-			compatible = "ite,it8xxx2-sha";
-			reg = <0x00f0202d 0x3>;
-			status = "disabled";
 		};
 
 		usbpd0: usbpd@f03700 {

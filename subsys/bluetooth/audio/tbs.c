@@ -6,21 +6,33 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/kernel.h>
-#include <zephyr/sys/__assert.h>
-#include <zephyr/types.h>
-#include <zephyr/init.h>
-#include <stdlib.h>
+#include <errno.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include <sys/types.h>
 
+#include <zephyr/autoconf.h>
+#include <zephyr/bluetooth/att.h>
+#include <zephyr/bluetooth/audio/tbs.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
+#include <zephyr/bluetooth/uuid.h>
+#include <zephyr/init.h>
+#include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/net/buf.h>
+#include <zephyr/sys/__assert.h>
+#include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/sys/util_macro.h>
+#include <zephyr/types.h>
 
 #include "audio_internal.h"
 #include "tbs_internal.h"
 #include "ccid_internal.h"
-
-#include <zephyr/logging/log.h>
 
 LOG_MODULE_REGISTER(bt_tbs, CONFIG_BT_TBS_LOG_LEVEL);
 
@@ -73,7 +85,7 @@ struct gtbs_service_inst {
 #else
 #define READ_BUF_SIZE   (CONFIG_BT_TBS_MAX_CALLS * \
 			 sizeof(struct bt_tbs_current_call_item))
-#endif /* IS_ENABLED(CONFIG_BT_GTBS) */
+#endif /* defined(CONFIG_BT_GTBS) */
 NET_BUF_SIMPLE_DEFINE_STATIC(read_buf, READ_BUF_SIZE);
 
 static struct tbs_service_inst svc_insts[CONFIG_BT_TBS_BEARER_COUNT];
@@ -720,11 +732,12 @@ static ssize_t read_status_flags(struct bt_conn *conn,
 				 void *buf, uint16_t len, uint16_t offset)
 {
 	const struct service_inst *inst = BT_AUDIO_CHRC_USER_DATA(attr);
+	const uint16_t status_flags_le = sys_cpu_to_le16(inst->optional_opcodes);
 
 	LOG_DBG("Index %u: status_flags 0x%04x", inst_index(inst), inst->status_flags);
 
-	return bt_gatt_attr_read(conn, attr, buf, len, offset,
-				 &inst->status_flags, sizeof(inst->status_flags));
+	return bt_gatt_attr_read(conn, attr, buf, len, offset, &status_flags_le,
+				 sizeof(status_flags_le));
 }
 
 static void status_flags_cfg_changed(const struct bt_gatt_attr *attr,
@@ -1337,11 +1350,12 @@ static ssize_t read_optional_opcodes(struct bt_conn *conn,
 				     void *buf, uint16_t len, uint16_t offset)
 {
 	const struct service_inst *inst = BT_AUDIO_CHRC_USER_DATA(attr);
+	const uint16_t optional_opcodes_le = sys_cpu_to_le16(inst->optional_opcodes);
 
 	LOG_DBG("Index %u: Supported opcodes 0x%02x", inst_index(inst), inst->optional_opcodes);
 
-	return bt_gatt_attr_read(conn, attr, buf, len, offset,
-				 &inst->optional_opcodes, sizeof(inst->optional_opcodes));
+	return bt_gatt_attr_read(conn, attr, buf, len, offset, &optional_opcodes_le,
+				 sizeof(optional_opcodes_le));
 }
 
 static void terminate_reason_cfg_changed(const struct bt_gatt_attr *attr,
@@ -1590,8 +1604,8 @@ static void tbs_inst_init(struct service_inst *inst, const struct bt_gatt_attr *
 	LOG_DBG("inst %p index 0x%02x provider_name %s", inst, inst_index(inst), provider_name);
 
 	inst->ccid = bt_ccid_get_value();
-	(void)strcpy(inst->provider_name, provider_name);
-	(void)strcpy(inst->uci, CONFIG_BT_TBS_UCI);
+	(void)utf8_lcpy(inst->provider_name, provider_name, sizeof(inst->provider_name));
+	(void)utf8_lcpy(inst->uci, CONFIG_BT_TBS_UCI, sizeof(inst->uci));
 	inst->optional_opcodes = CONFIG_BT_TBS_SUPPORTED_FEATURES;
 	inst->technology = CONFIG_BT_TBS_TECHNOLOGY;
 	inst->signal_strength_interval = CONFIG_BT_TBS_SIGNAL_STRENGTH_INTERVAL;
@@ -1612,7 +1626,8 @@ static void tbs_service_inst_init(struct tbs_service_inst *inst, struct bt_gatt_
 {
 	tbs_inst_init(&inst->inst, service->attrs, service->attr_count,
 		      CONFIG_BT_TBS_PROVIDER_NAME);
-	(void)strcpy(inst->uri_scheme_list, CONFIG_BT_TBS_URI_SCHEMES_LIST);
+	(void)utf8_lcpy(inst->uri_scheme_list, CONFIG_BT_TBS_URI_SCHEMES_LIST,
+			sizeof(inst->uri_scheme_list));
 }
 
 static int bt_tbs_init(void)
@@ -1889,10 +1904,10 @@ static void tbs_inst_remote_incoming(struct service_inst *inst, const char *to, 
 	remote_uri_ind_len = strlen(from) + 1;
 
 	inst->in_call.call_index = call->index;
-	(void)strcpy(inst->in_call.uri, from);
+	(void)utf8_lcpy(inst->in_call.uri, from, sizeof(inst->in_call.uri));
 
 	inst->incoming_uri.call_index = call->index;
-	(void)strcpy(inst->incoming_uri.uri, to);
+	(void)utf8_lcpy(inst->incoming_uri.uri, to, sizeof(inst->incoming_uri.uri));
 
 	bt_gatt_notify_uuid(NULL, BT_UUID_TBS_INCOMING_URI, inst->attrs, &inst->incoming_uri,
 			    local_uri_ind_len);
@@ -1967,7 +1982,7 @@ int bt_tbs_set_bearer_provider_name(uint8_t bearer_index, const char *name)
 		return 0;
 	}
 
-	(void)strcpy(inst->provider_name, name);
+	(void)utf8_lcpy(inst->provider_name, name, sizeof(inst->provider_name));
 
 	bt_gatt_notify_uuid(NULL, BT_UUID_TBS_PROVIDER_NAME, inst->attrs, inst->provider_name,
 			    strlen(inst->provider_name));
@@ -1978,8 +1993,7 @@ int bt_tbs_set_bearer_technology(uint8_t bearer_index, uint8_t new_technology)
 {
 	struct service_inst *inst = inst_lookup_index(bearer_index);
 
-	if (new_technology < BT_TBS_TECHNOLOGY_3G ||
-	    new_technology > BT_TBS_TECHNOLOGY_IP) {
+	if (new_technology < BT_TBS_TECHNOLOGY_3G || new_technology > BT_TBS_TECHNOLOGY_WCDMA) {
 		return -EINVAL;
 	} else if (inst == NULL) {
 		return -EINVAL;
@@ -2087,7 +2101,7 @@ int bt_tbs_set_uri_scheme_list(uint8_t bearer_index, const char **uri_list,
 	}
 
 	/* Store final result */
-	(void)strcpy(inst->uri_scheme_list, uri_scheme_list);
+	(void)utf8_lcpy(inst->uri_scheme_list, uri_scheme_list, sizeof(inst->uri_scheme_list));
 
 	LOG_DBG("TBS instance %u uri prefix list is now %s", bearer_index, inst->uri_scheme_list);
 

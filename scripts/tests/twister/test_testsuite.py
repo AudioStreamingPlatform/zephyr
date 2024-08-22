@@ -17,6 +17,7 @@ from contextlib import nullcontext
 ZEPHYR_BASE = os.getenv('ZEPHYR_BASE')
 sys.path.insert(0, os.path.join(ZEPHYR_BASE, 'scripts', 'pylib', 'twister'))
 
+from twisterlib.statuses import TwisterStatus
 from twisterlib.testsuite import (
     _find_src_dir_path,
     _get_search_area_boundary,
@@ -213,26 +214,41 @@ def test_scan_file(test_data, test_file, class_env, expected: ScanPathResult):
     assert result == expected
 
 
-TESTDATA_3 = [
-    (
-        'nt',
-        {'access': mmap.ACCESS_READ}
-    ),
-    (
-        'posix',
-        {
-            'flags': mmap.MAP_PRIVATE,
-            'prot': mmap.PROT_READ,
-            'offset': 0
-        }
+# Generate testcases depending on available mmap attributes
+TESTIDS_3 = []
+TESTDATA_3 = []
+
+try:
+    TESTDATA_3.append(
+        (
+            'nt',
+            {'access': mmap.ACCESS_READ}
+        )
     )
-]
+    TESTIDS_3.append('windows')
+except AttributeError:
+    pass
+
+try:
+    TESTDATA_3.append(
+        (
+            'posix',
+            {
+                'flags': mmap.MAP_PRIVATE,
+                'prot': mmap.PROT_READ,
+                'offset': 0
+            }
+        )
+    )
+    TESTIDS_3.append('linux')
+except AttributeError:
+    pass
 
 
 @pytest.mark.parametrize(
     'os_name, expected',
     TESTDATA_3,
-    ids=['windows', 'linux']
+    ids=TESTIDS_3
 )
 def test_scan_file_mmap(os_name, expected):
     class TestException(Exception):
@@ -841,11 +857,11 @@ def test_testsuite_load(
 def test_testcase_dunders():
     case_lesser = TestCase(name='A lesser name')
     case_greater = TestCase(name='a greater name')
-    case_greater.status = 'success'
+    case_greater.status = TwisterStatus.FAIL
 
     assert case_lesser < case_greater
     assert str(case_greater) == 'a greater name'
-    assert repr(case_greater) == '<TestCase a greater name with success>'
+    assert repr(case_greater) == f'<TestCase a greater name with {str(TwisterStatus.FAIL)}>'
 
 
 TESTDATA_11 = [

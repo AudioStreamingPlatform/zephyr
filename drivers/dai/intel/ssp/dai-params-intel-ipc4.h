@@ -11,6 +11,9 @@
 
 #define DAI_INTEL_I2S_TDM_MAX_SLOT_MAP_COUNT 8
 
+#define I2SIPCMC 8
+#define I2SOPCMC 8
+
 /**< Type of the gateway. */
 enum dai_intel_ipc4_connector_node_id_type {
 	/**< HD/A host output (-> DSP). */
@@ -228,12 +231,18 @@ struct dai_intel_ipc4_ssp_config {
 	uint32_t ssc1;
 	uint32_t sscto;
 	uint32_t sspsp;
+#ifndef CONFIG_SOC_INTEL_ACE30_PTL
 	uint32_t sstsa;
 	uint32_t ssrsa;
+#endif
 	uint32_t ssc2;
 	uint32_t sspsp2;
 	uint32_t ssc3;
 	uint32_t ssioc;
+#ifdef CONFIG_SOC_INTEL_ACE30_PTL
+	uint64_t ssmidytsa[I2SIPCMC];
+	uint64_t ssmodytsa[I2SOPCMC];
+#endif
 } __packed;
 
 struct dai_intel_ipc4_ssp_mclk_config {
@@ -311,7 +320,7 @@ struct dai_intel_ipc4_ssp_configuration_blob {
 	struct dai_intel_ipc4_ssp_driver_config i2s_driver_config;
 
 	/* optional configuration parameters */
-	union dai_intel_ipc4_ssp_dma_control i2s_dma_control[0];
+	FLEXIBLE_ARRAY_DECLARE(union dai_intel_ipc4_ssp_dma_control, i2s_dma_control);
 } __packed;
 
 #define SSP_BLOB_VER_1_5 0xee000105

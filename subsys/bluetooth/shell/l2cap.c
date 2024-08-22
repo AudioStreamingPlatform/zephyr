@@ -24,8 +24,8 @@
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/l2cap.h>
-#include <zephyr/bluetooth/rfcomm.h>
-#include <zephyr/bluetooth/sdp.h>
+#include <zephyr/bluetooth/classic/rfcomm.h>
+#include <zephyr/bluetooth/classic/sdp.h>
 
 #include <zephyr/shell/shell.h>
 
@@ -88,7 +88,7 @@ static void l2cap_recv_cb(struct k_work *work)
 	struct l2ch *c = L2CH_WORK(work);
 	struct net_buf *buf;
 
-	while ((buf = net_buf_get(&l2cap_recv_fifo, K_NO_WAIT))) {
+	while ((buf = k_fifo_get(&l2cap_recv_fifo, K_NO_WAIT))) {
 		shell_print(ctx_shell, "Confirming reception");
 		bt_l2cap_chan_recv_complete(&c->ch.chan, buf);
 	}
@@ -116,7 +116,7 @@ static int l2cap_recv(struct bt_l2cap_chan *chan, struct net_buf *buf)
 				    l2cap_recv_delay_ms);
 		}
 
-		net_buf_put(&l2cap_recv_fifo, buf);
+		k_fifo_put(&l2cap_recv_fifo, buf);
 		k_work_schedule(&l2ch->recv_work, K_MSEC(l2cap_recv_delay_ms));
 
 		return -EINPROGRESS;

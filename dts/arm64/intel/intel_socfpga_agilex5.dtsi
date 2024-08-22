@@ -97,6 +97,10 @@
 		reg = <0x80100000 DT_SIZE_M(8)>;
 	};
 
+	fpga0: bridges {
+		compatible = "altr,socfpga-agilex-bridge";
+	};
+
 	uart0: uart@10c02000 {
 		compatible = "ns16550";
 		reg-shift = <2>;
@@ -218,5 +222,56 @@
 		method = "smc";
 		status = "disabled";
 		zephyr,num-clients = <2>;
+	};
+
+	/* cadence Nand Flash controller*/
+	nand: nand@10B80000	{
+		compatible = "cdns,nand";
+		reg = <0x10B80000 0X10000>,
+			  <0x10840000 0x10000>;
+		reg-names = "nand_reg","sdma";
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SPI 97 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
+		resets = <&reset RSTMGR_NAND_RSTLINE>,
+				<&reset RSTMGR_SOFTPHY_RSTLINE>;
+		block-size = <0x20000>;
+		data-rate-mode = <0>;
+		status = "disabled";
+	};
+
+	dma0: dma@10DB0000 {
+		compatible = "snps,designware-dma-axi";
+		#dma-cells = <1>;
+		reg = <0x10DB0000 0x1000>;
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SPI 81 IRQ_TYPE_LEVEL
+				 IRQ_DEFAULT_PRIORITY>,
+			     <GIC_SPI 82 IRQ_TYPE_LEVEL
+				 IRQ_DEFAULT_PRIORITY>,
+			     <GIC_SPI 83 IRQ_TYPE_LEVEL
+				 IRQ_DEFAULT_PRIORITY>,
+			     <GIC_SPI 84 IRQ_TYPE_LEVEL
+				 IRQ_DEFAULT_PRIORITY>;
+		dma-channels = <4>;
+		resets = <&reset RSTMGR_DMA_RSTLINE>;
+		status = "disabled";
+	};
+
+	dma1: dma@10DC0000 {
+		compatible = "snps,designware-dma-axi";
+		#dma-cells = <1>;
+		reg = <0x10DC0000 0x1000>;
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SPI 166 IRQ_TYPE_LEVEL
+				 IRQ_DEFAULT_PRIORITY>,
+			     <GIC_SPI 167 IRQ_TYPE_LEVEL
+				 IRQ_DEFAULT_PRIORITY>,
+			     <GIC_SPI 168 IRQ_TYPE_LEVEL
+				 IRQ_DEFAULT_PRIORITY>,
+			     <GIC_SPI 169 IRQ_TYPE_LEVEL
+				 IRQ_DEFAULT_PRIORITY>;
+		dma-channels = <4>;
+		resets = <&reset RSTMGR_DMA_RSTLINE>;
+		status = "disabled";
 	};
 };

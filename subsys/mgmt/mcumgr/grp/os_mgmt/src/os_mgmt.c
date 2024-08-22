@@ -40,7 +40,7 @@
 
 #if defined(CONFIG_MCUMGR_GRP_OS_INFO) || defined(CONFIG_MCUMGR_GRP_OS_BOOTLOADER_INFO)
 #include <stdio.h>
-#include <version.h>
+#include <zephyr/version.h>
 #if defined(CONFIG_MCUMGR_GRP_OS_INFO)
 #include <os_mgmt_processor.h>
 #endif
@@ -59,15 +59,13 @@ LOG_MODULE_REGISTER(mcumgr_os_grp, CONFIG_MCUMGR_GRP_OS_LOG_LEVEL);
 
 #ifdef CONFIG_REBOOT
 static void os_mgmt_reset_work_handler(struct k_work *work);
-static void os_mgmt_reset_cb(struct k_timer *timer);
 
-K_WORK_DEFINE(os_mgmt_reset_work, os_mgmt_reset_work_handler);
-static K_TIMER_DEFINE(os_mgmt_reset_timer, os_mgmt_reset_cb, NULL);
+K_WORK_DELAYABLE_DEFINE(os_mgmt_reset_work, os_mgmt_reset_work_handler);
 #endif
 
 /* This is passed to zcbor_map_start/end_endcode as a number of
  * expected "columns" (tid, priority, and so on)
- * The value here does not affect memory allocation is is used
+ * The value here does not affect memory allocation is used
  * to predict how big the map may be. If you increase number
  * of "columns" the taskstat sends you may need to increase the
  * value otherwise zcbor_map_end_encode may return with error.
@@ -207,7 +205,7 @@ os_mgmt_taskstat_encode_thread_name(zcbor_state_t *zse, int idx,
 	snprintf(thread_name, sizeof(thread_name) - 1, "%d", idx);
 	thread_name[sizeof(thread_name) - 1] = 0;
 
-	return zcbor_tstr_put_term(zse, thread_name);
+	return zcbor_tstr_put_term(zse, thread_name, sizeof(thread_name));
 }
 
 #endif
@@ -358,13 +356,9 @@ static int os_mgmt_taskstat_read(struct smp_streamer *ctxt)
  */
 static void os_mgmt_reset_work_handler(struct k_work *work)
 {
-	sys_reboot(SYS_REBOOT_WARM);
-}
+	ARG_UNUSED(work);
 
-static void os_mgmt_reset_cb(struct k_timer *timer)
-{
-	/* Reboot the system from the system workqueue thread. */
-	k_work_submit(&os_mgmt_reset_work);
+	sys_reboot(SYS_REBOOT_WARM);
 }
 
 static int os_mgmt_reset(struct smp_streamer *ctxt)
@@ -404,8 +398,9 @@ static int os_mgmt_reset(struct smp_streamer *ctxt)
 	}
 #endif
 
-	k_timer_start(&os_mgmt_reset_timer, K_MSEC(CONFIG_MCUMGR_GRP_OS_RESET_MS),
-		      K_NO_WAIT);
+	/* Reboot the system from the system workqueue thread. */
+	k_work_schedule(&os_mgmt_reset_work, K_MSEC(CONFIG_MCUMGR_GRP_OS_RESET_MS));
+
 	return 0;
 }
 #endif
@@ -428,18 +423,20 @@ os_mgmt_mcumgr_params(struct smp_streamer *ctxt)
 
 #if defined(CONFIG_MCUMGR_GRP_OS_BOOTLOADER_INFO)
 
-#if IS_ENABLED(CONFIG_MCUBOOT_BOOTLOADER_MODE_SINGLE_APP)
+#if defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_SINGLE_APP)
 #define BOOTLOADER_MODE MCUBOOT_MODE_SINGLE_SLOT
-#elif IS_ENABLED(CONFIG_MCUBOOT_BOOTLOADER_MODE_SWAP_SCRATCH)
+#elif defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_SWAP_SCRATCH)
 #define BOOTLOADER_MODE MCUBOOT_MODE_SWAP_USING_SCRATCH
-#elif IS_ENABLED(CONFIG_MCUBOOT_BOOTLOADER_MODE_OVERWRITE_ONLY)
+#elif defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_OVERWRITE_ONLY)
 #define BOOTLOADER_MODE MCUBOOT_MODE_UPGRADE_ONLY
-#elif IS_ENABLED(CONFIG_MCUBOOT_BOOTLOADER_MODE_SWAP_WITHOUT_SCRATCH)
+#elif defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_SWAP_WITHOUT_SCRATCH)
 #define BOOTLOADER_MODE MCUBOOT_MODE_SWAP_USING_MOVE
-#elif IS_ENABLED(CONFIG_MCUBOOT_BOOTLOADER_MODE_DIRECT_XIP)
+#elif defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_DIRECT_XIP)
 #define BOOTLOADER_MODE MCUBOOT_MODE_DIRECT_XIP
-#elif IS_ENABLED(CONFIG_MCUBOOT_BOOTLOADER_MODE_DIRECT_XIP_WITH_REVERT)
+#elif defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_DIRECT_XIP_WITH_REVERT)
 #define BOOTLOADER_MODE MCUBOOT_MODE_DIRECT_XIP_WITH_REVERT
+#elif defined(CONFIG_MCUBOOT_BOOTLOADER_MODE_FIRMWARE_UPDATER)
+#define BOOTLOADER_MODE MCUBOOT_MODE_FIRMWARE_LOADER
 #else
 #define BOOTLOADER_MODE -1
 #endif
@@ -472,9 +469,9 @@ os_mgmt_bootloader_info(struct smp_streamer *ctxt)
 
 		ok = zcbor_tstr_put_lit(zse, "mode") &&
 		     zcbor_int32_put(zse, BOOTLOADER_MODE);
-#if IS_ENABLED(MCUBOOT_BOOTLOADER_NO_DOWNGRADE)
-		ok = zcbor_tstr_put_lit(zse, "no-downgrade") &&
-		     zcbor_bool_encode(zse, true);
+#ifdef CONFIG_MCUBOOT_BOOTLOADER_NO_DOWNGRADE
+		ok = ok && zcbor_tstr_put_lit(zse, "no-downgrade") &&
+		     zcbor_bool_encode(zse, &(bool){true});
 #endif
 	} else {
 		return OS_MGMT_ERR_QUERY_YIELDS_NO_ANSWER;

@@ -563,6 +563,9 @@ static int sai_trigger_pause(const struct device *dev,
 		return ret;
 	}
 
+	/* disable TX/RX data line */
+	sai_tx_rx_set_dline_mask(dir, data->regmap, 0x0);
+
 	/* update the software state of TX/RX */
 	sai_tx_rx_sw_enable_disable(dir, data, false);
 
@@ -601,7 +604,7 @@ static int sai_trigger_stop(const struct device *dev,
 		 * left to do is disable the DMA requests and
 		 * the data line.
 		 */
-		goto out_dline_disable;
+		goto out_dmareq_disable;
 	}
 
 	ret = sai_tx_rx_disable(data, cfg, dir);
@@ -612,10 +615,10 @@ static int sai_trigger_stop(const struct device *dev,
 	/* update the software state of TX/RX */
 	sai_tx_rx_sw_enable_disable(dir, data, false);
 
-out_dline_disable:
 	/* disable TX/RX data line */
 	sai_tx_rx_set_dline_mask(dir, data->regmap, 0x0);
 
+out_dmareq_disable:
 	/* disable DMA requests */
 	SAI_TX_RX_DMA_ENABLE_DISABLE(dir, data->regmap, false);
 
@@ -693,7 +696,7 @@ static int sai_trigger_start(const struct device *dev,
 	struct sai_data *data;
 	const struct sai_config *cfg;
 	uint32_t old_state;
-	int ret;
+	int ret, i;
 
 	data = dev->data;
 	cfg = dev->config;
@@ -719,7 +722,7 @@ static int sai_trigger_start(const struct device *dev,
 		 * skip this part and go directly to the TX/RX
 		 * enablement.
 		 */
-		goto out_enable_tx_rx;
+		goto out_enable_dline;
 	}
 
 	LOG_DBG("start on direction %d", dir);
@@ -730,19 +733,25 @@ static int sai_trigger_start(const struct device *dev,
 	SAI_TX_RX_ENABLE_DISABLE_IRQ(dir, data->regmap,
 				     kSAI_FIFOErrorInterruptEnable, true);
 
-	/* TODO: is there a need to write some words to the FIFO to avoid starvation? */
+	/* avoid initial underrun by writing a frame's worth of 0s */
+	if (dir == DAI_DIR_TX) {
+		for (i = 0; i < data->cfg.channels; i++) {
+			SAI_WriteData(UINT_TO_I2S(data->regmap), cfg->tx_dline, 0x0);
+		}
+	}
 
 	/* TODO: for now, only DMA mode is supported */
 	SAI_TX_RX_DMA_ENABLE_DISABLE(dir, data->regmap, true);
 
+out_enable_dline:
 	/* enable TX/RX data line. This translates to TX_DLINE0/RX_DLINE0
 	 * being enabled.
 	 *
 	 * TODO: for now we only support 1 data line per direction.
 	 */
-	sai_tx_rx_set_dline_mask(dir, data->regmap, 0x1);
+	sai_tx_rx_set_dline_mask(dir, data->regmap,
+				 SAI_TX_RX_DLINE_MASK(dir, cfg));
 
-out_enable_tx_rx:
 	/* this will also enable the async side */
 	SAI_TX_RX_ENABLE_DISABLE(dir, data->regmap, true);
 
@@ -827,6 +836,14 @@ static int sai_init(const struct device *dev)
 		LOG_DBG("clock %s has been ungated", cfg->clk_data.clock_names[i]);
 	}
 
+	/* note: optional operation so -ENOENT is allowed (i.e: we
+	 * allow the default state to not be defined)
+	 */
+	ret = pinctrl_apply_state(cfg->pincfg, PINCTRL_STATE_DEFAULT);
+	if (ret < 0 && ret != -ENOENT) {
+		return ret;
+	}
+
 	/* set TX/RX default states */
 	data->tx_state = DAI_STATE_NOT_READY;
 	data->rx_state = DAI_STATE_NOT_READY;
@@ -838,6 +855,8 @@ static int sai_init(const struct device *dev)
 }
 
 #define SAI_INIT(inst)								\
+										\
+PINCTRL_DT_INST_DEFINE(inst);							\
 										\
 BUILD_ASSERT(SAI_FIFO_DEPTH(inst) > 0 &&					\
 	     SAI_FIFO_DEPTH(inst) <= _SAI_FIFO_DEPTH(inst),			\
@@ -859,16 +878,27 @@ BUILD_ASSERT(SAI_TX_SYNC_MODE(inst) != SAI_RX_SYNC_MODE(inst) ||		\
 	     SAI_TX_SYNC_MODE(inst) != kSAI_ModeSync,				\
 	     "transmitter and receiver can't be both SYNC with each other");	\
 										\
+BUILD_ASSERT(SAI_DLINE_COUNT(inst) != -1,					\
+	     "bad or unsupported SAI instance. Is the base address correct?");	\
+										\
+BUILD_ASSERT(SAI_TX_DLINE_INDEX(inst) >= 0 &&					\
+	     (SAI_TX_DLINE_INDEX(inst) < SAI_DLINE_COUNT(inst)),		\
+	     "invalid TX data line index");					\
+										\
+BUILD_ASSERT(SAI_RX_DLINE_INDEX(inst) >= 0 &&					\
+	     (SAI_RX_DLINE_INDEX(inst) < SAI_DLINE_COUNT(inst)),		\
+	     "invalid RX data line index");					\
+										\
 static const struct dai_properties sai_tx_props_##inst = {			\
-	.fifo_address = SAI_TX_FIFO_BASE(inst),					\
+	.fifo_address = SAI_TX_FIFO_BASE(inst, SAI_TX_DLINE_INDEX(inst)),	\
 	.fifo_depth = SAI_FIFO_DEPTH(inst) * CONFIG_SAI_FIFO_WORD_SIZE,		\
-	.dma_hs_id = SAI_TX_DMA_MUX(inst),					\
+	.dma_hs_id = SAI_TX_RX_DMA_HANDSHAKE(inst, tx),				\
 };										\
 										\
 static const struct dai_properties sai_rx_props_##inst = {			\
-	.fifo_address = SAI_RX_FIFO_BASE(inst),					\
+	.fifo_address = SAI_RX_FIFO_BASE(inst, SAI_RX_DLINE_INDEX(inst)),	\
 	.fifo_depth = SAI_FIFO_DEPTH(inst) * CONFIG_SAI_FIFO_WORD_SIZE,		\
-	.dma_hs_id = SAI_RX_DMA_MUX(inst),					\
+	.dma_hs_id = SAI_TX_RX_DMA_HANDSHAKE(inst, rx),				\
 };										\
 										\
 void irq_config_##inst(void)							\
@@ -887,12 +917,15 @@ static struct sai_config sai_config_##inst = {					\
 	.clk_data = SAI_CLOCK_DATA_DECLARE(inst),				\
 	.rx_fifo_watermark = SAI_RX_FIFO_WATERMARK(inst),			\
 	.tx_fifo_watermark = SAI_TX_FIFO_WATERMARK(inst),			\
-	.mclk_is_output = DT_INST_PROP_OR(inst, mclk_is_output, false),		\
+	.mclk_is_output = DT_INST_PROP(inst, mclk_is_output),			\
 	.tx_props = &sai_tx_props_##inst,					\
 	.rx_props = &sai_rx_props_##inst,					\
 	.irq_config = irq_config_##inst,					\
 	.tx_sync_mode = SAI_TX_SYNC_MODE(inst),					\
 	.rx_sync_mode = SAI_RX_SYNC_MODE(inst),					\
+	.tx_dline = SAI_TX_DLINE_INDEX(inst),					\
+	.rx_dline = SAI_RX_DLINE_INDEX(inst),					\
+	.pincfg = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),				\
 };										\
 										\
 static struct sai_data sai_data_##inst = {					\

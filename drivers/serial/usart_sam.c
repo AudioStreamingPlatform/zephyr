@@ -50,7 +50,7 @@ static int usart_sam_poll_in(const struct device *dev, unsigned char *c)
 	Usart * const usart = config->regs;
 
 	if (!(usart->US_CSR & US_CSR_RXRDY)) {
-		return -EBUSY;
+		return -1;
 	}
 
 	/* got a character */
@@ -579,7 +579,7 @@ static const struct uart_driver_api usart_sam_driver_api = {
 	static const struct usart_sam_dev_cfg usart##n##_sam_config;	\
 									\
 	DEVICE_DT_INST_DEFINE(n,					\
-			    &usart_sam_init, NULL,			\
+			    usart_sam_init, NULL,			\
 			    &usart##n##_sam_data,			\
 			    &usart##n##_sam_config, PRE_KERNEL_1,	\
 			    CONFIG_SERIAL_INIT_PRIORITY,		\

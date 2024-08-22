@@ -20,8 +20,8 @@ static K_MUTEX_DEFINE(sock_obj_mutex);
 /* Allocate some extra socket objects so that we can track
  * closed sockets and get some historical statistics.
  */
-static struct sock_obj sock_objects[CONFIG_POSIX_MAX_FDS * 2] = {
-	[0 ... ((CONFIG_POSIX_MAX_FDS * 2) - 1)] = {
+static struct sock_obj sock_objects[CONFIG_ZVFS_OPEN_MAX * 2] = {
+	[0 ... ((CONFIG_ZVFS_OPEN_MAX * 2) - 1)] = {
 		.fd = -1,
 		.init_done = false,
 	}
@@ -158,9 +158,11 @@ out:
 	return ret;
 }
 
-int sock_obj_core_alloc_find(int sock, int new_sock, int family, int type)
+int sock_obj_core_alloc_find(int sock, int new_sock, int type)
 {
 	struct net_socket_register *reg = NULL;
+	socklen_t optlen = sizeof(int);
+	int family;
 	int ret;
 
 	if (new_sock < 0) {
@@ -169,6 +171,12 @@ int sock_obj_core_alloc_find(int sock, int new_sock, int family, int type)
 
 	ret = sock_obj_core_get_reg_and_proto(sock, &reg);
 	if (ret < 0) {
+		goto out;
+	}
+
+	ret = zsock_getsockopt(sock, SOL_SOCKET, SO_DOMAIN, &family, &optlen);
+	if (ret < 0) {
+		NET_ERR("Cannot get socket domain (%d)", -errno);
 		goto out;
 	}
 

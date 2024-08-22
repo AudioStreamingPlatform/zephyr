@@ -21,6 +21,8 @@ extern "C" {
 /**
  * @brief CoAP Manager Events
  * @defgroup coap_mgmt CoAP Manager Events
+ * @since 3.6
+ * @version 0.1.0
  * @ingroup networking
  * @{
  */
@@ -38,8 +40,6 @@ struct coap_service;
 struct coap_resource;
 struct coap_observer;
 
-/** @endcond */
-
 enum net_event_coap_cmd {
 	/* Service events */
 	NET_EVENT_COAP_CMD_SERVICE_STARTED = 1,
@@ -48,6 +48,8 @@ enum net_event_coap_cmd {
 	NET_EVENT_COAP_CMD_OBSERVER_ADDED,
 	NET_EVENT_COAP_CMD_OBSERVER_REMOVED,
 };
+
+/** @endcond */
 
 /**
  * @brief coap_mgmt event raised when a service has started
@@ -77,7 +79,7 @@ enum net_event_coap_cmd {
  * @brief CoAP Service event structure.
  */
 struct net_event_coap_service {
-	/* The CoAP service for which the event is emitted */
+	/** The CoAP service for which the event is emitted */
 	const struct coap_service *service;
 };
 
@@ -85,9 +87,9 @@ struct net_event_coap_service {
  * @brief CoAP Observer event structure.
  */
 struct net_event_coap_observer {
-	/* The CoAP resource for which the event is emitted */
+	/** The CoAP resource for which the event is emitted */
 	struct coap_resource *resource;
-	/* The observer that is added/removed */
+	/** The observer that is added/removed */
 	struct coap_observer *observer;
 };
 

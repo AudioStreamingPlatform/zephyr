@@ -66,10 +66,13 @@ with open(ZEPHYR_BASE / "VERSION") as f:
 
 release = version
 
+# parse SDK version from 'SDK_VERSION' file
+with open(ZEPHYR_BASE / "SDK_VERSION") as f:
+    sdk_version = f.read().strip()
+
 # -- General configuration ------------------------------------------------
 
 extensions = [
-    "breathe",
     "sphinx_rtd_theme",
     "sphinx.ext.todo",
     "sphinx.ext.extlinks",
@@ -82,8 +85,9 @@ extensions = [
     "zephyr.dtcompatible-role",
     "zephyr.link-roles",
     "sphinx_tabs.tabs",
-    "zephyr.warnings_filter",
+    "sphinx_sitemap",
     "zephyr.doxyrunner",
+    "zephyr.doxybridge",
     "zephyr.gh_utils",
     "zephyr.manifest_projects_table",
     "notfound.extension",
@@ -91,11 +95,16 @@ extensions = [
     "sphinx_togglebutton",
     "zephyr.external_content",
     "zephyr.domain",
+    "zephyr.api_overview",
 ]
 
-# Only use SVG converter when it is really needed, e.g. LaTeX.
-if tags.has("svgconvert"):  # pylint: disable=undefined-variable
+# Only use image conversion when it is really needed, e.g. LaTeX build.
+# Ensure "sphinxcontrib.rsvgconverter" is added before "sphinx.ext.imgconverter"
+# as it's better at converting SVG with extended features (like the ones from
+# draw.io) to PDF format).
+if tags.has("convertimages"):  # pylint: disable=undefined-variable
     extensions.append("sphinxcontrib.rsvgconverter")
+    extensions.append("sphinx.ext.imgconverter")
 
 templates_path = ["_templates"]
 
@@ -131,8 +140,22 @@ nitpick_ignore = [
     ("c:identifier", "va_list"),
 ]
 
-rst_epilog = """
+SDK_URL_BASE="https://github.com/zephyrproject-rtos/sdk-ng/releases/download"
+
+rst_epilog = f"""
 .. include:: /substitutions.txt
+
+.. |sdk-version-literal| replace:: ``{sdk_version}``
+.. |sdk-version-trim| unicode:: {sdk_version}
+   :trim:
+.. |sdk-version-ltrim| unicode:: {sdk_version}
+   :ltrim:
+.. _Zephyr SDK bundle: https://github.com/zephyrproject-rtos/sdk-ng/releases/tag/v{sdk_version}
+.. |sdk-url-linux| replace:: `{SDK_URL_BASE}/v{sdk_version}/zephyr-sdk-{sdk_version}_linux-x86_64.tar.xz`
+.. |sdk-url-linux-sha| replace:: `{SDK_URL_BASE}/v{sdk_version}/sha256.sum`
+.. |sdk-url-macos| replace:: `{SDK_URL_BASE}/v{sdk_version}/zephyr-sdk-{sdk_version}_macos-x86_64.tar.xz`
+.. |sdk-url-macos-sha| replace:: `{SDK_URL_BASE}/v{sdk_version}/sha256.sum`
+.. |sdk-url-windows| replace:: `{SDK_URL_BASE}/v{sdk_version}/zephyr-sdk-{sdk_version}_windows-x86_64.7z`
 """
 
 # -- Options for HTML output ----------------------------------------------
@@ -169,9 +192,9 @@ html_context = {
     "current_version": version,
     "versions": (
         ("latest", "/"),
-        ("3.5.0", "/3.5.0/"),
-        ("3.4.0", "/3.4.0/"),
-        ("2.7.5 (LTS)", "/2.7.5/"),
+        ("3.7.0 (LTS)", "/3.7.0/"),
+        ("3.6.0", "/3.6.0/"),
+        ("2.7.6 (LTS)", "/2.7.6/"),
     ),
     "display_gh_links": True,
     "reference_links": {
@@ -225,40 +248,13 @@ doxyrunner_fmt = True
 doxyrunner_fmt_vars = {"ZEPHYR_BASE": str(ZEPHYR_BASE), "ZEPHYR_VERSION": version}
 doxyrunner_outdir_var = "DOXY_OUT"
 
-# -- Options for Breathe plugin -------------------------------------------
+# -- Options for zephyr.doxybridge plugin ---------------------------------
 
-breathe_projects = {"Zephyr": str(doxyrunner_outdir / "xml")}
-breathe_default_project = "Zephyr"
-breathe_domain_by_extension = {
-    "h": "c",
-    "c": "c",
-}
-breathe_show_enumvalue_initializer = True
-breathe_default_members = ("members", )
-
-cpp_id_attributes = [
-    "__syscall",
-    "__syscall_always_inline",
-    "__deprecated",
-    "__may_alias",
-    "__used",
-    "__unused",
-    "__weak",
-    "__attribute_const__",
-    "__DEPRECATED_MACRO",
-    "FUNC_NORETURN",
-    "__subsystem",
-    "ALWAYS_INLINE",
-]
-c_id_attributes = cpp_id_attributes
+doxybridge_dir = doxyrunner_outdir
 
 # -- Options for html_redirect plugin -------------------------------------
 
 html_redirect_pages = redirects.REDIRECTS
-
-# -- Options for zephyr.warnings_filter -----------------------------------
-
-warnings_filter_config = str(ZEPHYR_BASE / "doc" / "known-warnings.txt")
 
 # -- Options for zephyr.link-roles ----------------------------------------
 
@@ -301,6 +297,7 @@ external_content_contents = [
     (ZEPHYR_BASE, "samples/**/doc"),
     (ZEPHYR_BASE, "snippets/**/*.rst"),
     (ZEPHYR_BASE, "snippets/**/doc"),
+    (ZEPHYR_BASE, "tests/**/*.pts"),
 ]
 external_content_keep = [
     "reference/kconfig/*",
@@ -332,6 +329,10 @@ graphviz_dot_args = [
 copybutton_prompt_text = r"\$ |uart:~\$ "
 copybutton_prompt_is_regexp = True
 
+# -- Options for sphinx-sitemap ----------------------------------------
+
+sitemap_url_scheme = "{link}"
+
 # -- Linkcheck options ----------------------------------------------------
 
 linkcheck_ignore = [
@@ -346,6 +347,9 @@ linkcheck_timeout = 30
 linkcheck_workers = 10
 linkcheck_anchors = False
 
+# -- Options for zephyr.api_overview --------------------------------------
+
+api_overview_doxygen_base_url = "../../doxygen/html"
 
 def setup(app):
     # theme customizations

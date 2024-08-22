@@ -54,6 +54,9 @@ static int mcux_sim_get_subsys_rate(const struct device *dev,
 	case KINETIS_SIM_ENET_CLK:
 		clock_name = kCLOCK_CoreSysClk;
 		break;
+	case KINETIS_SIM_ENET_1588_CLK:
+		clock_name = kCLOCK_Osc0ErClk;
+		break;
 	default:
 		clock_name = (clock_name_t) sub_system;
 		break;
@@ -107,7 +110,7 @@ static const struct clock_control_driver_api mcux_sim_driver_api = {
 };
 
 DEVICE_DT_DEFINE(NXP_KINETIS_SIM_NODE,
-		    &mcux_sim_init,
+		    mcux_sim_init,
 		    NULL,
 		    NULL, NULL,
 		    PRE_KERNEL_1, CONFIG_CLOCK_CONTROL_INIT_PRIORITY,

@@ -1,7 +1,7 @@
 /* main.c - Application main entry point */
 
 /*
- * Copyright (c) 2023 Nordic Semiconductor ASA
+ * Copyright (c) 2023-2024 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -15,39 +15,31 @@
 #include "cap_commander.h"
 #include "conn.h"
 #include "expects_util.h"
+#include "test_common.h"
 
 DEFINE_FFF_GLOBALS;
 
 static void mock_init_rule_before(const struct ztest_unit_test *test, void *fixture)
 {
-	mock_cap_commander_init();
+	test_mocks_init();
 }
 
 static void mock_destroy_rule_after(const struct ztest_unit_test *test, void *fixture)
 {
-	mock_cap_commander_cleanup();
+	test_mocks_cleanup();
 }
 
 ZTEST_RULE(mock_rule, mock_init_rule_before, mock_destroy_rule_after);
 
 struct cap_commander_test_suite_fixture {
-	struct bt_conn conn;
+	struct bt_conn conns[CONFIG_BT_MAX_CONN];
 };
-
-static void test_conn_init(struct bt_conn *conn)
-{
-	conn->index = 0;
-	conn->info.type = BT_CONN_TYPE_LE;
-	conn->info.role = BT_CONN_ROLE_PERIPHERAL;
-	conn->info.state = BT_CONN_STATE_CONNECTED;
-	conn->info.security.level = BT_SECURITY_L2;
-	conn->info.security.enc_key_size = BT_ENC_KEY_SIZE_MAX;
-	conn->info.security.flags = BT_SECURITY_FLAG_OOB | BT_SECURITY_FLAG_SC;
-}
 
 static void cap_commander_test_suite_fixture_init(struct cap_commander_test_suite_fixture *fixture)
 {
-	test_conn_init(&fixture->conn);
+	for (size_t i = 0; i < ARRAY_SIZE(fixture->conns); i++) {
+		test_conn_init(&fixture->conns[i]);
+	}
 }
 
 static void *cap_commander_test_suite_setup(void)
@@ -68,7 +60,13 @@ static void cap_commander_test_suite_before(void *f)
 
 static void cap_commander_test_suite_after(void *f)
 {
+	struct cap_commander_test_suite_fixture *fixture = f;
+
 	bt_cap_commander_unregister_cb(&mock_cap_commander_cb);
+
+	for (size_t i = 0; i < ARRAY_SIZE(fixture->conns); i++) {
+		mock_bt_conn_disconnected(&fixture->conns[i], BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+	}
 }
 
 static void cap_commander_test_suite_teardown(void *f)
@@ -147,10 +145,12 @@ ZTEST_F(cap_commander_test_suite, test_commander_discover)
 	err = bt_cap_commander_register_cb(&mock_cap_commander_cb);
 	zassert_equal(0, err, "Unexpected return value %d", err);
 
-	err = bt_cap_commander_discover(&fixture->conn);
-	zassert_equal(0, err, "Unexpected return value %d", err);
+	for (size_t i = 0; i < ARRAY_SIZE(fixture->conns); i++) {
+		err = bt_cap_commander_discover(&fixture->conns[i]);
+		zassert_equal(0, err, "Unexpected return value %d", err);
+	}
 
-	zexpect_call_count("bt_cap_commander_cb.discovery_complete", 1,
+	zexpect_call_count("bt_cap_commander_cb.discovery_complete", ARRAY_SIZE(fixture->conns),
 			   mock_cap_commander_discovery_complete_cb_fake.call_count);
 }
 

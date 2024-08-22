@@ -79,29 +79,6 @@ K_PIPE_DEFINE(PIPE_BIGBUFF, 4096, 4);
  */
 
 /**
- * @brief Change a thread's priority
- *
- * Unlike the normal k_thread_priority_set(), this custom syscall allows
- * a user thread to raise its priority.
- */
-void z_impl_test_thread_priority_set(k_tid_t thread, int prio)
-{
-	extern void z_thread_priority_set(struct k_thread *thread, int prio);
-
-	z_thread_priority_set((struct k_thread *)thread, prio);
-}
-
-
-#ifdef CONFIG_USERSPACE
-static void z_vrfy_test_thread_priority_set(k_tid_t thread, int prio)
-{
-	z_impl_test_thread_priority_set(thread, prio);
-}
-
-#include <syscalls/test_thread_priority_set_mrsh.c>
-#endif
-
-/**
  * @brief Obtain a timestamp
  *
  * Architecture timestamp routines often require MMIO that is not mapped to
@@ -118,7 +95,7 @@ static timing_t z_vrfy_timing_timestamp_get(void)
 	return z_impl_timing_timestamp_get();
 }
 
-#include <syscalls/timing_timestamp_get_mrsh.c>
+#include <zephyr/syscalls/timing_timestamp_get_mrsh.c>
 #endif
 
 /*

@@ -30,7 +30,11 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME, CONFIG_BTTESTER_LOG_LEVEL);
 #define CONTROLLER_NAME "btp_tester"
 
 #define BT_LE_AD_DISCOV_MASK (BT_LE_AD_LIMITED | BT_LE_AD_GENERAL)
+#if defined(CONFIG_BT_EXT_ADV)
+#define ADV_BUF_LEN (sizeof(struct btp_gap_device_found_ev) + 2 * CONFIG_BT_EXT_SCAN_BUF_SIZE)
+#else
 #define ADV_BUF_LEN (sizeof(struct btp_gap_device_found_ev) + 2 * 31)
+#endif
 
 static atomic_t current_settings;
 struct bt_conn_auth_cb cb;
@@ -228,6 +232,7 @@ static uint8_t supported_commands(const void *cmd, uint16_t cmd_len,
 	tester_set_bit(rp->data, BTP_GAP_READ_SUPPORTED_COMMANDS);
 	tester_set_bit(rp->data, BTP_GAP_READ_CONTROLLER_INDEX_LIST);
 	tester_set_bit(rp->data, BTP_GAP_READ_CONTROLLER_INFO);
+	tester_set_bit(rp->data, BTP_GAP_SET_POWERED);
 	tester_set_bit(rp->data, BTP_GAP_SET_CONNECTABLE);
 
 	/* octet 1 */
@@ -449,6 +454,37 @@ static uint8_t set_oob_sc_remote_data(const void *cmd, uint16_t cmd_len,
 }
 #endif /* !defined(CONFIG_BT_SMP_OOB_LEGACY_PAIR_ONLY) */
 
+static uint8_t set_powered(const void *cmd, uint16_t cmd_len,
+					void *rsp, uint16_t *rsp_len)
+{
+	const struct btp_gap_set_powered_cmd *cp = cmd;
+	struct btp_gap_set_powered_rp *rp = rsp;
+	int err;
+
+	if (cp->powered) {
+		err = bt_enable(NULL);
+		if (err < 0) {
+			LOG_ERR("Unable to enable Bluetooth: %d", err);
+			return BTP_STATUS_FAILED;
+		}
+		bt_conn_cb_register(&conn_callbacks);
+		atomic_set_bit(&current_settings, BTP_GAP_SETTINGS_POWERED);
+	} else {
+		err = bt_disable();
+		if (err < 0) {
+			LOG_ERR("Unable to disable Bluetooth: %d", err);
+			return BTP_STATUS_FAILED;
+		}
+		bt_conn_cb_unregister(&conn_callbacks);
+		atomic_clear_bit(&current_settings, BTP_GAP_SETTINGS_POWERED);
+	}
+	rp->current_settings = sys_cpu_to_le32(current_settings);
+
+	*rsp_len = sizeof(*rp);
+
+	return BTP_STATUS_SUCCESS;
+}
+
 static uint8_t set_connectable(const void *cmd, uint16_t cmd_len,
 			       void *rsp, uint16_t *rsp_len)
 {
@@ -596,7 +632,7 @@ int tester_gap_create_adv_instance(struct bt_le_adv_param *param, uint8_t own_ad
 		break;
 #if defined(CONFIG_BT_PRIVACY)
 	case BTP_GAP_ADDR_TYPE_RESOLVABLE_PRIVATE:
-		/* RPA usage is is controlled via privacy settings */
+		/* RPA usage is controlled via privacy settings */
 		if (!atomic_test_bit(&current_settings, BTP_GAP_SETTINGS_PRIVACY)) {
 			return -EINVAL;
 		}
@@ -616,6 +652,11 @@ int tester_gap_create_adv_instance(struct bt_le_adv_param *param, uint8_t own_ad
 	    BTP_GAP_SETTINGS_EXTENDED_ADVERTISING)) {
 		param->options |= BT_LE_ADV_OPT_EXT_ADV;
 		if (ext_adv != NULL) {
+			err = bt_le_ext_adv_stop(ext_adv);
+			if (err != 0) {
+				return err;
+			}
+
 			err = bt_le_ext_adv_delete(ext_adv);
 			if (err != 0) {
 				return err;
@@ -1563,11 +1604,8 @@ static uint8_t padv_set_data(const void *cmd, uint16_t cmd_len,
 	}
 
 	err = tester_gap_padv_set_data(padv, padv_len);
-	if (err != 0) {
-		return BTP_STATUS_FAILED;
-	}
 
-	return BTP_STATUS_SUCCESS;
+	return BTP_STATUS_VAL(err);
 }
 
 int tester_gap_padv_create_sync(struct bt_le_per_adv_sync_param *create_params)
@@ -1625,11 +1663,8 @@ static uint8_t padv_create_sync(const void *cmd, uint16_t cmd_len,
 	}
 
 	err = tester_gap_padv_create_sync(&create_params);
-	if (err != 0) {
-		return BTP_STATUS_FAILED;
-	}
 
-	return BTP_STATUS_SUCCESS;
+	return BTP_STATUS_VAL(err);
 }
 
 static uint8_t padv_sync_transfer_set_info(const void *cmd, uint16_t cmd_len,
@@ -1683,6 +1718,11 @@ static const struct btp_handler handlers[] = {
 		.opcode = BTP_GAP_READ_CONTROLLER_INFO,
 		.expect_len = 0,
 		.func = controller_info,
+	},
+	{
+		.opcode = BTP_GAP_SET_POWERED,
+		.expect_len = sizeof(struct btp_gap_set_powered_cmd),
+		.func = set_powered,
 	},
 	{
 		.opcode = BTP_GAP_SET_CONNECTABLE,

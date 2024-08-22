@@ -74,6 +74,15 @@
 			#include "i2c.dtsi"
 		};
 
+		test_pwm: pwm@12341234 {
+			compatible = "vnd,pwm";
+			reg = <0x12341234 0x1000>;
+			#pwm-cells = <3>;
+			status = "okay";
+
+			#include "pwm.dtsi"
+		};
+
 		test_spi: spi@33334444 {
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -120,10 +129,16 @@
 				   <&test_gpio 0 0>,
 				   <&test_gpio 0 0>,
 				   <&test_gpio 0 0>,
-				   <&test_gpio 0 0>,	/* 0x25 */
-				   <&test_gpio 0 0>,	/* 0x26 */
-				   <&test_gpio 0 0>,	/* 0x27 */
-				   <&test_gpio 0 0>;	/* 0x28 */
+				   <&test_gpio 0 0>,
+				   <&test_gpio 0 0>,
+				   <&test_gpio 0 0>,
+				   <&test_gpio 0 0>,
+				   <&test_gpio 0 0>,
+				   <&test_gpio 0 0>,
+				   <&test_gpio 0 0>,
+				   <&test_gpio 0 0>,
+				   <&test_gpio 0 0>,
+				   <&test_gpio 0 0>;	/* 0x2e */
 
 			#include "spi.dtsi"
 		};

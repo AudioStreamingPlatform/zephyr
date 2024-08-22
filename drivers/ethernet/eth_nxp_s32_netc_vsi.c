@@ -1,5 +1,5 @@
 /*
- * Copyright 2022-2023 NXP
+ * Copyright 2022-2024 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -37,11 +37,6 @@ static void nxp_s32_eth_iface_init(struct net_if *iface)
 	struct nxp_s32_eth_data *ctx = dev->data;
 	const struct nxp_s32_eth_config *cfg = dev->config;
 	const struct nxp_s32_eth_msix *msix;
-#if defined(CONFIG_NET_IPV6)
-	static struct net_if_mcast_monitor mon;
-
-	net_if_mcast_mon_register(&mon, iface, nxp_s32_eth_mcast_cb);
-#endif /* CONFIG_NET_IPV6 */
 
 	/*
 	 * For VLAN, this value is only used to get the correct L2 driver.
@@ -66,9 +61,10 @@ static void nxp_s32_eth_iface_init(struct net_if *iface)
 
 	for (int i = 0; i < NETC_MSIX_EVENTS_COUNT; i++) {
 		msix = &cfg->msix[i];
-		if (msix->mbox_channel.dev != NULL) {
-			if (mbox_set_enabled(&msix->mbox_channel, true)) {
-				LOG_ERR("Failed to enable MRU channel %u", msix->mbox_channel.id);
+		if (mbox_is_ready_dt(&msix->mbox_spec)) {
+			if (mbox_set_enabled_dt(&msix->mbox_spec, true)) {
+				LOG_ERR("Failed to enable MRU channel %u",
+					msix->mbox_spec.channel_id);
 			}
 		}
 	}
@@ -86,7 +82,7 @@ BUILD_ASSERT(DT_NUM_INST_STATUS_OKAY(nxp_s32_netc_vsi) == 1, "Only one VSI enabl
 #define NETC_VSI_INSTANCE_DEFINE(n)								\
 	NETC_GENERATE_MAC_ADDRESS(n)								\
 												\
-	void nxp_s32_eth_vsi##n##_rx_event(uint8_t chan, const uint32_t *buf, uint8_t buf_size)	\
+	void nxp_s32_eth_vsi##n##_rx_event(uint8_t chan, const uint32 *buf, uint8_t buf_size)	\
 	{											\
 		Netc_Eth_Ip_MSIX_Rx(NETC_SI_NXP_S32_HW_INSTANCE(n));				\
 	}											\
@@ -102,10 +98,10 @@ BUILD_ASSERT(DT_NUM_INST_STATUS_OKAY(nxp_s32_netc_vsi) == 1, "Only one VSI enabl
 		}										\
 	}											\
 												\
-	static Netc_Eth_Ip_StateType nxp_s32_eth##n##_state;					\
-	Netc_Eth_Ip_VsiToPsiMsgType nxp_s32_eth##n##_vsi2psi_msg				\
+	static __nocache Netc_Eth_Ip_StateType nxp_s32_eth##n##_state;				\
+	__nocache Netc_Eth_Ip_VsiToPsiMsgType nxp_s32_eth##n##_vsi2psi_msg			\
 		__aligned(FEATURE_NETC_ETH_VSI_MSG_ALIGNMENT);					\
-	static Netc_Eth_Ip_MACFilterHashTableEntryType						\
+	static __nocache Netc_Eth_Ip_MACFilterHashTableEntryType				\
 	nxp_s32_eth##n##_mac_filter_hash_table[CONFIG_ETH_NXP_S32_MAC_FILTER_TABLE_SIZE];	\
 												\
 	NETC_RX_RING(n, TX_RING_IDX, CONFIG_ETH_NXP_S32_RX_RING_LEN,				\
@@ -141,7 +137,8 @@ BUILD_ASSERT(DT_NUM_INST_STATUS_OKAY(nxp_s32_netc_vsi) == 1, "Only one VSI enabl
 		.NumberOfRxBDR = 1,								\
 		.NumberOfTxBDR = 1,								\
 		.txMruMailboxAddr = NULL,							\
-		.rxMruMailboxAddr = (uint32_t *)MRU_MBOX_ADDR(DT_DRV_INST(n), rx),		\
+		.rxMruMailboxAddr = (uint32 *)MRU_MBOX_ADDR(DT_DRV_INST(n), rx),		\
+		.EnableSIMsgInterrupt = true,							\
 		.RxInterrupts = (uint32_t)true,							\
 		.TxInterrupts = (uint32_t)false,						\
 		.MACFilterTableMaxNumOfEntries = CONFIG_ETH_NXP_S32_MAC_FILTER_TABLE_SIZE,	\

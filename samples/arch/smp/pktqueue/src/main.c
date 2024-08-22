@@ -5,7 +5,27 @@
  */
 
 #include "pktqueue.h"
-#include "main.h"
+
+/* Amount of parallel processed sender/receiver queues of packet headers */
+#define QUEUE_NUM 2
+
+/* Amount of execution threads per pair of queues*/
+#define THREADS_NUM (CONFIG_MP_MAX_NUM_CPUS+1)
+
+/* Amount of packet headers in a queue */
+#define SIZE_OF_QUEUE 5000
+
+/* Size of packet header (in bytes) */
+#define SIZE_OF_HEADER 24
+
+/* CRC16 polynomial */
+#define POLYNOMIAL 0x8005
+
+/* CRC bytes in the packet */
+#define CRC_BYTE_1 10
+#define CRC_BYTE_2 11
+
+#define STACK_SIZE	2048
 
 static struct k_thread tthread[THREADS_NUM*QUEUE_NUM];
 static struct k_thread qthread[QUEUE_NUM];
@@ -45,7 +65,7 @@ void init_datagram_queue(struct phdr_desc_queue *queue, int queue_num)
 		for (int j = 0; j < SIZE_OF_HEADER; j++) {
 			/* leave crc field zeroed */
 			if (j < CRC_BYTE_1 || j > CRC_BYTE_2) {
-				descriptors[queue_num][i].ptr[j] = (uint8_t)sys_rand32_get();
+				descriptors[queue_num][i].ptr[j] = sys_rand8_get();
 			} else {
 				descriptors[queue_num][i].ptr[j] = 0;
 			}

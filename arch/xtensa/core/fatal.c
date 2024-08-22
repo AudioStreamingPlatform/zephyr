@@ -16,7 +16,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(os, CONFIG_KERNEL_LOG_LEVEL);
 
-#ifdef XT_SIMULATOR
+#if defined(CONFIG_SIMULATOR_XTENSA) || defined(XT_SIMULATOR)
 #include <xtensa/simcall.h>
 #endif
 
@@ -84,10 +84,10 @@ char *xtensa_exccause(unsigned int cause_code)
 #endif
 }
 
-void xtensa_fatal_error(unsigned int reason, const z_arch_esf_t *esf)
+void xtensa_fatal_error(unsigned int reason, const struct arch_esf *esf)
 {
 #ifdef CONFIG_EXCEPTION_DEBUG
-	if (esf) {
+	if (esf != NULL) {
 		/* Don't want to get elbowed by xtensa_switch
 		 * in between printing registers and dumping them;
 		 * corrupts backtrace
@@ -109,8 +109,8 @@ void xtensa_fatal_error(unsigned int reason, const z_arch_esf_t *esf)
 	z_fatal_error(reason, esf);
 }
 
-#ifdef XT_SIMULATOR
-void exit(int return_code)
+#if defined(CONFIG_SIMULATOR_XTENSA) || defined(XT_SIMULATOR)
+void xtensa_simulator_exit(int return_code)
 {
 	__asm__ (
 	    "mov a3, %[code]\n\t"
@@ -119,21 +119,19 @@ void exit(int return_code)
 	    :
 	    : [code] "r" (return_code), [call] "i" (SYS_exit)
 	    : "a3", "a2");
-}
-#endif
 
-#ifdef XT_SIMULATOR
-FUNC_NORETURN void z_system_halt(unsigned int reason)
+	CODE_UNREACHABLE;
+}
+
+FUNC_NORETURN void arch_system_halt(unsigned int reason)
 {
-	exit(255 - reason);
+	xtensa_simulator_exit(255 - reason);
 	CODE_UNREACHABLE;
 }
 #endif
 
 FUNC_NORETURN void arch_syscall_oops(void *ssf)
 {
-	ARG_UNUSED(ssf);
-
 	xtensa_arch_kernel_oops(K_ERR_KERNEL_OOPS, ssf);
 
 	CODE_UNREACHABLE;
@@ -156,6 +154,6 @@ static void z_vrfy_xtensa_user_fault(unsigned int reason)
 	z_impl_xtensa_user_fault(reason);
 }
 
-#include <syscalls/xtensa_user_fault_mrsh.c>
+#include <zephyr/syscalls/xtensa_user_fault_mrsh.c>
 
 #endif /* CONFIG_USERSPACE */

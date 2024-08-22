@@ -156,6 +156,8 @@ class Leshan:
             return 'integer'
         if isinstance(value, datetime):
             return 'time'
+        if isinstance(value, bytes):
+            return 'opaque'
         return 'string'
 
     @classmethod
@@ -163,6 +165,8 @@ class Leshan:
         """Wrapper for special types that are not understood by Json"""
         if isinstance(value, datetime):
             return int(value.timestamp())
+        elif isinstance(value, bytes):
+            return binascii.b2a_hex(value).decode()
         else:
             return value
 
@@ -416,7 +420,7 @@ class Leshan:
         Events are notifications, updates and sends.
 
         The event stream must be closed after the use, so this must be used in 'with' statement like this:
-            with leshan.get_event_stream('native_posix') as events:
+            with leshan.get_event_stream('native_sim') as events:
                 data = events.next_event('SEND')
 
         If timeout happens, the event streams returns None.

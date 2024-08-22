@@ -4,24 +4,39 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/bluetooth/audio/pacs.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <zephyr/bluetooth/audio/audio.h>
+#include <zephyr/bluetooth/audio/lc3.h>
+#include <zephyr/bluetooth/audio/pacs.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/gap.h>
+#include <zephyr/bluetooth/gatt.h>
+#include <zephyr/bluetooth/uuid.h>
+#include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/logging/log_core.h>
+#include <zephyr/sys/__assert.h>
+#include <zephyr/sys/util.h>
+
+#include "bstests.h"
 #include "common.h"
 
-#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(pacs_notify_server_test, LOG_LEVEL_DBG);
 
 extern enum bst_result_t bst_result;
 
 static struct bt_audio_codec_cap lc3_codec_1 =
-	BT_AUDIO_CODEC_CAP_LC3(BT_AUDIO_CODEC_LC3_FREQ_16KHZ | BT_AUDIO_CODEC_LC3_FREQ_24KHZ,
-			   BT_AUDIO_CODEC_LC3_DURATION_10,
-			   BT_AUDIO_CODEC_LC3_CHAN_COUNT_SUPPORT(1), 40u, 60u, 1u,
+	BT_AUDIO_CODEC_CAP_LC3(BT_AUDIO_CODEC_CAP_FREQ_16KHZ | BT_AUDIO_CODEC_CAP_FREQ_24KHZ,
+			   BT_AUDIO_CODEC_CAP_DURATION_10,
+			   BT_AUDIO_CODEC_CAP_CHAN_COUNT_SUPPORT(1), 40u, 60u, 1u,
 			   BT_AUDIO_CONTEXT_TYPE_ANY);
 static struct bt_audio_codec_cap lc3_codec_2 =
-	BT_AUDIO_CODEC_CAP_LC3(BT_AUDIO_CODEC_LC3_FREQ_16KHZ,
-			   BT_AUDIO_CODEC_LC3_DURATION_10,
-			   BT_AUDIO_CODEC_LC3_CHAN_COUNT_SUPPORT(1), 40u, 60u, 1u,
+	BT_AUDIO_CODEC_CAP_LC3(BT_AUDIO_CODEC_CAP_FREQ_16KHZ,
+			   BT_AUDIO_CODEC_CAP_DURATION_10,
+			   BT_AUDIO_CODEC_CAP_CHAN_COUNT_SUPPORT(1), 40u, 60u, 1u,
 			   BT_AUDIO_CONTEXT_TYPE_ANY);
 static struct bt_pacs_cap                    caps_1 = {
 	.codec_cap = &lc3_codec_1,
@@ -176,7 +191,7 @@ static void test_main(void)
 	}
 
 	LOG_DBG("Start Advertising");
-	err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
+	err = bt_le_adv_start(BT_LE_ADV_CONN_ONE_TIME, ad, ARRAY_SIZE(ad), NULL, 0);
 	if (err != 0) {
 		FAIL("Advertising failed to start (err %d)", err);
 		return;
@@ -210,7 +225,7 @@ static void test_main(void)
 	trigger_notifications();
 
 	LOG_DBG("Start Advertising");
-	err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
+	err = bt_le_adv_start(BT_LE_ADV_CONN_ONE_TIME, ad, ARRAY_SIZE(ad), NULL, 0);
 	if (err != 0) {
 		FAIL("Advertising failed to start (err %d)", err);
 		return;
@@ -227,7 +242,7 @@ static void test_main(void)
 	}
 
 	LOG_DBG("Start Advertising");
-	err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
+	err = bt_le_adv_start(BT_LE_ADV_CONN_ONE_TIME, ad, ARRAY_SIZE(ad), NULL, 0);
 	if (err != 0) {
 		FAIL("Advertising failed to start (err %d)", err);
 		return;
@@ -261,7 +276,7 @@ static void test_main(void)
 	}
 
 	LOG_DBG("Start Advertising");
-	err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
+	err = bt_le_adv_start(BT_LE_ADV_CONN_ONE_TIME, ad, ARRAY_SIZE(ad), NULL, 0);
 	if (err != 0) {
 		FAIL("Advertising failed to start (err %d)", err);
 		return;
@@ -282,7 +297,7 @@ static void test_main(void)
 static const struct bst_test_instance test_pacs_notify_server[] = {
 	{
 		.test_id = "pacs_notify_server",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_main,
 	},

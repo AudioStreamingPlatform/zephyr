@@ -433,9 +433,6 @@ static int i2c_gd32_transfer(const struct device *dev,
 			if (current->flags & I2C_MSG_STOP) {
 				return -EINVAL;
 			}
-		} else {
-			/* Last message flags implicitly contain I2C_MSG_STOP flag. */
-			current->flags |= I2C_MSG_STOP;
 		}
 
 		if ((current->buf == NULL) ||
@@ -644,7 +641,7 @@ error:
 	return err;
 }
 
-static struct i2c_driver_api i2c_gd32_driver_api = {
+static const struct i2c_driver_api i2c_gd32_driver_api = {
 	.configure = i2c_gd32_configure,
 	.transfer = i2c_gd32_transfer,
 };

@@ -576,7 +576,7 @@ static int offload_poll(struct zsock_pollfd *fds, int nfds, int msecs)
 		}
 
 		/* If vtable matches, then it's modem socket. */
-		obj = z_get_fd_obj(fds[i].fd,
+		obj = zvfs_get_fd_obj(fds[i].fd,
 				   (const struct fd_op_vtable *)&offload_socket_fd_op_vtable,
 				   EINVAL);
 		if (obj == NULL) {
@@ -750,7 +750,7 @@ static int offload_getaddrinfo(const char *node, const char *service,
 static void offload_freeaddrinfo(struct zsock_addrinfo *res)
 {
 	/* No need to free static memory. */
-	res = NULL;
+	ARG_UNUSED(res);
 }
 
 /*

@@ -56,13 +56,13 @@
 			clocks = <&rcc STM32_CLOCK_BUS_APB1 0x04000000>; //RCC_APB1ENR1_CAN2EN
 			master-can-reg = <0x40006400>;
 			status = "disabled";
-			sample-point = <875>;
 		};
 
 		aes: aes@50060000 {
 			compatible = "st,stm32-aes";
 			reg = <0x50060000 0x400>;
 			clocks = <&rcc STM32_CLOCK_BUS_AHB2 0x00010000>;
+			resets = <&rctl STM32_RESET(AHB2, 16U)>;
 			interrupts = <79 0>;
 			interrupt-names = "aes";
 			status = "disabled";

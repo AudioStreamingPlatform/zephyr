@@ -3,17 +3,34 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include <errno.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
-#if defined(CONFIG_BT_CAP_ACCEPTOR)
-
-#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/autoconf.h>
+#include <zephyr/bluetooth/audio/audio.h>
+#include <zephyr/bluetooth/audio/bap.h>
 #include <zephyr/bluetooth/audio/bap_lc3_preset.h>
 #include <zephyr/bluetooth/audio/cap.h>
+#include <zephyr/bluetooth/audio/csip.h>
+#include <zephyr/bluetooth/audio/lc3.h>
 #include <zephyr/bluetooth/audio/pacs.h>
 #include <zephyr/bluetooth/audio/gmap.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/gap.h>
+#include <zephyr/bluetooth/uuid.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/sys/util_macro.h>
+
+#include "bstests.h"
 #include "common.h"
 #include "bap_common.h"
 
+#if defined(CONFIG_BT_CAP_ACCEPTOR)
 extern enum bst_result_t bst_result;
 
 #define CONTEXT  (BT_AUDIO_CONTEXT_TYPE_UNSPECIFIED | BT_AUDIO_CONTEXT_TYPE_GAME)
@@ -22,8 +39,8 @@ extern enum bst_result_t bst_result;
 static uint8_t csis_rank = 1;
 
 static struct bt_audio_codec_cap codec_cap =
-	BT_AUDIO_CODEC_CAP_LC3(BT_AUDIO_CODEC_LC3_FREQ_ANY, BT_AUDIO_CODEC_LC3_DURATION_ANY,
-			       BT_AUDIO_CODEC_LC3_CHAN_COUNT_SUPPORT(1, 2), 30, 240, 2, CONTEXT);
+	BT_AUDIO_CODEC_CAP_LC3(BT_AUDIO_CODEC_CAP_FREQ_ANY, BT_AUDIO_CODEC_CAP_DURATION_ANY,
+			       BT_AUDIO_CODEC_CAP_CHAN_COUNT_SUPPORT(1, 2), 30, 240, 2, CONTEXT);
 
 static const struct bt_audio_codec_qos_pref unicast_qos_pref =
 	BT_AUDIO_CODEC_QOS_PREF(true, BT_GAP_LE_PHY_2M, 0U, 60U, 10000U, 60000U, 10000U, 60000U);
@@ -362,8 +379,8 @@ static void test_main(void)
 			.rank = csis_rank,
 			.lockable = true,
 			/* Using the CSIP_SET_MEMBER test sample SIRK */
-			.set_sirk = {0xcd, 0xcc, 0x72, 0xdd, 0x86, 0x8c, 0xcd, 0xce, 0x22, 0xfd,
-				     0xa1, 0x21, 0x09, 0x7d, 0x7d, 0x45},
+			.sirk = { 0xcd, 0xcc, 0x72, 0xdd, 0x86, 0x8c, 0xcd, 0xce,
+				  0x22, 0xfd, 0xa1, 0x21, 0x09, 0x7d, 0x7d, 0x45 },
 		};
 
 		err = bt_cap_acceptor_register(&csip_set_member_param, &csip_set_member);
@@ -416,8 +433,8 @@ static void test_main(void)
 		return;
 	}
 
-	err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, gmap_acceptor_ad, ARRAY_SIZE(gmap_acceptor_ad),
-			      NULL, 0);
+	err = bt_le_adv_start(BT_LE_ADV_CONN_ONE_TIME, gmap_acceptor_ad,
+			      ARRAY_SIZE(gmap_acceptor_ad), NULL, 0);
 	if (err != 0) {
 		FAIL("Advertising failed to start (err %d)\n", err);
 		return;
@@ -426,6 +443,7 @@ static void test_main(void)
 	WAIT_FOR_FLAG(flag_connected);
 
 	discover_gmas(default_conn);
+	discover_gmas(default_conn); /* test that we can discover twice */
 
 	WAIT_FOR_FLAG(flag_disconnected);
 
@@ -448,7 +466,7 @@ static void test_args(int argc, char *argv[])
 static const struct bst_test_instance test_gmap_ugt[] = {
 	{
 		.test_id = "gmap_ugt",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_main,
 		.test_args_f = test_args,

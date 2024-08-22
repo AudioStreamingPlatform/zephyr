@@ -59,24 +59,32 @@ static void iso_timer_timeout(struct k_work *work)
 		data_initialized = true;
 	}
 
-	buf = net_buf_alloc(&tx_pool, K_FOREVER);
-	net_buf_reserve(buf, BT_ISO_CHAN_SEND_RESERVE);
+	buf = net_buf_alloc(&tx_pool, K_NO_WAIT);
+	if (buf != NULL) {
+		net_buf_reserve(buf, BT_ISO_CHAN_SEND_RESERVE);
 
-	net_buf_add_mem(buf, buf_data, len_to_send);
+		net_buf_add_mem(buf, buf_data, len_to_send);
 
-	ret = bt_iso_chan_send(&iso_chan, buf, seq_num++, BT_ISO_TIMESTAMP_NONE);
+		ret = bt_iso_chan_send(&iso_chan, buf, seq_num);
 
-	if (ret < 0) {
-		printk("Failed to send ISO data (%d)\n", ret);
-		net_buf_unref(buf);
+		if (ret < 0) {
+			printk("Failed to send ISO data (%d)\n", ret);
+			net_buf_unref(buf);
+		}
+
+		len_to_send++;
+		if (len_to_send > ARRAY_SIZE(buf_data)) {
+			len_to_send = 1;
+		}
+	} else {
+		printk("Failed to allocate buffer, retrying in next interval (%u us)\n",
+		       interval_us);
 	}
+
+	/* Sequence number shall be incremented for each SDU interval */
+	seq_num++;
 
 	k_work_schedule(&iso_send_work, K_USEC(interval_us));
-
-	len_to_send++;
-	if (len_to_send > ARRAY_SIZE(buf_data)) {
-		len_to_send = 1;
-	}
 }
 
 static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
@@ -99,7 +107,7 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 	printk("Device found: %s (RSSI %d)\n", addr_str, rssi);
 
 	/* connect only to devices in close proximity */
-	if (rssi < -70) {
+	if (rssi < -50) {
 		return;
 	}
 
@@ -171,7 +179,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
 	if (err) {
-		printk("Failed to connect to %s (%u)\n", addr, err);
+		printk("Failed to connect to %s %u %s\n", addr, err, bt_hci_err_to_str(err));
 
 		bt_conn_unref(default_conn);
 		default_conn = NULL;
@@ -207,7 +215,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
-	printk("Disconnected: %s (reason 0x%02x)\n", addr, reason);
+	printk("Disconnected: %s, reason 0x%02x %s\n", addr, reason, bt_hci_err_to_str(reason));
 
 	bt_conn_unref(default_conn);
 	default_conn = NULL;

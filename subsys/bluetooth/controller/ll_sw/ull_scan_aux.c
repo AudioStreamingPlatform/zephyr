@@ -57,7 +57,7 @@ static inline struct ll_sync_iso_set *
 static void done_disabled_cb(void *param);
 static void flush_safe(void *param);
 static void flush(void *param);
-static void rx_release_put(struct node_rx_hdr *rx);
+static void rx_release_put(struct node_rx_pdu *rx);
 static void aux_sync_incomplete(void *param);
 static void ticker_cb(uint32_t ticks_at_expire, uint32_t ticks_drift,
 		      uint32_t remainder, uint16_t lazy, uint8_t force,
@@ -96,9 +96,9 @@ int ull_scan_aux_reset(void)
 	return 0;
 }
 
-void ull_scan_aux_setup(memq_link_t *link, struct node_rx_hdr *rx)
+void ull_scan_aux_setup(memq_link_t *link, struct node_rx_pdu *rx)
 {
-	struct node_rx_hdr *rx_incomplete;
+	struct node_rx_pdu *rx_incomplete;
 	struct ll_sync_iso_set *sync_iso;
 	struct pdu_adv_aux_ptr *aux_ptr;
 	struct pdu_adv_com_ext_adv *p;
@@ -126,13 +126,14 @@ void ull_scan_aux_setup(memq_link_t *link, struct node_rx_hdr *rx)
 	uint8_t acad_len;
 	uint8_t data_len;
 	uint8_t hdr_len;
+	uint32_t pdu_us;
 	uint8_t *ptr;
 	uint8_t phy;
 
 	is_scan_req = false;
 	ftr = &rx->rx_ftr;
 
-	switch (rx->type) {
+	switch (rx->hdr.type) {
 	case NODE_RX_TYPE_EXT_1M_REPORT:
 		lll_aux = NULL;
 		aux = NULL;
@@ -245,14 +246,14 @@ void ull_scan_aux_setup(memq_link_t *link, struct node_rx_hdr *rx)
 			/* Generate report based on PHY scanned */
 			switch (phy) {
 			case PHY_1M:
-				rx->type = NODE_RX_TYPE_EXT_1M_REPORT;
+				rx->hdr.type = NODE_RX_TYPE_EXT_1M_REPORT;
 				break;
 			case PHY_2M:
-				rx->type = NODE_RX_TYPE_EXT_2M_REPORT;
+				rx->hdr.type = NODE_RX_TYPE_EXT_2M_REPORT;
 				break;
 #if defined(CONFIG_BT_CTLR_PHY_CODED)
 			case PHY_CODED:
-				rx->type = NODE_RX_TYPE_EXT_CODED_REPORT;
+				rx->hdr.type = NODE_RX_TYPE_EXT_CODED_REPORT;
 				break;
 #endif /* CONFIG_BT_CTLR_PHY_CODED */
 			default:
@@ -269,8 +270,8 @@ void ull_scan_aux_setup(memq_link_t *link, struct node_rx_hdr *rx)
 #if defined(CONFIG_BT_CTLR_SYNC_PERIODIC)
 		} else {
 			/* Here we are periodic sync context */
-			rx->type = NODE_RX_TYPE_SYNC_REPORT;
-			rx->handle = ull_sync_handle_get(sync);
+			rx->hdr.type = NODE_RX_TYPE_SYNC_REPORT;
+			rx->hdr.handle = ull_sync_handle_get(sync);
 
 			/* Check if we need to create BIG sync */
 			sync_iso = sync_iso_create_get(sync);
@@ -294,7 +295,7 @@ void ull_scan_aux_setup(memq_link_t *link, struct node_rx_hdr *rx)
 			LL_ASSERT(!sync_lll->lll_aux);
 
 			ull_sync = HDR_LLL2ULL(sync_lll);
-			rx->handle = ull_sync_handle_get(ull_sync);
+			rx->hdr.handle = ull_sync_handle_get(ull_sync);
 
 			/* Check if we need to create BIG sync */
 			sync_iso = sync_iso_create_get(ull_sync);
@@ -326,12 +327,12 @@ void ull_scan_aux_setup(memq_link_t *link, struct node_rx_hdr *rx)
 		return;
 	}
 
-	rx->link = link;
+	rx->hdr.link = link;
 	ftr->extra = NULL;
 
 	ftr->aux_sched = 0U;
 
-	pdu = (void *)((struct node_rx_pdu *)rx)->pdu;
+	pdu = (void *)rx->pdu;
 	p = (void *)&pdu->adv_ext_ind;
 	if (!pdu->len || !p->ext_hdr_len) {
 		if (pdu->len) {
@@ -449,15 +450,32 @@ void ull_scan_aux_setup(memq_link_t *link, struct node_rx_hdr *rx)
 	 * synchronization
 	 */
 	if (IS_ENABLED(CONFIG_BT_CTLR_SYNC_PERIODIC) &&
-	    (rx->type == NODE_RX_TYPE_SYNC_REPORT) &&
+	    (rx->hdr.type == NODE_RX_TYPE_SYNC_REPORT) &&
 	    acad_len) {
 		/* Periodic Advertising Channel Map Indication */
-		ull_sync_chm_update(rx->handle, ptr, acad_len);
+		ull_sync_chm_update(rx->hdr.handle, ptr, acad_len);
+
+#if defined(CONFIG_BT_CTLR_SYNC_ISO)
+		struct ll_sync_set *sync_set;
+		struct pdu_big_info *bi;
+		uint8_t bi_size;
+
+		sync_set = HDR_LLL2ULL(sync_lll);
+
+		/* Provide encryption information for BIG sync creation */
+		bi_size = ptr[PDU_ADV_DATA_HEADER_LEN_OFFSET] -
+			  PDU_ADV_DATA_HEADER_TYPE_SIZE;
+		sync_set->enc = (bi_size == PDU_BIG_INFO_ENCRYPTED_SIZE);
+
+		/* Store number of BISes in the BIG */
+		bi = (void *)&ptr[PDU_ADV_DATA_HEADER_DATA_OFFSET];
+		sync_set->num_bis = PDU_BIG_INFO_NUM_BIS_GET(bi);
 
 		/* Broadcast ISO synchronize */
-		if (IS_ENABLED(CONFIG_BT_CTLR_SYNC_ISO) && sync_iso) {
+		if (sync_iso) {
 			ull_sync_iso_setup(sync_iso, rx, ptr, acad_len);
 		}
+#endif /* CONFIG_BT_CTLR_SYNC_ISO */
 	}
 
 	/* Do not ULL schedule auxiliary PDU reception if no aux pointer
@@ -529,17 +547,35 @@ void ull_scan_aux_setup(memq_link_t *link, struct node_rx_hdr *rx)
 		lll_hdr_init(lll_aux, aux);
 
 		aux->parent = lll ? (void *)lll : (void *)sync_lll;
+#if defined(CONFIG_BT_CTLR_JIT_SCHEDULING)
+		if (lll) {
+			lll_aux->hdr.score = lll->scan_aux_score;
+		}
+#endif /* CONFIG_BT_CTLR_JIT_SCHEDULING */
 
 #if defined(CONFIG_BT_CTLR_SYNC_PERIODIC)
 		aux->rx_incomplete = rx_incomplete;
 		rx_incomplete = NULL;
 #endif /* CONFIG_BT_CTLR_SYNC_PERIODIC */
 
-	} else {
+	} else if (!(IS_ENABLED(CONFIG_BT_CTLR_SYNC_PERIODIC) && sync_lll)) {
 		aux->data_len += data_len;
 
+		/* Flush auxiliary PDU receptions and stop any more ULL
+		 * scheduling if accumulated data length exceeds configured
+		 * maximum supported.
+		 */
 		if (aux->data_len >= CONFIG_BT_CTLR_SCAN_DATA_LEN_MAX) {
-			goto ull_scan_aux_rx_flush;
+			/* If LLL has already scheduled, then let it proceed.
+			 *
+			 * TODO: LLL to check accumulated data length and
+			 *       stop further reception.
+			 *       Currently LLL will schedule as long as there
+			 *       are free node rx available.
+			 */
+			if (!ftr->aux_lll_sched) {
+				goto ull_scan_aux_rx_flush;
+			}
 		}
 	}
 
@@ -552,6 +588,24 @@ void ull_scan_aux_setup(memq_link_t *link, struct node_rx_hdr *rx)
 		sync_set = HDR_LLL2ULL(sync_lll);
 		sync_set->data_len += data_len;
 		ftr->aux_data_len = sync_set->data_len;
+
+		/* Flush auxiliary PDU receptions and stop any more ULL
+		 * scheduling if accumulated data length exceeds configured
+		 * maximum supported.
+		 */
+		if (sync_set->data_len >= CONFIG_BT_CTLR_SCAN_DATA_LEN_MAX) {
+			/* If LLL has already scheduled, then let it proceed.
+			 *
+			 * TODO: LLL to check accumulated data length and
+			 *       stop further reception.
+			 *       Currently LLL will schedule as long as there
+			 *       are free node rx available.
+			 */
+			if (!ftr->aux_lll_sched) {
+				sync_set->data_len = 0U;
+				goto ull_scan_aux_rx_flush;
+			}
+		}
 	} else {
 		if (aux->rx_last) {
 			aux->rx_last->rx_ftr.extra = rx;
@@ -573,16 +627,32 @@ void ull_scan_aux_setup(memq_link_t *link, struct node_rx_hdr *rx)
 	 * with a valid context.
 	 */
 	if (ftr->aux_lll_sched) {
-		/* AUX_ADV_IND/AUX_CHAIN_IND PDU reception is being setup */
-		ftr->aux_sched = 1U;
-
 		if (IS_ENABLED(CONFIG_BT_CTLR_SYNC_PERIODIC) && sync_lll) {
 			sync_lll->lll_aux = lll_aux;
+
+			/* AUX_ADV_IND/AUX_CHAIN_IND PDU reception is being
+			 * setup
+			 */
+			ftr->aux_sched = 1U;
 
 			/* In sync context, dispatch immediately */
 			ll_rx_put_sched(link, rx);
 		} else {
+			/* check scan context is not already using LLL
+			 * scheduling, or receiving a chain then it will
+			 * reuse the aux context.
+			 */
+			LL_ASSERT(!lll->lll_aux || (lll->lll_aux == lll_aux));
+
+			/* scan context get the aux context so that it can
+			 * continue reception in LLL scheduling.
+			 */
 			lll->lll_aux = lll_aux;
+
+			/* AUX_ADV_IND/AUX_CHAIN_IND PDU reception is being
+			 * setup
+			 */
+			ftr->aux_sched = 1U;
 		}
 
 		/* Reset auxiliary channel PDU scan state which otherwise is
@@ -636,6 +706,12 @@ void ull_scan_aux_setup(memq_link_t *link, struct node_rx_hdr *rx)
 
 	aux_offset_us = (uint32_t)PDU_ADV_AUX_PTR_OFFSET_GET(aux_ptr) * lll_aux->window_size_us;
 
+	/* Skip reception if invalid aux offset */
+	pdu_us = PDU_AC_US(pdu->len, phy, ftr->phy_flags);
+	if (aux_offset_us < pdu_us) {
+		goto ull_scan_aux_rx_flush;
+	}
+
 	/* CA field contains the clock accuracy of the advertiser;
 	 * 0 - 51 ppm to 500 ppm
 	 * 1 - 0 ppm to 50 ppm
@@ -654,7 +730,7 @@ void ull_scan_aux_setup(memq_link_t *link, struct node_rx_hdr *rx)
 
 	/* Calculate the aux offset from start of the scan window */
 	aux_offset_us += ftr->radio_end_us;
-	aux_offset_us -= PDU_AC_US(pdu->len, phy, ftr->phy_flags);
+	aux_offset_us -= pdu_us;
 	aux_offset_us -= EVENT_TICKER_RES_MARGIN_US;
 	aux_offset_us -= EVENT_JITTER_US;
 	aux_offset_us -= ready_delay_us;
@@ -902,7 +978,7 @@ struct lll_scan_aux *ull_scan_aux_lll_is_valid_get(struct lll_scan_aux *lll)
 	return NULL;
 }
 
-void ull_scan_aux_release(memq_link_t *link, struct node_rx_hdr *rx)
+void ull_scan_aux_release(memq_link_t *link, struct node_rx_pdu *rx)
 {
 	struct lll_scan_aux *lll_aux;
 	void *param_ull;
@@ -913,7 +989,7 @@ void ull_scan_aux_release(memq_link_t *link, struct node_rx_hdr *rx)
 		struct lll_scan *lll;
 
 		/* Mark for buffer for release */
-		rx->type = NODE_RX_TYPE_RELEASE;
+		rx->hdr.type = NODE_RX_TYPE_RELEASE;
 
 		lll = rx->rx_ftr.param;
 		lll_aux = lll->lll_aux;
@@ -921,7 +997,7 @@ void ull_scan_aux_release(memq_link_t *link, struct node_rx_hdr *rx)
 	} else if (!IS_ENABLED(CONFIG_BT_CTLR_SYNC_PERIODIC) ||
 		   ull_scan_aux_is_valid_get(param_ull)) {
 		/* Mark for buffer for release */
-		rx->type = NODE_RX_TYPE_RELEASE;
+		rx->hdr.type = NODE_RX_TYPE_RELEASE;
 
 		lll_aux = rx->rx_ftr.param;
 
@@ -940,8 +1016,8 @@ void ull_scan_aux_release(memq_link_t *link, struct node_rx_hdr *rx)
 		/* Change node type so HCI can dispatch report for truncated
 		 * data properly.
 		 */
-		rx->type = NODE_RX_TYPE_SYNC_REPORT;
-		rx->handle = ull_sync_handle_get(sync);
+		rx->hdr.type = NODE_RX_TYPE_SYNC_REPORT;
+		rx->hdr.handle = ull_sync_handle_get(sync);
 
 		/* Dequeue will try releasing list of node rx, set the extra
 		 * pointer to NULL.
@@ -985,7 +1061,7 @@ void ull_scan_aux_release(memq_link_t *link, struct node_rx_hdr *rx)
 			/* Sync terminate requested, enqueue node rx so that it
 			 * be flushed by ull_scan_aux_stop().
 			 */
-			rx->link = link;
+			rx->hdr.link = link;
 			if (aux->rx_last) {
 				aux->rx_last->rx_ftr.extra = rx;
 			} else {
@@ -1165,7 +1241,7 @@ static void flush(void *param)
 {
 	struct ll_scan_aux_set *aux;
 	struct ll_scan_set *scan;
-	struct node_rx_hdr *rx;
+	struct node_rx_pdu *rx;
 	struct lll_scan *lll;
 	bool sched = false;
 
@@ -1179,7 +1255,7 @@ static void flush(void *param)
 	if (rx) {
 		aux->rx_head = NULL;
 
-		ll_rx_put(rx->link, rx);
+		ll_rx_put(rx->hdr.link, rx);
 		sched = true;
 	}
 
@@ -1202,6 +1278,9 @@ static void flush(void *param)
 	scan = ull_scan_is_valid_get(scan);
 	if (!IS_ENABLED(CONFIG_BT_CTLR_SYNC_PERIODIC) || scan) {
 		lll->lll_aux = NULL;
+#if defined(CONFIG_BT_CTLR_JIT_SCHEDULING)
+		lll->scan_aux_score = aux->lll.hdr.score;
+#endif /* CONFIG_BT_CTLR_JIT_SCHEDULING */
 	} else {
 		struct lll_sync *sync_lll;
 		struct ll_sync_set *sync;
@@ -1216,17 +1295,17 @@ static void flush(void *param)
 	aux_release(aux);
 }
 
-static void rx_release_put(struct node_rx_hdr *rx)
+static void rx_release_put(struct node_rx_pdu *rx)
 {
-	rx->type = NODE_RX_TYPE_RELEASE;
+	rx->hdr.type = NODE_RX_TYPE_RELEASE;
 
-	ll_rx_put(rx->link, rx);
+	ll_rx_put(rx->hdr.link, rx);
 }
 
 static void aux_sync_partial(void *param)
 {
 	struct ll_scan_aux_set *aux;
-	struct node_rx_hdr *rx;
+	struct node_rx_pdu *rx;
 
 	aux = param;
 	rx = aux->rx_head;
@@ -1235,7 +1314,7 @@ static void aux_sync_partial(void *param)
 	LL_ASSERT(rx);
 	rx->rx_ftr.aux_sched = 1U;
 
-	ll_rx_put_sched(rx->link, rx);
+	ll_rx_put_sched(rx->hdr.link, rx);
 }
 
 static void aux_sync_incomplete(void *param)
@@ -1251,7 +1330,7 @@ static void aux_sync_incomplete(void *param)
 	 */
 	if (!aux->rx_head) {
 		struct ll_sync_set *sync;
-		struct node_rx_hdr *rx;
+		struct node_rx_pdu *rx;
 		struct lll_sync *lll;
 
 		/* get reference to sync context */
@@ -1268,8 +1347,8 @@ static void aux_sync_incomplete(void *param)
 		aux->rx_incomplete = NULL;
 
 		/* prepare sync report with failure */
-		rx->type = NODE_RX_TYPE_SYNC_REPORT;
-		rx->handle = ull_sync_handle_get(sync);
+		rx->hdr.type = NODE_RX_TYPE_SYNC_REPORT;
+		rx->hdr.handle = ull_sync_handle_get(sync);
 		rx->rx_ftr.param = lll;
 
 		/* flag chain reception failure */

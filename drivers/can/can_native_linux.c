@@ -9,6 +9,8 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <cmdline.h>
+#include <posix_native_task.h>
 
 #include <zephyr/drivers/can.h>
 #include <zephyr/kernel.h>
@@ -18,6 +20,7 @@
 #include <zephyr/net/socketcan_utils.h>
 
 #include "can_native_linux_adapt.h"
+#include "nsi_host_trampolines.h"
 
 LOG_MODULE_REGISTER(can_native_linux, CONFIG_CAN_LOG_LEVEL);
 
@@ -28,23 +31,24 @@ struct can_filter_context {
 };
 
 struct can_native_linux_data {
+	struct can_driver_data common;
 	struct can_filter_context filters[CONFIG_CAN_MAX_FILTER];
 	struct k_mutex filter_mutex;
 	struct k_sem tx_idle;
 	can_tx_callback_t tx_callback;
 	void *tx_user_data;
-	bool loopback;
-	bool mode_fd;
 	int dev_fd; /* Linux socket file descriptor */
 	struct k_thread rx_thread;
-	bool started;
 
 	K_KERNEL_STACK_MEMBER(rx_thread_stack, CONFIG_ARCH_POSIX_RECOMMENDED_STACK_SIZE);
 };
 
 struct can_native_linux_config {
+	const struct can_driver_config common;
 	const char *if_name;
 };
+
+static const char *if_name_cmd_opt;
 
 static void dispatch_frame(const struct device *dev, struct can_frame *frame)
 {
@@ -95,15 +99,21 @@ static void rx_thread(void *arg1, void *arg2, void *arg3)
 				data->tx_callback(dev, 0, data->tx_user_data);
 				k_sem_give(&data->tx_idle);
 
-				if (!data->loopback) {
+				if ((data->common.mode & CAN_MODE_LOOPBACK) == 0U) {
 					continue;
 				}
 			}
-			if ((count <= 0) || !data->started) {
+			if ((count <= 0) || !data->common.started) {
 				break;
 			}
 
 			socketcan_to_can_frame(&sframe, &frame);
+
+#ifndef CONFIG_CAN_ACCEPT_RTR
+			if ((frame.flags & CAN_FRAME_RTR) != 0U) {
+				continue;
+			}
+#endif /* !CONFIG_CAN_ACCEPT_RTR*/
 
 			LOG_DBG("Received %d bytes. Id: 0x%x, ID type: %s %s",
 				frame.dlc, frame.id,
@@ -132,8 +142,6 @@ static int can_native_linux_send(const struct device *dev, const struct can_fram
 		(frame->flags & CAN_FRAME_IDE) != 0 ? "extended" : "standard",
 		(frame->flags & CAN_FRAME_RTR) != 0 ? ", RTR frame" : "");
 
-	__ASSERT_NO_MSG(callback != NULL);
-
 #ifdef CONFIG_CAN_FD_MODE
 	if ((frame->flags & ~(CAN_FRAME_IDE | CAN_FRAME_RTR |
 		CAN_FRAME_FDF | CAN_FRAME_BRS)) != 0) {
@@ -142,7 +150,7 @@ static int can_native_linux_send(const struct device *dev, const struct can_fram
 	}
 
 	if ((frame->flags & CAN_FRAME_FDF) != 0) {
-		if (!data->mode_fd) {
+		if ((data->common.mode & CAN_MODE_FD) == 0U) {
 			return -ENOTSUP;
 		}
 
@@ -166,7 +174,7 @@ static int can_native_linux_send(const struct device *dev, const struct can_fram
 		return -EIO;
 	}
 
-	if (!data->started) {
+	if (!data->common.started) {
 		return -ENETDOWN;
 	}
 
@@ -179,7 +187,7 @@ static int can_native_linux_send(const struct device *dev, const struct can_fram
 	data->tx_callback = callback;
 	data->tx_user_data = user_data;
 
-	ret = linux_socketcan_write_data(data->dev_fd, &sframe, mtu);
+	ret = nsi_host_write(data->dev_fd, &sframe, mtu);
 	if (ret < 0) {
 		LOG_ERR("Cannot send CAN data len %d (%d)", sframe.len, -errno);
 	}
@@ -197,12 +205,7 @@ static int can_native_linux_add_rx_filter(const struct device *dev, can_rx_callb
 	LOG_DBG("Setting filter ID: 0x%x, mask: 0x%x", filter->id,
 		filter->mask);
 
-#ifdef CONFIG_CAN_FD_MODE
-	if ((filter->flags & ~(CAN_FILTER_IDE | CAN_FILTER_DATA |
-							CAN_FILTER_RTR | CAN_FILTER_FDF)) != 0) {
-#else
-	if ((filter->flags & ~(CAN_FILTER_IDE | CAN_FILTER_DATA | CAN_FILTER_RTR)) != 0) {
-#endif
+	if ((filter->flags & ~(CAN_FILTER_IDE)) != 0) {
 		LOG_ERR("unsupported CAN filter flags 0x%02x", filter->flags);
 		return -ENOTSUP;
 	}
@@ -239,7 +242,7 @@ static void can_native_linux_remove_rx_filter(const struct device *dev, int filt
 	struct can_native_linux_data *data = dev->data;
 
 	if (filter_id < 0 || filter_id >= ARRAY_SIZE(data->filters)) {
-		LOG_ERR("filter ID %d out of bounds");
+		LOG_ERR("filter ID %d out of bounds", filter_id);
 		return;
 	}
 
@@ -267,11 +270,11 @@ static int can_native_linux_start(const struct device *dev)
 {
 	struct can_native_linux_data *data = dev->data;
 
-	if (data->started) {
+	if (data->common.started) {
 		return -EALREADY;
 	}
 
-	data->started = true;
+	data->common.started = true;
 
 	return 0;
 }
@@ -280,11 +283,11 @@ static int can_native_linux_stop(const struct device *dev)
 {
 	struct can_native_linux_data *data = dev->data;
 
-	if (!data->started) {
+	if (!data->common.started) {
 		return -EALREADY;
 	}
 
-	data->started = false;
+	data->common.started = false;
 
 	return 0;
 }
@@ -306,19 +309,17 @@ static int can_native_linux_set_mode(const struct device *dev, can_mode_t mode)
 	}
 #endif /* CONFIG_CAN_FD_MODE */
 
-	if (data->started) {
+	if (data->common.started) {
 		return -EBUSY;
 	}
 
-	/* loopback is handled internally in rx_thread */
-	data->loopback = (mode & CAN_MODE_LOOPBACK) != 0;
-
-	data->mode_fd = (mode & CAN_MODE_FD) != 0;
-	err = linux_socketcan_set_mode_fd(data->dev_fd, data->mode_fd);
+	err = linux_socketcan_set_mode_fd(data->dev_fd, (mode & CAN_MODE_FD) != 0);
 	if (err != 0) {
 		LOG_ERR("failed to set mode");
 		return -EIO;
 	}
+
+	data->common.mode = mode;
 
 	return 0;
 }
@@ -329,7 +330,7 @@ static int can_native_linux_set_timing(const struct device *dev, const struct ca
 
 	ARG_UNUSED(timing);
 
-	if (data->started) {
+	if (data->common.started) {
 		return -EBUSY;
 	}
 
@@ -344,7 +345,7 @@ static int can_native_linux_set_timing_data(const struct device *dev,
 
 	ARG_UNUSED(timing);
 
-	if (data->started) {
+	if (data->common.started) {
 		return -EBUSY;
 	}
 
@@ -358,7 +359,7 @@ static int can_native_linux_get_state(const struct device *dev, enum can_state *
 	struct can_native_linux_data *data = dev->data;
 
 	if (state != NULL) {
-		if (!data->started) {
+		if (!data->common.started) {
 			*state = CAN_STATE_STOPPED;
 		} else {
 			/* SocketCAN does not forward error frames by default */
@@ -373,21 +374,6 @@ static int can_native_linux_get_state(const struct device *dev, enum can_state *
 
 	return 0;
 }
-
-#ifndef CONFIG_CAN_AUTO_BUS_OFF_RECOVERY
-static int can_native_linux_recover(const struct device *dev, k_timeout_t timeout)
-{
-	struct can_native_linux_data *data = dev->data;
-
-	ARG_UNUSED(timeout);
-
-	if (!data->started) {
-		return -ENETDOWN;
-	}
-
-	return 0;
-}
-#endif /* CONFIG_CAN_AUTO_BUS_OFF_RECOVERY */
 
 static void can_native_linux_set_state_change_callback(const struct device *dev,
 						       can_state_change_callback_t cb,
@@ -423,9 +409,6 @@ static const struct can_driver_api can_native_linux_driver_api = {
 	.add_rx_filter = can_native_linux_add_rx_filter,
 	.remove_rx_filter = can_native_linux_remove_rx_filter,
 	.get_state = can_native_linux_get_state,
-#ifndef CONFIG_CAN_AUTO_BUS_OFF_RECOVERY
-	.recover = can_native_linux_recover,
-#endif
 	.set_state_change_callback = can_native_linux_set_state_change_callback,
 	.get_core_clock = can_native_linux_get_core_clock,
 	.get_max_filters = can_native_linux_get_max_filters,
@@ -466,13 +449,21 @@ static int can_native_linux_init(const struct device *dev)
 {
 	const struct can_native_linux_config *cfg = dev->config;
 	struct can_native_linux_data *data = dev->data;
+	const char *if_name;
 
 	k_mutex_init(&data->filter_mutex);
 	k_sem_init(&data->tx_idle, 1, 1);
 
-	data->dev_fd = linux_socketcan_iface_open(cfg->if_name);
+	if (if_name_cmd_opt != NULL) {
+		if_name = if_name_cmd_opt;
+	} else {
+		if_name = cfg->if_name;
+	}
+
+	LOG_DBG("Opening %s", if_name);
+	data->dev_fd = linux_socketcan_iface_open(if_name);
 	if (data->dev_fd < 0) {
-		LOG_ERR("Cannot open %s (%d)", cfg->if_name, data->dev_fd);
+		LOG_ERR("Cannot open %s (%d)", if_name, data->dev_fd);
 		return -ENODEV;
 	}
 
@@ -490,6 +481,7 @@ static int can_native_linux_init(const struct device *dev)
 #define CAN_NATIVE_LINUX_INIT(inst)						\
 										\
 static const struct can_native_linux_config can_native_linux_cfg_##inst = {	\
+	.common = CAN_DT_DRIVER_CONFIG_INST_GET(inst, 0, 0),			\
 	.if_name = DT_INST_PROP(inst, host_interface),				\
 };										\
 										\
@@ -502,3 +494,22 @@ CAN_DEVICE_DT_INST_DEFINE(inst, can_native_linux_init, NULL,			\
 			  &can_native_linux_driver_api);
 
 DT_INST_FOREACH_STATUS_OKAY(CAN_NATIVE_LINUX_INIT)
+
+static void add_native_options(void)
+{
+	static struct args_struct_t can_native_options[] = {
+		{
+			.is_mandatory = false,
+			.option = "can-if",
+			.name = "name",
+			.type = 's',
+			.dest = (void *)&if_name_cmd_opt,
+			.descript = "Name of the host CAN interface to use",
+		},
+		ARG_TABLE_ENDMARKER,
+	};
+
+	native_add_command_line_opts(can_native_options);
+}
+
+NATIVE_TASK(add_native_options, PRE_BOOT_1, 10);

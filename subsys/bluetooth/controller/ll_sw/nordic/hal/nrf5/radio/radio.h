@@ -84,6 +84,7 @@ void radio_disable(void);
 
 void radio_status_reset(void);
 uint32_t radio_is_ready(void);
+uint32_t radio_is_address(void);
 uint32_t radio_is_done(void);
 uint32_t radio_has_disabled(void);
 uint32_t radio_is_idle(void);
@@ -156,6 +157,8 @@ uint32_t radio_tmr_tifs_base_get(void);
 void radio_tmr_sample(void);
 uint32_t radio_tmr_sample_get(void);
 
+int radio_gpio_pa_lna_init(void);
+void radio_gpio_pa_lna_deinit(void);
 void radio_gpio_pa_setup(void);
 void radio_gpio_lna_setup(void);
 void radio_gpio_pdn_setup(void);

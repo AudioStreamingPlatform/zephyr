@@ -18,6 +18,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include "lwm2m_obj_server.h"
 #include "lwm2m_rd_client.h"
 #include "lwm2m_registry.h"
+#include "lwm2m_engine.h"
 
 #define SERVER_VERSION_MAJOR 1
 #if defined(CONFIG_LWM2M_SERVER_OBJECT_VERSION_1_1)
@@ -145,7 +146,7 @@ bool lwm2m_server_get_mute_send(uint16_t obj_inst_id)
 static int lifetime_write_cb(uint16_t obj_inst_id, uint16_t res_id,
 			     uint16_t res_inst_id, uint8_t *data,
 			     uint16_t data_len, bool last_block,
-			     size_t total_size)
+			     size_t total_size, size_t offset)
 {
 	ARG_UNUSED(obj_inst_id);
 	ARG_UNUSED(res_id);
@@ -458,4 +459,4 @@ static int lwm2m_server_init(void)
 	return ret;
 }
 
-SYS_INIT(lwm2m_server_init, APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
+LWM2M_CORE_INIT(lwm2m_server_init);

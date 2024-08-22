@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
+zephyr_library_sources(flash_util.c)
+
 zephyr_syscall_header_ifdef(
   CONFIG_FLASH_SIMULATOR
   ${ZEPHYR_BASE}/include/zephyr/drivers/flash/flash_simulator.h
@@ -42,6 +44,7 @@ zephyr_library_sources_ifdef(CONFIG_FLASH_NPCX_FIU_QSPI flash_npcx_fiu_qspi.c)
 zephyr_library_sources_ifdef(CONFIG_FLASH_NPCX_FIU_NOR flash_npcx_fiu_nor.c)
 zephyr_library_sources_ifdef(CONFIG_FLASH_STM32_QSPI flash_stm32_qspi.c)
 zephyr_library_sources_ifdef(CONFIG_FLASH_STM32_OSPI flash_stm32_ospi.c)
+zephyr_library_sources_ifdef(CONFIG_FLASH_STM32_XSPI flash_stm32_xspi.c)
 zephyr_library_sources_ifdef(CONFIG_FLASH_MCUX_FLEXSPI_MX25UM51345G flash_mcux_flexspi_mx25um51345g.c)
 zephyr_library_sources_ifdef(CONFIG_FLASH_MCUX_FLEXSPI_NOR flash_mcux_flexspi_nor.c)
 zephyr_library_sources_ifdef(CONFIG_FLASH_MCUX_FLEXSPI_HYPERFLASH flash_mcux_flexspi_hyperflash.c)
@@ -52,12 +55,16 @@ zephyr_library_sources_ifdef(CONFIG_SOC_FLASH_XMC4XXX soc_flash_xmc4xxx.c)
 zephyr_library_sources_ifdef(CONFIG_FLASH_RPI_PICO flash_rpi_pico.c)
 zephyr_library_sources_ifdef(CONFIG_FLASH_ANDES_QSPI flash_andes_qspi.c)
 zephyr_library_sources_ifdef(CONFIG_FLASH_AMBIQ flash_ambiq.c)
-
+zephyr_library_sources_ifdef(CONFIG_FLASH_CDNS_NAND flash_cadence_nand.c flash_cadence_nand_ll.c)
+zephyr_library_sources_ifdef(CONFIG_FLASH_MSPI_EMUL_DEVICE flash_mspi_emul_device.c)
+zephyr_library_sources_ifdef(CONFIG_FLASH_MSPI_ATXP032 flash_mspi_atxp032.c)
+zephyr_library_include_directories_ifdef(CONFIG_MSPI ${ZEPHYR_BASE}/drivers/mspi)
 if(CONFIG_FLASH_MCUX_FLEXSPI_XIP)
   dt_chosen(chosen_flash PROPERTY "zephyr,flash")
   dt_prop(compat_flash PATH ${chosen_flash} PROPERTY compatible)
   if(compat_flash MATCHES "nxp,imx-flexspi-nor")
 	  zephyr_code_relocate(FILES flash_mcux_flexspi_nor.c LOCATION ${CONFIG_FLASH_MCUX_FLEXSPI_XIP_MEM}_TEXT)
+	  zephyr_code_relocate(FILES jesd216.c LOCATION ${CONFIG_FLASH_MCUX_FLEXSPI_XIP_MEM}_TEXT)
   elseif(compat_flash MATCHES "nxp,imx-flexspi-mx25um51345g")
 	  zephyr_code_relocate(FILES flash_mcux_flexspi_mx25um51345g.c LOCATION ${CONFIG_FLASH_MCUX_FLEXSPI_XIP_MEM}_TEXT)
   elseif(compat_flash MATCHES "nxp,imx-flexspi-hyperflash")
@@ -67,6 +74,8 @@ endif()
 
 if(CONFIG_SOC_FLASH_STM32)
   if(CONFIG_SOC_SERIES_STM32H7X)
+    zephyr_library_sources_ifdef(CONFIG_DT_HAS_ST_STM32H7_FLASH_CONTROLLER_ENABLED flash_stm32h7x.c)
+  elseif(CONFIG_SOC_SERIES_STM32H7RSX)
     zephyr_library_sources_ifdef(CONFIG_DT_HAS_ST_STM32H7_FLASH_CONTROLLER_ENABLED flash_stm32h7x.c)
   elseif(CONFIG_SOC_SERIES_STM32WBAX)
     if(CONFIG_BT_STM32WBA)
@@ -125,4 +134,8 @@ zephyr_library_include_directories_ifdef(
 zephyr_library_sources_ifdef(CONFIG_FLASH_SHELL flash_shell.c)
 zephyr_library_sources_ifdef(CONFIG_FLASH_JESD216 jesd216.c)
 zephyr_library_sources_ifdef(CONFIG_FLASH_INFINEON_CAT1 flash_ifx_cat1.c)
+zephyr_library_sources_ifdef(CONFIG_INFINEON_CAT1_QSPI_FLASH flash_ifx_cat1_qspi.c)
 zephyr_library_sources_ifdef(CONFIG_SOC_FLASH_NUMAKER soc_flash_numaker.c)
+zephyr_library_sources_ifdef(CONFIG_SOC_FLASH_NRF_RRAM soc_flash_nrf_rram.c)
+zephyr_library_sources_ifdef(CONFIG_SOC_FLASH_NRF_MRAM soc_flash_nrf_mram.c)
+zephyr_library_sources_ifdef(CONFIG_SOC_FLASH_NUMAKER_RMC soc_flash_numaker_rmc.c)

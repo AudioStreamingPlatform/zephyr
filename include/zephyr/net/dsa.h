@@ -17,9 +17,13 @@
 /**
  * @brief DSA definitions and helpers
  * @defgroup DSA Distributed Switch Architecture definitions and helpers
+ * @since 2.5
+ * @version 0.8.0
  * @ingroup networking
  * @{
  */
+
+/** @cond INTERNAL_HIDDEN */
 
 #define NET_DSA_PORT_MAX_COUNT 8
 #define DSA_STATUS_PERIOD_MS K_MSEC(1000)
@@ -33,6 +37,8 @@
 #else
 #define DSA_TAG_SIZE 0
 #endif
+
+/** @endcond */
 
 #ifdef __cplusplus
 extern "C" {

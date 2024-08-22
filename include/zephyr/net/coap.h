@@ -17,6 +17,8 @@
 /**
  * @brief COAP library
  * @defgroup coap COAP Library
+ * @since 1.10
+ * @version 0.8.0
  * @ingroup networking
  * @{
  */
@@ -25,7 +27,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <zephyr/net/net_ip.h>
-
+#include <zephyr/sys/math_extras.h>
 #include <zephyr/sys/slist.h>
 
 #ifdef __cplusplus
@@ -80,9 +82,15 @@ enum coap_method {
 	COAP_METHOD_IPATCH = 7,  /**< IPATCH */
 };
 
+/** @cond INTERNAL_HIDDEN */
+
 #define COAP_REQUEST_MASK 0x07
 
 #define COAP_VERSION_1 1U
+
+#define COAP_OBSERVE_MAX_AGE 0xFFFFFF
+
+/** @endcond */
 
 /**
  * @brief CoAP packets may be of one of these types.
@@ -189,9 +197,13 @@ enum coap_response_code {
 						COAP_MAKE_RESPONSE_CODE(5, 5)
 };
 
+/** @cond INTERNAL_HIDDEN */
+
 #define COAP_CODE_EMPTY (0)
 
 #define COAP_TOKEN_MAX_LEN 8UL
+
+/** @endcond */
 
 /**
  * @brief Set of Content-Format option values for CoAP.
@@ -210,10 +222,14 @@ enum coap_content_format {
 	COAP_CONTENT_FORMAT_APP_CBOR = 60               /**< application/cbor */
 };
 
+/** @cond INTERNAL_HIDDEN */
+
 /* block option helper */
 #define GET_BLOCK_NUM(v)        ((v) >> 4)
 #define GET_BLOCK_SIZE(v)       (((v) & 0x7))
 #define GET_MORE(v)             (!!((v) & 0x08))
+
+/** @endcond */
 
 struct coap_observer;
 struct coap_packet;
@@ -247,10 +263,15 @@ typedef void (*coap_notify_t)(struct coap_resource *resource,
 struct coap_resource {
 	/** Which function to be called for each CoAP method */
 	coap_method_t get, post, put, del, fetch, patch, ipatch;
+	/** Notify function to call */
 	coap_notify_t notify;
+	/** Resource path */
 	const char * const *path;
+	/** User specific opaque data */
 	void *user_data;
+	/** List of resource observers */
 	sys_slist_t observers;
+	/** Resource age */
 	int age;
 };
 
@@ -258,9 +279,13 @@ struct coap_resource {
  * @brief Represents a remote device that is observing a local resource.
  */
 struct coap_observer {
+	/** Observer list node */
 	sys_snode_t list;
+	/** Observer connection end point information */
 	struct sockaddr addr;
+	/** Observer token */
 	uint8_t token[8];
+	/** Extended token length */
 	uint8_t tkl;
 };
 
@@ -340,11 +365,17 @@ struct coap_pending {
  * also used when observing resources.
  */
 struct coap_reply {
+	/** CoAP reply callback */
 	coap_reply_t reply;
+	/** User specific opaque data */
 	void *user_data;
+	/** Reply age */
 	int age;
+	/** Reply id */
 	uint16_t id;
+	/** Reply token */
 	uint8_t token[8];
+	/** Extended token length */
 	uint8_t tkl;
 };
 
@@ -693,11 +724,35 @@ static inline uint16_t coap_block_size_to_bytes(
 }
 
 /**
+ * @brief Helper for converting block size in bytes to enumeration.
+ *
+ * NOTE: Only valid CoAP block sizes map correctly.
+ *
+ * @param bytes CoAP block size in bytes.
+ * @return enum coap_block_size
+ */
+static inline enum coap_block_size coap_bytes_to_block_size(uint16_t bytes)
+{
+	int sz = u32_count_trailing_zeros(bytes) - 4;
+
+	if (sz < COAP_BLOCK_16) {
+		return COAP_BLOCK_16;
+	}
+	if (sz > COAP_BLOCK_1024) {
+		return COAP_BLOCK_1024;
+	}
+	return (enum coap_block_size)sz;
+}
+
+/**
  * @brief Represents the current state of a block-wise transaction.
  */
 struct coap_block_context {
+	/** Total size of the block-wise transaction */
 	size_t total_size;
+	/** Current size of the block-wise transaction */
 	size_t current;
+	/** Block size */
 	enum coap_block_size block_size;
 };
 
@@ -752,6 +807,15 @@ bool coap_has_descriptive_block_option(struct coap_packet *cpkt);
  * @return 0 in case of success or negative in case of error.
  */
 int coap_remove_descriptive_block_option(struct coap_packet *cpkt);
+
+/**
+ * @brief Check if BLOCK1 or BLOCK2 option has more flag set
+ *
+ * @param cpkt Packet to be checked.
+ * @return true If more flag is set in BLOCK1 or BLOCK2
+ * @return false If MORE flag is not set or BLOCK header not found.
+ */
+bool coap_block_has_more(struct coap_packet *cpkt);
 
 /**
  * @brief Append BLOCK1 option to the packet.
@@ -823,21 +887,22 @@ int coap_get_option_int(const struct coap_packet *cpkt, uint16_t code);
  * @return Integer value of the block size in case of success
  * or negative in case of error.
  */
-int coap_get_block1_option(const struct coap_packet *cpkt, bool *has_more, uint8_t *block_number);
+int coap_get_block1_option(const struct coap_packet *cpkt, bool *has_more, uint32_t *block_number);
 
 /**
  * @brief Get values from CoAP block2 option.
  *
- * Decode block number and block size from option. Ignore the has_more flag
- * as it should always be zero on queries.
+ * Decode block number, more flag and block size from option.
  *
  * @param cpkt Packet to be inspected
+ * @param has_more Is set to the value of the more flag
  * @param block_number Is set to the number of the block
  *
  * @return Integer value of the block size in case of success
  * or negative in case of error.
  */
-int coap_get_block2_option(const struct coap_packet *cpkt, uint8_t *block_number);
+int coap_get_block2_option(const struct coap_packet *cpkt, bool *has_more,
+			   uint32_t *block_number);
 
 /**
  * @brief Retrieves BLOCK{1,2} and SIZE{1,2} from @a cpkt and updates

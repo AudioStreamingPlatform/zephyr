@@ -1,5 +1,10 @@
+/**
+ * @file
+ * @brief Public Broadcast Profile (PBP) APIs.
+ */
 /*
  * Copyright 2023 NXP
+ * Copyright (c) 2024 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,21 +17,33 @@
  *
  * @defgroup bt_pbp Public Broadcast Profile (PBP)
  *
+ * @since 3.5
+ * @version 0.8.0
+ *
  * @ingroup bluetooth
  * @{
  *
- * [Experimental] Users should note that the APIs can change
- * as a part of ongoing development.
+ * The Public Broadcast Profile (PBP) is used for public broadcasts by providing additional
+ * information in the advertising data.
  */
 
-#include <zephyr/sys/util.h>
 #include <zephyr/bluetooth/audio/audio.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/uuid.h>
+#include <zephyr/net/buf.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/sys/util_macro.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* PBA Service UUID + Public Broadcast Announcement features + Metadata Length */
+/**
+ * @brief Minimum size of the Public Broadcast Announcement
+ *
+ * It contains the Public Broadcast Announcement UUID (2), the Public Broadcast Announcement
+ * features (1) and the metadata length (1)
+ */
 #define BT_PBP_MIN_PBA_SIZE		(BT_UUID_SIZE_16 + 1 + 1)
 
 /** Public Broadcast Announcement features */
@@ -59,15 +76,19 @@ int bt_pbp_get_announcement(const uint8_t meta[], size_t meta_len,
  * @brief Parses the received advertising data corresponding to a Public Broadcast
  * Announcement. Returns the advertised Public Broadcast Announcement features and metadata.
  *
- * @param data			Advertising data to be checked
- * @param features		Public broadcast source features
- * @param meta			Pointer to copy the metadata present in the advertising data
+ * @param[in]  data     Advertising data to be checked
+ * @param[out] features Pointer to public broadcast source features to store the parsed features in
+ * @param[out] meta     Pointer to the metadata present in the advertising data
  *
- * @return parsed metadata length on success or an appropriate error code
+ * @return parsed metadata length on success.
+ * @retval -EINVAL if @p data, @p features or @p meta are NULL.
+ * @retval -ENOENT if @p data is not of type @ref BT_DATA_SVC_DATA16 or if the UUID in the service
+ * data is not @ref BT_UUID_PBA.
+ * @retval -EMSGSIZE if @p data is not large enough to contain a PBP announcement.
+ * @retval -EBADMSG if the @p data contains invalid data.
  */
-uint8_t bt_pbp_parse_announcement(struct bt_data *data,
-				  enum bt_pbp_announcement_feature *features,
-				  uint8_t *meta);
+int bt_pbp_parse_announcement(struct bt_data *data, enum bt_pbp_announcement_feature *features,
+			      uint8_t **meta);
 
 #ifdef __cplusplus
 }

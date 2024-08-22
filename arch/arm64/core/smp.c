@@ -16,12 +16,13 @@
 #include <zephyr/kernel.h>
 #include <zephyr/kernel_structs.h>
 #include <ksched.h>
+#include <ipi.h>
 #include <zephyr/init.h>
 #include <zephyr/arch/arm64/mm.h>
 #include <zephyr/arch/cpu.h>
 #include <zephyr/drivers/interrupt_controller/gic.h>
 #include <zephyr/drivers/pm_cpu_ops.h>
-#include <zephyr/sys/arch_interface.h>
+#include <zephyr/arch/arch_interface.h>
 #include <zephyr/sys/barrier.h>
 #include <zephyr/irq.h>
 #include "boot.h"
@@ -62,7 +63,7 @@ static uint64_t cpu_map[CONFIG_MP_MAX_NUM_CPUS] = {
 extern void z_arm64_mm_init(bool is_primary_core);
 
 /* Called from Zephyr initialization */
-void arch_start_cpu(int cpu_num, k_thread_stack_t *stack, int sz,
+void arch_cpu_start(int cpu_num, k_thread_stack_t *stack, int sz,
 		    arch_cpustart_t fn, void *arg)
 {
 	int cpu_count;
@@ -84,7 +85,7 @@ void arch_start_cpu(int cpu_num, k_thread_stack_t *stack, int sz,
 		"The count of CPU Cores nodes in dts is not equal to CONFIG_MP_MAX_NUM_CPUS\n");
 #endif
 
-	arm64_cpu_boot_params.sp = Z_KERNEL_STACK_BUFFER(stack) + sz;
+	arm64_cpu_boot_params.sp = K_KERNEL_STACK_BUFFER(stack) + sz;
 	arm64_cpu_boot_params.fn = fn;
 	arm64_cpu_boot_params.arg = arg;
 	arm64_cpu_boot_params.cpu_num = cpu_num;
@@ -101,7 +102,7 @@ void arch_start_cpu(int cpu_num, k_thread_stack_t *stack, int sz,
 		/* store mpid last as this is our synchronization point */
 		arm64_cpu_boot_params.mpid = cpu_mpid;
 
-		sys_cache_data_invd_range((void *)&arm64_cpu_boot_params,
+		sys_cache_data_flush_range((void *)&arm64_cpu_boot_params,
 					  sizeof(arm64_cpu_boot_params));
 
 		if (pm_cpu_on(cpu_mpid, (uint64_t)&__start)) {
@@ -180,7 +181,7 @@ void arch_secondary_cpu_init(int cpu_num)
 
 #ifdef CONFIG_SMP
 
-static void broadcast_ipi(unsigned int ipi)
+static void send_ipi(unsigned int ipi, uint32_t cpu_bitmap)
 {
 	uint64_t mpidr = MPIDR_TO_CORE(GET_MPIDR());
 
@@ -190,6 +191,10 @@ static void broadcast_ipi(unsigned int ipi)
 	unsigned int num_cpus = arch_num_cpus();
 
 	for (int i = 0; i < num_cpus; i++) {
+		if ((cpu_bitmap & BIT(i)) == 0) {
+			continue;
+		}
+
 		uint64_t target_mpidr = cpu_map[i];
 		uint8_t aff0;
 
@@ -209,10 +214,14 @@ void sched_ipi_handler(const void *unused)
 	z_sched_ipi();
 }
 
-/* arch implementation of sched_ipi */
-void arch_sched_ipi(void)
+void arch_sched_broadcast_ipi(void)
 {
-	broadcast_ipi(SGI_SCHED_IPI);
+	send_ipi(SGI_SCHED_IPI, IPI_ALL_CPUS_MASK);
+}
+
+void arch_sched_directed_ipi(uint32_t cpu_bitmap)
+{
+	send_ipi(SGI_SCHED_IPI, cpu_bitmap);
 }
 
 #ifdef CONFIG_USERSPACE
@@ -232,7 +241,7 @@ void mem_cfg_ipi_handler(const void *unused)
 
 void z_arm64_mem_cfg_ipi(void)
 {
-	broadcast_ipi(SGI_MMCFG_IPI);
+	send_ipi(SGI_MMCFG_IPI, IPI_ALL_CPUS_MASK);
 }
 #endif
 
@@ -302,6 +311,5 @@ int arch_smp_init(void)
 
 	return 0;
 }
-SYS_INIT(arch_smp_init, PRE_KERNEL_2, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
 
 #endif

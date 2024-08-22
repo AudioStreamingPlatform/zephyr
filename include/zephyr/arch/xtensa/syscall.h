@@ -24,6 +24,8 @@
 #include <zephyr/linker/sections.h>
 #include <zephyr/sys/util_macro.h>
 
+#include <xtensa/config/core-isa.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -196,11 +198,12 @@ static SYSINL uintptr_t arch_syscall_invoke0(uintptr_t call_id)
 
 /*
  * There is no easy (or generic) way to figure out if a thread is runnining
- * in un-privileged mode. Reading the currrent ring (PS.CRING) is a privileged
+ * in un-privileged mode. Reading the current ring (PS.CRING) is a privileged
  * instruction and not thread local storage is not available in xcc.
  */
 static inline bool arch_is_user_context(void)
 {
+#if XCHAL_HAVE_THREADPTR
 	uint32_t thread;
 
 	__asm__ volatile(
@@ -218,6 +221,12 @@ static inline bool arch_is_user_context(void)
 #else
 	return !!thread;
 #endif
+
+#else /* XCHAL_HAVE_THREADPTR */
+	extern bool xtensa_is_user_context(void);
+
+	return xtensa_is_user_context();
+#endif /* XCHAL_HAVE_THREADPTR */
 }
 
 #undef SYSINL

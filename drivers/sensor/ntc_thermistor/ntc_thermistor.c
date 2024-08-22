@@ -15,8 +15,8 @@ LOG_MODULE_REGISTER(NTC_THERMISTOR, CONFIG_SENSOR_LOG_LEVEL);
 
 struct ntc_thermistor_data {
 	struct k_mutex mutex;
-	int16_t raw;
-	int16_t sample_val;
+	int32_t raw;
+	int32_t sample_val;
 };
 
 struct ntc_thermistor_config {
@@ -243,3 +243,29 @@ static __unused const struct ntc_compensation comp_tdk_ntcg163jf103ft1[] = {
 
 DT_INST_FOREACH_STATUS_OKAY_VARGS(NTC_THERMISTOR_DEFINE, DT_DRV_COMPAT,
 				  comp_tdk_ntcg163jf103ft1)
+
+/* murata,ncp15xh103 */
+#undef DT_DRV_COMPAT
+#define DT_DRV_COMPAT murata_ncp15xh103
+
+static __unused const struct ntc_compensation comp_murata_ncp15xh103[] = {
+	{ -25, 87558 },
+	{ -15, 53649 },
+	{  -5, 33892 },
+	{   5, 22021 },
+	{  15, 14673 },
+	{  25, 10000 },
+	{  35,  6947 },
+	{  45,  4916 },
+	{  55,  3535 },
+	{  64,  2586 },
+	{  75,  1924 },
+	{  85,  1452 },
+	{  95,  1109 },
+	{ 105,   858 },
+	{ 115,   671 },
+	{ 125,   531 },
+};
+
+DT_INST_FOREACH_STATUS_OKAY_VARGS(NTC_THERMISTOR_DEFINE, DT_DRV_COMPAT,
+				  comp_murata_ncp15xh103)

@@ -4,7 +4,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-SIMULATION_ID="cap_unicast_ac_12"
+SIMULATION_ID="cap_broadcast_ac_12"
 VERBOSITY_LEVEL=2
 EXECUTE_TIMEOUT=60
 
@@ -15,11 +15,11 @@ cd ${BSIM_OUT_PATH}/bin
 function Execute_AC_12() {
     printf "\n\n======== Running CAP AC_12 with %s =========\n\n" $1
 
-    Execute ./bs_${BOARD}_tests_bsim_bluetooth_audio_prj_conf \
+    Execute ./bs_${BOARD_TS}_tests_bsim_bluetooth_audio_prj_conf \
         -v=${VERBOSITY_LEVEL} -s=${SIMULATION_ID} -d=0 -testid=cap_initiator_ac_12 \
         -RealEncryption=1 -rs=23 -D=2 -argstest preset $1
 
-    Execute ./bs_${BOARD}_tests_bsim_bluetooth_audio_prj_conf \
+    Execute ./bs_${BOARD_TS}_tests_bsim_bluetooth_audio_prj_conf \
         -v=${VERBOSITY_LEVEL} -s=${SIMULATION_ID} -d=1 -testid=cap_acceptor_broadcast \
         -RealEncryption=1 -rs=46 -D=2
 
@@ -41,13 +41,13 @@ Execute_AC_12 24_1_1
 Execute_AC_12 24_2_1
 Execute_AC_12 32_1_1
 Execute_AC_12 32_2_1
-# Execute_AC_12 441_1_1 # BT_ISO_FLAGS_ERROR
+Execute_AC_12 441_1_1
 Execute_AC_12 441_2_1
-# Execute_AC_12 48_1_1 # BT_ISO_FLAGS_ERROR
+Execute_AC_12 48_1_1
 Execute_AC_12 48_2_1
-# Execute_AC_12 48_3_1 # BT_ISO_FLAGS_ERROR
+Execute_AC_12 48_3_1
 Execute_AC_12 48_4_1
-# Execute_AC_12 48_5_1 # BT_ISO_FLAGS_ERROR
+Execute_AC_12 48_5_1
 Execute_AC_12 48_6_1
 
 # High reliability

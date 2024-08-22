@@ -10,6 +10,7 @@
 /* Internal APIs */
 #include <kernel_internal.h>
 #include <ksched.h>
+#include <kthread.h>
 
 struct k_thread kthread_thread;
 struct k_thread kthread_thread1;
@@ -26,16 +27,16 @@ static void thread_entry(void *p1, void *p2, void *p3)
 	ARG_UNUSED(p2);
 	ARG_UNUSED(p3);
 
-	z_thread_essential_set();
+	z_thread_essential_set(_current);
 
-	if (z_is_thread_essential()) {
+	if (z_is_thread_essential(_current)) {
 		k_busy_wait(100);
 	} else {
 		zassert_unreachable("The thread is not set as essential");
 	}
 
-	z_thread_essential_clear();
-	zassert_false(z_is_thread_essential(),
+	z_thread_essential_clear(_current);
+	zassert_false(z_is_thread_essential(_current),
 		      "Essential flag of the thread is not cleared");
 
 	k_sem_give(&sync_sem);
@@ -60,14 +61,14 @@ ZTEST(threads_lifecycle, test_essential_thread_operation)
 }
 
 void k_sys_fatal_error_handler(unsigned int reason,
-				      const z_arch_esf_t *esf)
+				      const struct arch_esf *esf)
 {
 	ARG_UNUSED(esf);
 	ARG_UNUSED(reason);
 
 	fatal_error_signaled = true;
 
-	z_thread_essential_clear();
+	z_thread_essential_clear(_current);
 }
 
 static void abort_thread_entry(void *p1, void *p2, void *p3)
@@ -76,9 +77,9 @@ static void abort_thread_entry(void *p1, void *p2, void *p3)
 	ARG_UNUSED(p2);
 	ARG_UNUSED(p3);
 
-	z_thread_essential_set();
+	z_thread_essential_set(_current);
 
-	if (z_is_thread_essential()) {
+	if (z_is_thread_essential(_current)) {
 		k_busy_wait(100);
 	} else {
 		zassert_unreachable("The thread is not set as essential");

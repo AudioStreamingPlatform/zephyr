@@ -4,18 +4,53 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#if defined(CONFIG_BT_GMAP)
+#include <errno.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <string.h>
 
-#include <zephyr/bluetooth/bluetooth.h>
-#include <zephyr/bluetooth/byteorder.h>
+#include <zephyr/autoconf.h>
+#include <zephyr/bluetooth/addr.h>
+#include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/cap.h>
 #include <zephyr/bluetooth/audio/bap.h>
+#include <zephyr/bluetooth/audio/csip.h>
 #include <zephyr/bluetooth/audio/gmap.h>
 #include <zephyr/bluetooth/audio/gmap_lc3_preset.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/byteorder.h>
+#include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/gap.h>
+#include <zephyr/bluetooth/gatt.h>
+#include <zephyr/bluetooth/hci_types.h>
+#include <zephyr/bluetooth/iso.h>
+#include <zephyr/bluetooth/uuid.h>
+#include <zephyr/kernel.h>
+#include <zephyr/net/buf.h>
 #include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/sys/util_macro.h>
+#include <zephyr/toolchain.h>
 
+#include "bstests.h"
 #include "common.h"
 #include "bap_common.h"
+
+#if defined(CONFIG_BT_GMAP)
+/* Zephyr Controller works best while Extended Advertising interval to be a multiple
+ * of the ISO Interval minus 10 ms (max. advertising random delay). This is
+ * required to place the AUX_ADV_IND PDUs in a non-overlapping interval with the
+ * Broadcast ISO radio events.
+ */
+#define BT_LE_EXT_ADV_CUSTOM \
+		BT_LE_ADV_PARAM(BT_LE_ADV_OPT_EXT_ADV, \
+				0x0080, 0x0080, NULL)
+
+#define BT_LE_PER_ADV_CUSTOM \
+		BT_LE_PER_ADV_PARAM(0x0048, \
+				    0x0048, \
+				    BT_LE_PER_ADV_OPT_NONE)
 
 #define UNICAST_SINK_SUPPORTED (CONFIG_BT_BAP_UNICAST_CLIENT_ASE_SNK_COUNT > 0)
 #define UNICAST_SRC_SUPPORTED  (CONFIG_BT_BAP_UNICAST_CLIENT_ASE_SRC_COUNT > 0)
@@ -91,6 +126,8 @@ struct named_lc3_preset named_preset;
 
 static struct audio_test_stream broadcast_streams[CONFIG_BT_BAP_BROADCAST_SRC_STREAM_COUNT];
 static struct unicast_stream unicast_streams[GMAP_UNICAST_AC_MAX_STREAM];
+static struct bt_cap_stream *started_unicast_streams[GMAP_UNICAST_AC_MAX_STREAM];
+static size_t started_unicast_streams_cnt;
 static struct bt_bap_ep
 	*sink_eps[GMAP_UNICAST_AC_MAX_CONN][CONFIG_BT_BAP_UNICAST_CLIENT_ASE_SNK_COUNT];
 static struct bt_bap_ep
@@ -171,7 +208,7 @@ static void stream_sent_cb(struct bt_bap_stream *bap_stream)
 
 	net_buf_reserve(buf, BT_ISO_CHAN_SEND_RESERVE);
 	net_buf_add_mem(buf, mock_iso_data, test_stream->tx_sdu_size);
-	ret = bt_cap_stream_send(cap_stream, buf, test_stream->seq_num++, BT_ISO_TIMESTAMP_NONE);
+	ret = bt_cap_stream_send(cap_stream, buf, test_stream->seq_num++);
 	if (ret < 0) {
 		/* This will end broadcasting on this stream. */
 		net_buf_unref(buf);
@@ -247,6 +284,7 @@ static struct bt_bap_stream_ops stream_ops = {
 };
 
 static void cap_discovery_complete_cb(struct bt_conn *conn, int err,
+				      const struct bt_csip_set_coordinator_set_member *member,
 				      const struct bt_csip_set_coordinator_csis_inst *csis_inst)
 {
 	if (err != 0) {
@@ -270,8 +308,7 @@ static void cap_discovery_complete_cb(struct bt_conn *conn, int err,
 	SET_FLAG(flag_cas_discovered);
 }
 
-static void unicast_start_complete_cb(struct bt_bap_unicast_group *unicast_group, int err,
-				      struct bt_conn *conn)
+static void unicast_start_complete_cb(int err, struct bt_conn *conn)
 {
 	if (err != 0) {
 		FAIL("Failed to start (failing conn %p): %d\n", conn, err);
@@ -293,8 +330,7 @@ static void unicast_update_complete_cb(int err, struct bt_conn *conn)
 	SET_FLAG(flag_updated);
 }
 
-static void unicast_stop_complete_cb(struct bt_bap_unicast_group *unicast_group, int err,
-				     struct bt_conn *conn)
+static void unicast_stop_complete_cb(int err, struct bt_conn *conn)
 {
 	if (err != 0) {
 		FAIL("Failed to stop (failing conn %p): %d\n", conn, err);
@@ -672,6 +708,7 @@ static int gmap_ac_cap_unicast_start(const struct gmap_unicast_ac_param *param,
 	size_t stream_cnt = 0U;
 	size_t snk_ep_cnt = 0U;
 	size_t src_ep_cnt = 0U;
+	int err;
 
 	for (size_t i = 0U; i < param->conn_cnt; i++) {
 #if UNICAST_SINK_SUPPORTED
@@ -739,9 +776,17 @@ static int gmap_ac_cap_unicast_start(const struct gmap_unicast_ac_param *param,
 			snk_stream_cnt++;
 			stream_cnt++;
 
-			if (param->conn_cnt > 1) {
-				bt_audio_codec_cfg_set_chan_allocation(
+			/* If we have more than 1 connection or stream in one direction, we set the
+			 * location bit accordingly
+			 */
+			if (param->conn_cnt > 1U || param->snk_cnt[i] > 1U) {
+				const int err = bt_audio_codec_cfg_set_chan_allocation(
 					stream_param->codec_cfg, (enum bt_audio_location)BIT(i));
+
+				if (err < 0) {
+					FAIL("Failed to set channel allocation: %d\n", err);
+					return err;
+				}
 			}
 		}
 
@@ -757,9 +802,17 @@ static int gmap_ac_cap_unicast_start(const struct gmap_unicast_ac_param *param,
 			src_stream_cnt++;
 			stream_cnt++;
 
-			if (param->conn_cnt > 1) {
-				bt_audio_codec_cfg_set_chan_allocation(
+			/* If we have more than 1 connection or stream in one direction, we set the
+			 * location bit accordingly
+			 */
+			if (param->conn_cnt > 1U || param->src_cnt[i] > 1U) {
+				const int err = bt_audio_codec_cfg_set_chan_allocation(
 					stream_param->codec_cfg, (enum bt_audio_location)BIT(i));
+
+				if (err < 0) {
+					FAIL("Failed to set channel allocation: %d\n", err);
+					return err;
+				}
 			}
 		}
 	}
@@ -768,7 +821,16 @@ static int gmap_ac_cap_unicast_start(const struct gmap_unicast_ac_param *param,
 	start_param.count = stream_cnt;
 	start_param.type = BT_CAP_SET_TYPE_AD_HOC;
 
-	return bt_cap_initiator_unicast_audio_start(&start_param, unicast_group);
+	err = bt_cap_initiator_unicast_audio_start(&start_param);
+	if (err == 0) {
+		for (size_t i = 0U; i < start_param.count; i++) {
+			started_unicast_streams[i] = start_param.stream_params[i].stream;
+		}
+
+		started_unicast_streams_cnt = start_param.count;
+	}
+
+	return err;
 }
 
 static int gmap_ac_unicast(const struct gmap_unicast_ac_param *param,
@@ -858,17 +920,25 @@ static int gmap_ac_unicast(const struct gmap_unicast_ac_param *param,
 
 static void unicast_audio_stop(struct bt_bap_unicast_group *unicast_group)
 {
+	struct bt_cap_unicast_audio_stop_param param;
 	int err;
 
 	UNSET_FLAG(flag_stopped);
 
-	err = bt_cap_initiator_unicast_audio_stop(unicast_group);
+	param.type = BT_CAP_SET_TYPE_AD_HOC;
+	param.count = started_unicast_streams_cnt;
+	param.streams = started_unicast_streams;
+
+	err = bt_cap_initiator_unicast_audio_stop(&param);
 	if (err != 0) {
 		FAIL("Failed to start unicast audio: %d\n", err);
 		return;
 	}
 
 	WAIT_FOR_FLAG(flag_stopped);
+
+	started_unicast_streams_cnt = 0U;
+	memset(started_unicast_streams, 0, sizeof(started_unicast_streams));
 }
 
 static void unicast_group_delete(struct bt_bap_unicast_group *unicast_group)
@@ -926,6 +996,7 @@ static void test_gmap_ugg_unicast_ac(const struct gmap_unicast_ac_param *param)
 		}
 
 		discover_gmas(connected_conns[i]);
+		discover_gmas(connected_conns[i]); /* test that we can discover twice */
 	}
 
 	gmap_ac_unicast(param, &unicast_group);
@@ -956,15 +1027,15 @@ static void setup_extended_adv(struct bt_le_ext_adv **adv)
 {
 	int err;
 
-	/* Create a non-connectable non-scannable advertising set */
-	err = bt_le_ext_adv_create(BT_LE_EXT_ADV_NCONN_NAME, NULL, adv);
+	/* Create a non-connectable advertising set */
+	err = bt_le_ext_adv_create(BT_LE_EXT_ADV_CUSTOM, NULL, adv);
 	if (err != 0) {
 		FAIL("Unable to create extended advertising set: %d\n", err);
 		return;
 	}
 
 	/* Set periodic advertising parameters */
-	err = bt_le_per_adv_set_param(*adv, BT_LE_PER_ADV_DEFAULT);
+	err = bt_le_per_adv_set_param(*adv, BT_LE_PER_ADV_CUSTOM);
 	if (err) {
 		FAIL("Failed to set periodic advertising parameters: %d\n", err);
 		return;
@@ -1118,11 +1189,11 @@ static void broadcast_audio_delete(struct bt_cap_broadcast_source *broadcast_sou
 static int test_gmap_ugg_broadcast_ac(const struct gmap_broadcast_ac_param *param)
 {
 	uint8_t stereo_data[] = {
-		BT_AUDIO_CODEC_DATA(BT_AUDIO_CODEC_CONFIG_LC3_CHAN_ALLOC,
+		BT_AUDIO_CODEC_DATA(BT_AUDIO_CODEC_CFG_CHAN_ALLOC,
 				    BT_AUDIO_LOCATION_FRONT_RIGHT | BT_AUDIO_LOCATION_FRONT_LEFT)};
-	uint8_t right_data[] = {BT_AUDIO_CODEC_DATA(BT_AUDIO_CODEC_CONFIG_LC3_CHAN_ALLOC,
+	uint8_t right_data[] = {BT_AUDIO_CODEC_DATA(BT_AUDIO_CODEC_CFG_CHAN_ALLOC,
 						    BT_AUDIO_LOCATION_FRONT_RIGHT)};
-	uint8_t left_data[] = {BT_AUDIO_CODEC_DATA(BT_AUDIO_CODEC_CONFIG_LC3_CHAN_ALLOC,
+	uint8_t left_data[] = {BT_AUDIO_CODEC_DATA(BT_AUDIO_CODEC_CFG_CHAN_ALLOC,
 						   BT_AUDIO_LOCATION_FRONT_LEFT)};
 	struct bt_cap_initiator_broadcast_subgroup_param subgroup_param = {0};
 	struct bt_cap_initiator_broadcast_create_param create_param = {0};
@@ -1469,91 +1540,91 @@ static void test_args(int argc, char *argv[])
 static const struct bst_test_instance test_gmap_ugg[] = {
 	{
 		.test_id = "gmap_ugg_ac_1",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_1,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_2",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_2,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_3",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_3,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_4",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_4,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_5",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_5,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_6_i",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_6_i,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_6_ii",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_6_ii,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_7_ii",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_7_ii,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_8_i",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_8_i,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_8_ii",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_8_ii,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_11_i",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_11_i,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_11_ii",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_11_ii,
 		.test_args_f = test_args,
 	},
 	{
 		.test_id = "gmap_ugg_ac_12",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_12,
 		.test_args_f = test_args,
@@ -1561,7 +1632,7 @@ static const struct bst_test_instance test_gmap_ugg[] = {
 #if CONFIG_BT_BAP_BROADCAST_SRC_STREAM_COUNT >= GMAP_BROADCAST_AC_MAX_STREAM
 	{
 		.test_id = "gmap_ugg_ac_13",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_13,
 		.test_args_f = test_args,
@@ -1569,7 +1640,7 @@ static const struct bst_test_instance test_gmap_ugg[] = {
 #endif /* CONFIG_BT_BAP_BROADCAST_SRC_STREAM_COUNT >= GMAP_BROADCAST_AC_MAX_STREAM */
 	{
 		.test_id = "gmap_ugg_ac_14",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_gmap_ac_14,
 		.test_args_f = test_args,

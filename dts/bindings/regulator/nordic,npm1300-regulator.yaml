@@ -1,5 +1,5 @@
 # Copyright (c), 2023 Nordic Semiconductor ASA
-# SPDX -License-Identifier: Apache-2.0
+# SPDX-License-Identifier: Apache-2.0
 
 description: |
   Nordic nPM1300 PMIC
@@ -53,6 +53,7 @@ child-binding:
       property-allowlist:
         - regulator-always-on
         - regulator-boot-on
+        - regulator-boot-off
         - regulator-min-microvolt
         - regulator-max-microvolt
         - regulator-init-microvolt

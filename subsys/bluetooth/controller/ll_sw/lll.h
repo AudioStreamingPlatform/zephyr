@@ -20,7 +20,9 @@
 #define SCAN_INT_UNIT_US     625U
 #define CONN_INT_UNIT_US     1250U
 #define ISO_INT_UNIT_US      CONN_INT_UNIT_US
-#define PERIODIC_INT_UNIT_US 1250U
+#define PERIODIC_INT_UNIT_US CONN_INT_UNIT_US
+
+#define ISO_INTERVAL_TO_US(interval) ((interval) * ISO_INT_UNIT_US)
 
 /* Timeout for Host to accept/reject cis create request */
 /* See BTCore5.3, 4.E.6.7 - Default value 0x1f40 * 625us */
@@ -409,11 +411,19 @@ struct node_rx_hdr {
 		memq_link_t *link;    /* Supply memq_link from ULL to LLL */
 		uint8_t     ack_last; /* Tx ack queue index at this node rx */
 	};
-
 	enum node_rx_type type;
 	uint8_t           user_meta; /* User metadata */
 	uint16_t          handle;    /* State/Role instance handle */
+};
 
+
+/* Template node rx type with memory aligned offset to PDU buffer.
+ * NOTE: offset to memory aligned pdu buffer location is used to reference
+ *       node rx type specific information, like, terminate or sync lost reason
+ *       from a dedicated node rx structure storage location.
+ */
+struct node_rx_pdu {
+	struct node_rx_hdr hdr;
 	union {
 		struct node_rx_ftr rx_ftr;
 #if defined(CONFIG_BT_CTLR_SYNC_ISO) || defined(CONFIG_BT_CTLR_CONN_ISO)
@@ -423,15 +433,6 @@ struct node_rx_hdr {
 		lll_rx_pdu_meta_t  rx_pdu_meta;
 #endif /* CONFIG_BT_CTLR_RX_PDU_META */
 	};
-};
-
-/* Template node rx type with memory aligned offset to PDU buffer.
- * NOTE: offset to memory aligned pdu buffer location is used to reference
- *       node rx type specific information, like, terminate or sync lost reason
- *       from a dedicated node rx structure storage location.
- */
-struct node_rx_pdu {
-	struct node_rx_hdr hdr;
 	union {
 		uint8_t    pdu[0] __aligned(4);
 	};
@@ -504,6 +505,9 @@ struct event_done_extra {
 				struct {
 					uint16_t trx_cnt;
 					uint8_t  crc_valid:1;
+#if defined(CONFIG_BT_CTLR_SYNC_ISO)
+					uint8_t  estab_failed:1;
+#endif /* CONFIG_BT_CTLR_SYNC_ISO */
 #if defined(CONFIG_BT_CTLR_SYNC_PERIODIC_CTE_TYPE_FILTERING) && \
 	defined(CONFIG_BT_CTLR_CTEINLINE_SUPPORT)
 					/* Used to inform ULL that periodic

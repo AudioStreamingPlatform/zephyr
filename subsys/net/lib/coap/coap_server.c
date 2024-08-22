@@ -16,11 +16,7 @@ LOG_MODULE_DECLARE(net_coap, CONFIG_COAP_LOG_LEVEL);
 #include <zephyr/net/coap_link_format.h>
 #include <zephyr/net/coap_mgmt.h>
 #include <zephyr/net/coap_service.h>
-#ifdef CONFIG_ARCH_POSIX
-#include <fcntl.h>
-#else
 #include <zephyr/posix/fcntl.h>
-#endif
 
 #if defined(CONFIG_NET_TC_THREAD_COOPERATIVE)
 /* Lowest priority cooperative thread */
@@ -96,7 +92,7 @@ static int coap_service_remove_observer(const struct coap_service *service,
 		/* Prefer addr+token to find the observer */
 		obs = coap_find_observer(service->data->observers, MAX_OBSERVERS, addr, token, tkl);
 	} else if (tkl > 0) {
-		/* Then try to to find the observer by token */
+		/* Then try to find the observer by token */
 		obs = coap_find_observer_by_token(service->data->observers, MAX_OBSERVERS, token,
 						  tkl);
 	} else if (addr != NULL) {
@@ -127,7 +123,8 @@ static int coap_service_remove_observer(const struct coap_service *service,
 
 static int coap_server_process(int sock_fd)
 {
-	uint8_t buf[CONFIG_COAP_SERVER_MESSAGE_SIZE];
+	static uint8_t buf[CONFIG_COAP_SERVER_MESSAGE_SIZE];
+
 	struct sockaddr client_addr;
 	socklen_t client_addr_len = sizeof(client_addr);
 	struct coap_service *service = NULL;
@@ -334,7 +331,9 @@ static int coap_server_poll_timeout(void)
 
 static void coap_server_update_services(void)
 {
-	zsock_send(control_socks[1], &(char){0}, 1, 0);
+	if (zsock_send(control_socks[1], &(char){0}, 1, 0) < 0) {
+		LOG_ERR("Failed to notify server thread (%d)", errno);
+	}
 }
 
 static inline bool coap_service_in_section(const struct coap_service *service)

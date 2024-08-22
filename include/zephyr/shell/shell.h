@@ -26,6 +26,10 @@
 extern "C" {
 #endif
 
+#ifndef CONFIG_SHELL_PROMPT_BUFF_SIZE
+#define CONFIG_SHELL_PROMPT_BUFF_SIZE 0
+#endif
+
 #ifndef CONFIG_SHELL_CMD_BUFF_SIZE
 #define CONFIG_SHELL_CMD_BUFF_SIZE 0
 #endif
@@ -69,6 +73,8 @@ extern "C" {
 /**
  * @brief Shell API
  * @defgroup shell_api Shell API
+ * @since 1.14
+ * @version 1.0.0
  * @ingroup os_services
  * @{
  */
@@ -126,6 +132,34 @@ const struct device *shell_device_lookup(size_t idx,
 				   const char *prefix);
 
 /**
+ * @brief Filter callback type, for use with shell_device_lookup_filter
+ *
+ * This is used as an argument of shell_device_lookup_filter to only return
+ * devices that match a specific condition, implemented by the filter.
+ *
+ * @param dev pointer to a struct device.
+ *
+ * @return bool, true if the filter matches the device type.
+ */
+typedef bool (*shell_device_filter_t)(const struct device *dev);
+
+/**
+ * @brief Get a device by index and filter.
+ *
+ * This can be used to return devices matching a specific type.
+ *
+ * Devices that the filter returns false for, failed to initialize or do not
+ * have a non-empty name are excluded from the candidates for a match.
+ *
+ * @param idx the device number starting from zero.
+ *
+ * @param filter a pointer to a shell_device_filter_t function that returns
+ * true if the device matches the filter.
+ */
+const struct device *shell_device_filter(size_t idx,
+					 shell_device_filter_t filter);
+
+/**
  * @brief Shell command handler prototype.
  *
  * @param sh Shell instance.
@@ -157,7 +191,7 @@ typedef int (*shell_dict_cmd_handler)(const struct shell *sh, size_t argc,
 				      char **argv, void *data);
 
 /* When entries are added to the memory section a padding is applied for
- * native_posix_64 and x86_64 targets. Adding padding to allow handle data
+ * the posix architecture with 64bits builds and x86_64 targets. Adding padding to allow handle data
  * in the memory section as array.
  */
 #if (defined(CONFIG_ARCH_POSIX) && defined(CONFIG_64BIT)) || defined(CONFIG_X86_64)
@@ -743,6 +777,7 @@ struct shell_backend_ctx_flags {
 	uint32_t cmd_ctx      :1; /*!< Shell is executing command */
 	uint32_t print_noinit :1; /*!< Print request from not initialized shell */
 	uint32_t sync_mode    :1; /*!< Shell in synchronous mode */
+	uint32_t handle_log   :1; /*!< Shell is handling logger backend */
 };
 
 BUILD_ASSERT((sizeof(struct shell_backend_ctx_flags) == sizeof(uint32_t)),
@@ -776,7 +811,11 @@ enum shell_signal {
  * @brief Shell instance context.
  */
 struct shell_ctx {
-	const char *prompt; /*!< shell current prompt. */
+#if defined(CONFIG_SHELL_PROMPT_CHANGE) && CONFIG_SHELL_PROMPT_CHANGE
+	char prompt[CONFIG_SHELL_PROMPT_BUFF_SIZE]; /*!< shell current prompt. */
+#else
+	const char *prompt;
+#endif
 
 	enum shell_state state; /*!< Internal module state.*/
 	enum shell_receive_state receive_state;/*!< Escape sequence indicator.*/
@@ -797,6 +836,9 @@ struct shell_ctx {
 
 	/** When bypass is set, all incoming data is passed to the callback. */
 	shell_bypass_cb_t bypass;
+
+	/*!< Logging level for a backend. */
+	uint32_t log_level;
 
 #if defined CONFIG_SHELL_GETOPT
 	/*!< getopt context for a shell backend. */
@@ -994,9 +1036,10 @@ int shell_stop(const struct shell *sh);
  * @param[in] fmt	Format string.
  * @param[in] ...	List of parameters to print.
  */
-void __printf_like(3, 4) shell_fprintf(const struct shell *sh,
-				       enum shell_vt100_color color,
-				       const char *fmt, ...);
+void __printf_like(3, 4) shell_fprintf_impl(const struct shell *sh, enum shell_vt100_color color,
+					    const char *fmt, ...);
+
+#define shell_fprintf(sh, color, fmt, ...) shell_fprintf_impl(sh, color, fmt, ##__VA_ARGS__)
 
 /**
  * @brief vprintf-like function which sends formatted data stream to the shell.
@@ -1050,7 +1093,8 @@ void shell_hexdump(const struct shell *sh, const uint8_t *data, size_t len);
  * @param[in] ... List of parameters to print.
  */
 #define shell_info(_sh, _ft, ...) \
-	shell_fprintf(_sh, SHELL_INFO, _ft "\n", ##__VA_ARGS__)
+	shell_info_impl(_sh, _ft "\n", ##__VA_ARGS__)
+void __printf_like(2, 3) shell_info_impl(const struct shell *sh, const char *fmt, ...);
 
 /**
  * @brief Print normal message to the shell.
@@ -1062,7 +1106,8 @@ void shell_hexdump(const struct shell *sh, const uint8_t *data, size_t len);
  * @param[in] ... List of parameters to print.
  */
 #define shell_print(_sh, _ft, ...) \
-	shell_fprintf(_sh, SHELL_NORMAL, _ft "\n", ##__VA_ARGS__)
+	shell_print_impl(_sh, _ft "\n", ##__VA_ARGS__)
+void __printf_like(2, 3) shell_print_impl(const struct shell *sh, const char *fmt, ...);
 
 /**
  * @brief Print warning message to the shell.
@@ -1074,7 +1119,8 @@ void shell_hexdump(const struct shell *sh, const uint8_t *data, size_t len);
  * @param[in] ... List of parameters to print.
  */
 #define shell_warn(_sh, _ft, ...) \
-	shell_fprintf(_sh, SHELL_WARNING, _ft "\n", ##__VA_ARGS__)
+	shell_warn_impl(_sh, _ft "\n", ##__VA_ARGS__)
+void __printf_like(2, 3) shell_warn_impl(const struct shell *sh, const char *fmt, ...);
 
 /**
  * @brief Print error message to the shell.
@@ -1086,7 +1132,8 @@ void shell_hexdump(const struct shell *sh, const uint8_t *data, size_t len);
  * @param[in] ... List of parameters to print.
  */
 #define shell_error(_sh, _ft, ...) \
-	shell_fprintf(_sh, SHELL_ERROR, _ft "\n", ##__VA_ARGS__)
+	shell_error_impl(_sh, _ft "\n", ##__VA_ARGS__)
+void __printf_like(2, 3) shell_error_impl(const struct shell *sh, const char *fmt, ...);
 
 /**
  * @brief Process function, which should be executed when data is ready in the
@@ -1261,6 +1308,11 @@ int shell_get_return_value(const struct shell *sh);
 
 #ifdef __cplusplus
 }
+#endif
+
+#ifdef CONFIG_SHELL_CUSTOM_HEADER
+/* This include must always be at the end of shell.h */
+#include <zephyr_custom_shell.h>
 #endif
 
 #endif /* SHELL_H__ */

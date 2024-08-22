@@ -26,6 +26,8 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <zephyr/net/openthread.h>
 #endif
 
+#include <zephyr/drivers/interrupt_controller/riscv_plic.h>
+
 #include "ieee802154_b91.h"
 
 
@@ -108,11 +110,7 @@ static inline uint8_t *b91_get_mac(const struct device *dev)
 	struct b91_data *b91 = dev->data;
 
 #if defined(CONFIG_IEEE802154_B91_RANDOM_MAC)
-	uint32_t *ptr = (uint32_t *)(b91->mac_addr);
-
-	UNALIGNED_PUT(sys_rand32_get(), ptr);
-	ptr = (uint32_t *)(b91->mac_addr + 4);
-	UNALIGNED_PUT(sys_rand32_get(), ptr);
+	sys_rand_get(b91->mac_addr, sizeof(b91->mac_addr));
 
 	/*
 	 * Clear bit 0 to ensure it isn't a multicast address and set

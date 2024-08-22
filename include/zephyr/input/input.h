@@ -10,6 +10,8 @@
 /**
  * @brief Input Interface
  * @defgroup input_interface Input Interface
+ * @since 3.4
+ * @version 0.1.0
  * @ingroup io_interfaces
  * @{
  */
@@ -50,7 +52,7 @@ struct input_event {
 /**
  * @brief Report a new input event.
  *
- * This causes all the listeners for the specified device to be triggered,
+ * This causes all the callbacks for the specified device to be executed,
  * either synchronously or through the input thread if utilized.
  *
  * @param dev Device generating the event or NULL.
@@ -116,14 +118,30 @@ static inline int input_report_abs(const struct device *dev,
 bool input_queue_empty(void);
 
 /**
- * @brief Input listener callback structure.
+ * @brief Input callback structure.
  */
-struct input_listener {
+struct input_callback {
 	/** @ref device pointer or NULL. */
 	const struct device *dev;
 	/** The callback function. */
-	void (*callback)(struct input_event *evt);
+	void (*callback)(struct input_event *evt, void *user_data);
+	/** User data pointer. */
+	void *user_data;
 };
+
+/**
+ * @brief Register a callback structure for input events with a custom name.
+ *
+ * Same as @ref INPUT_CALLBACK_DEFINE but allows specifying a custom name
+ * for the callback structure. Useful if multiple callbacks are used for the
+ * same callback function.
+ */
+#define INPUT_CALLBACK_DEFINE_NAMED(_dev, _callback, _user_data, name)         \
+	static const STRUCT_SECTION_ITERABLE(input_callback, name) = {         \
+		.dev = _dev,                                                   \
+		.callback = _callback,                                         \
+		.user_data = _user_data,                                       \
+	}
 
 /**
  * @brief Register a callback structure for input events.
@@ -134,13 +152,11 @@ struct input_listener {
  *
  * @param _dev @ref device pointer or NULL.
  * @param _callback The callback function.
+ * @param _user_data Pointer to user specified data.
  */
-#define INPUT_CALLBACK_DEFINE(_dev, _callback)                                 \
-	static const STRUCT_SECTION_ITERABLE(input_listener,                   \
-					     _input_listener__##_callback) = { \
-		.dev = _dev,                                                   \
-		.callback = _callback,                                         \
-	}
+#define INPUT_CALLBACK_DEFINE(_dev, _callback, _user_data)                     \
+	INPUT_CALLBACK_DEFINE_NAMED(_dev, _callback, _user_data,               \
+				    _input_callback__##_callback)
 
 #ifdef __cplusplus
 }

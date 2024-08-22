@@ -76,7 +76,7 @@ void bt_mesh_adv_send_start(uint16_t duration, int err, struct bt_mesh_adv_ctx *
 	}
 }
 
-static void bt_mesh_adv_send_end(int err, struct bt_mesh_adv_ctx const *ctx)
+void bt_mesh_adv_send_end(int err, struct bt_mesh_adv_ctx const *ctx)
 {
 	if (ctx->started && ctx->cb && ctx->cb->end) {
 		ctx->cb->end(err, ctx->cb_data);
@@ -136,7 +136,6 @@ void bt_mesh_adv_unref(struct bt_mesh_adv *adv)
 	}
 
 	struct k_mem_slab *slab = &local_adv_pool;
-	struct bt_mesh_adv_ctx ctx = adv->ctx;
 
 #if defined(CONFIG_BT_MESH_RELAY)
 	if (adv->ctx.tag == BT_MESH_ADV_TAG_RELAY) {
@@ -151,7 +150,6 @@ void bt_mesh_adv_unref(struct bt_mesh_adv *adv)
 #endif
 
 	k_mem_slab_free(slab, (void *)adv);
-	bt_mesh_adv_send_end(0, &ctx);
 }
 
 struct bt_mesh_adv *bt_mesh_adv_create(enum bt_mesh_adv_type type,
@@ -258,6 +256,10 @@ void bt_mesh_adv_send(struct bt_mesh_adv *adv, const struct bt_mesh_send_cb *cb,
 {
 	LOG_DBG("type 0x%02x len %u: %s", adv->ctx.type, adv->b.len,
 		bt_hex(adv->b.data, adv->b.len));
+
+	if (atomic_test_bit(bt_mesh.flags, BT_MESH_SUSPENDED)) {
+		LOG_WRN("Sending advertisement while suspended");
+	}
 
 	adv->ctx.cb = cb;
 	adv->ctx.cb_data = cb_data;
@@ -376,8 +378,8 @@ int bt_mesh_scan_active_set(bool active)
 int bt_mesh_scan_enable(void)
 {
 	struct bt_le_scan_param scan_param = {
-		.type = active_scanning ? BT_HCI_LE_SCAN_ACTIVE :
-					  BT_HCI_LE_SCAN_PASSIVE,
+		.type = active_scanning ? BT_LE_SCAN_TYPE_ACTIVE :
+					  BT_LE_SCAN_TYPE_PASSIVE,
 		.interval = MESH_SCAN_INTERVAL,
 		.window = MESH_SCAN_WINDOW
 	};

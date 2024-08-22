@@ -359,6 +359,14 @@ static inline void handle_rxne(const struct device *dev)
 			k_sem_give(&data->device_sync_sem);
 			break;
 		case 2:
+			/*
+			 * 2-byte reception for N > 3 has already set the NACK
+			 * bit, and must not set the POS bit. See pg. 854 in
+			 * the F4 reference manual (RM0090).
+			 */
+			if (data->current.msg->len > 2) {
+				break;
+			}
 			LL_I2C_AcknowledgeNextData(i2c, LL_I2C_NACK);
 			LL_I2C_EnableBitPOS(i2c);
 			__fallthrough;
@@ -899,7 +907,7 @@ static int32_t stm32_i2c_msg_read(const struct device *dev, struct i2c_msg *msg,
 			}
 		}
 		/* ADDR must be cleared before NACK generation. Either in 2 byte reception
-		 * byte 1 will be NACK'ed and slave wont sent the last byte
+		 * byte 1 will be NACK'ed and slave won't sent the last byte
 		 */
 		LL_I2C_ClearFlag_ADDR(i2c);
 		if (len == 1U) {

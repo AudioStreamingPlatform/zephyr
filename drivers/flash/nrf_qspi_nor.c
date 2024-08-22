@@ -12,6 +12,7 @@
 #include <zephyr/pm/device.h>
 #include <zephyr/pm/device_runtime.h>
 #include <zephyr/drivers/pinctrl.h>
+#include <zephyr/sys/atomic.h>
 #include <soc.h>
 #include <string.h>
 #include <zephyr/logging/log.h>
@@ -21,20 +22,19 @@ LOG_MODULE_REGISTER(qspi_nor, CONFIG_FLASH_LOG_LEVEL);
 #include "spi_nor.h"
 #include "jesd216.h"
 #include "flash_priv.h"
+#include <nrf_erratas.h>
 #include <nrfx_qspi.h>
 #include <hal/nrf_clock.h>
 #include <hal/nrf_gpio.h>
 
 struct qspi_nor_data {
-#if !defined(CONFIG_PM_DEVICE_RUNTIME) && defined(CONFIG_MULTITHREADING)
-	/* A semaphore to control QSPI deactivation. */
-	struct k_sem count;
-#endif
 #ifdef CONFIG_MULTITHREADING
 	/* The semaphore to control exclusive access to the device. */
 	struct k_sem sem;
 	/* The semaphore to indicate that transfer has completed. */
 	struct k_sem sync;
+	/* A counter to control QSPI deactivation. */
+	atomic_t usage_count;
 #else /* CONFIG_MULTITHREADING */
 	/* A flag that signals completed transfer when threads are
 	 * not enabled.
@@ -101,6 +101,11 @@ BUILD_ASSERT(INST_0_SCK_FREQUENCY >= (NRF_QSPI_BASE_CLOCK_FREQ / 16),
 /* For requested SCK >= 96 MHz, use HFCLK192M / 1 / (2*1) = 96 MHz */
 #define BASE_CLOCK_DIV NRF_CLOCK_HFCLK_DIV_1
 #define INST_0_SCK_CFG NRF_QSPI_FREQ_DIV1
+/* If anomaly 159 is to be prevented, only /1 divider can be used. */
+#elif NRF53_ERRATA_159_ENABLE_WORKAROUND
+#define BASE_CLOCK_DIV NRF_CLOCK_HFCLK_DIV_1
+#define INST_0_SCK_CFG (DIV_ROUND_UP(NRF_QSPI_BASE_CLOCK_FREQ, \
+				     INST_0_SCK_FREQUENCY) - 1)
 #elif (INST_0_SCK_FREQUENCY >= (NRF_QSPI_BASE_CLOCK_FREQ / 2))
 /* For 96 MHz > SCK >= 48 MHz, use HFCLK192M / 2 / (2*1) = 48 MHz */
 #define BASE_CLOCK_DIV NRF_CLOCK_HFCLK_DIV_2
@@ -115,6 +120,13 @@ BUILD_ASSERT(INST_0_SCK_FREQUENCY >= (NRF_QSPI_BASE_CLOCK_FREQ / 16),
 #define INST_0_SCK_CFG (DIV_ROUND_UP(NRF_QSPI_BASE_CLOCK_FREQ / 2, \
 				     INST_0_SCK_FREQUENCY) - 1)
 #endif
+/* After the base clock divider is changed, some time is needed for the new
+ * setting to take effect. This value specifies the delay (in microseconds)
+ * to be applied to ensure that the clock is ready when the QSPI operation
+ * starts. It was measured with a logic analyzer (unfortunately, the nRF5340
+ * specification does not provide any numbers in this regard).
+ */
+#define BASE_CLOCK_SWITCH_DELAY_US 7
 
 #else
 /*
@@ -230,6 +242,12 @@ static inline int qspi_get_zephyr_ret_code(nrfx_err_t res)
 		return -EINVAL;
 	case NRFX_ERROR_INVALID_STATE:
 		return -ECANCELED;
+#if NRF53_ERRATA_159_ENABLE_WORKAROUND
+	case NRFX_ERROR_FORBIDDEN:
+		LOG_ERR("nRF5340 anomaly 159 conditions detected");
+		LOG_ERR("Set the CPU clock to 64 MHz before starting QSPI operation");
+		return -ECANCELED;
+#endif
 	case NRFX_ERROR_BUSY:
 	case NRFX_ERROR_TIMEOUT:
 	default:
@@ -262,6 +280,7 @@ static inline void qspi_clock_div_change(void)
 	 * before a QSPI transfer is performed.
 	 */
 	nrf_clock_hfclk192m_div_set(NRF_CLOCK, BASE_CLOCK_DIV);
+	k_busy_wait(BASE_CLOCK_SWITCH_DELAY_US);
 #endif
 }
 
@@ -278,19 +297,18 @@ static inline void qspi_clock_div_restore(void)
 static void qspi_acquire(const struct device *dev)
 {
 	struct qspi_nor_data *dev_data = dev->data;
+	int rc;
 
-#if defined(CONFIG_PM_DEVICE_RUNTIME)
-	int rc = pm_device_runtime_get(dev);
-
+	rc = pm_device_runtime_get(dev);
 	if (rc < 0) {
 		LOG_ERR("pm_device_runtime_get failed: %d", rc);
 	}
-#elif defined(CONFIG_MULTITHREADING)
+#if defined(CONFIG_MULTITHREADING)
 	/* In multithreading, the driver can call qspi_acquire more than once
 	 * before calling qspi_release. Keeping count, so QSPI is deactivated
-	 * only at the last call (count == 0).
+	 * only at the last call (usage_count == 0).
 	 */
-	k_sem_give(&dev_data->count);
+	atomic_inc(&dev_data->usage_count);
 #endif
 
 	qspi_lock(dev);
@@ -306,17 +324,17 @@ static void qspi_release(const struct device *dev)
 {
 	struct qspi_nor_data *dev_data = dev->data;
 	bool deactivate = true;
+	int rc;
 
-#if !defined(CONFIG_PM_DEVICE_RUNTIME) && defined(CONFIG_MULTITHREADING)
+#if defined(CONFIG_MULTITHREADING)
 	/* The last thread to finish using the driver deactivates the QSPI */
-	(void) k_sem_take(&dev_data->count, K_NO_WAIT);
-	deactivate = (k_sem_count_get(&dev_data->count) == 0);
+	deactivate = atomic_dec(&dev_data->usage_count) == 1;
 #endif
 
 	if (!dev_data->xip_enabled) {
 		qspi_clock_div_restore();
 
-		if (deactivate && !IS_ENABLED(CONFIG_PM_DEVICE_RUNTIME)) {
+		if (deactivate) {
 			(void) nrfx_qspi_deactivate();
 		}
 
@@ -325,13 +343,10 @@ static void qspi_release(const struct device *dev)
 
 	qspi_unlock(dev);
 
-#if defined(CONFIG_PM_DEVICE_RUNTIME)
-	int rc = pm_device_runtime_put(dev);
-
+	rc = pm_device_runtime_put(dev);
 	if (rc < 0) {
 		LOG_ERR("pm_device_runtime_put failed: %d", rc);
 	}
-#endif
 }
 
 static inline void qspi_wait_for_completion(const struct device *dev,
@@ -617,7 +632,8 @@ static int configure_chip(const struct device *dev)
 		bool qe_value = (prot_if->writeoc == NRF_QSPI_WRITEOC_PP4IO) ||
 				(prot_if->writeoc == NRF_QSPI_WRITEOC_PP4O)  ||
 				(prot_if->readoc == NRF_QSPI_READOC_READ4IO) ||
-				(prot_if->readoc == NRF_QSPI_READOC_READ4O);
+				(prot_if->readoc == NRF_QSPI_READOC_READ4O)  ||
+				(prot_if->readoc == NRF_QSPI_READOC_READ2IO);
 		uint8_t sr_num = 0;
 		uint8_t qe_mask = 0;
 
@@ -1094,16 +1110,6 @@ static int qspi_nor_init(const struct device *dev)
 		(void)nrfx_qspi_deactivate();
 	}
 
-#ifdef CONFIG_PM_DEVICE_RUNTIME
-	int rc2 = pm_device_runtime_enable(dev);
-
-	if (rc2 < 0) {
-		LOG_ERR("Failed to enable runtime power management: %d", rc2);
-	} else {
-		LOG_DBG("Runtime power management enabled");
-	}
-#endif
-
 #ifdef CONFIG_NORDIC_QSPI_NOR_XIP
 	if (rc == 0) {
 		/* Enable XIP mode for QSPI NOR flash, this will prevent the
@@ -1345,13 +1351,10 @@ void z_vrfy_nrf_qspi_nor_xip_enable(const struct device *dev, bool enable)
 	z_impl_nrf_qspi_nor_xip_enable(dev, enable);
 }
 
-#include <syscalls/nrf_qspi_nor_xip_enable_mrsh.c>
+#include <zephyr/syscalls/nrf_qspi_nor_xip_enable_mrsh.c>
 #endif /* CONFIG_USERSPACE */
 
 static struct qspi_nor_data qspi_nor_dev_data = {
-#if !defined(CONFIG_PM_DEVICE_RUNTIME) && defined(CONFIG_MULTITHREADING)
-	.count = Z_SEM_INITIALIZER(qspi_nor_dev_data.count, 0, K_SEM_MAX_LIMIT),
-#endif
 #ifdef CONFIG_MULTITHREADING
 	.sem = Z_SEM_INITIALIZER(qspi_nor_dev_data.sem, 1, 1),
 	.sync = Z_SEM_INITIALIZER(qspi_nor_dev_data.sync, 0, 1),

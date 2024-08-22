@@ -14,6 +14,7 @@
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/byteorder.h>
 #include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/hci.h>
 #include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/bap.h>
 #include <zephyr/bluetooth/audio/bap_lc3_preset.h>
@@ -62,6 +63,7 @@ static const struct bt_data ad[] = {
 	BT_DATA(BT_DATA_SVC_DATA16, tmap_addata, ARRAY_SIZE(tmap_addata)),
 	BT_DATA(BT_DATA_SVC_DATA16, cap_addata, ARRAY_SIZE(cap_addata)),
 	BT_DATA(BT_DATA_SVC_DATA16, unicast_server_addata, ARRAY_SIZE(unicast_server_addata)),
+	BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof(CONFIG_BT_DEVICE_NAME) - 1),
 };
 
 static K_SEM_DEFINE(sem_connected, 0, 1);
@@ -97,7 +99,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
 	if (err != 0) {
-		printk("Failed to connect to %s (%u)\n", addr, err);
+		printk("Failed to connect to %s %u %s\n", addr, err, bt_hci_err_to_str(err));
 
 		default_conn = NULL;
 		return;
@@ -118,7 +120,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
-	printk("Disconnected: %s (reason 0x%02x)\n", addr, reason);
+	printk("Disconnected: %s, reason 0x%02x %s\n", addr, reason, bt_hci_err_to_str(reason));
 
 	bt_conn_unref(default_conn);
 	default_conn = NULL;
@@ -133,7 +135,7 @@ static void security_changed(struct bt_conn *conn, bt_security_t level,
 		printk("Security changed: %u\n", err);
 		k_sem_give(&sem_security_updated);
 	} else {
-		printk("Failed to set security level: %u", err);
+		printk("Failed to set security level: %s(%u)", bt_security_err_to_str(err), err);
 	}
 }
 
@@ -243,7 +245,7 @@ int main(void)
 	}
 	printk("BAP initialized\n");
 
-	err = bt_le_ext_adv_create(BT_LE_EXT_ADV_CONN_NAME, &adv_cb, &adv);
+	err = bt_le_ext_adv_create(BT_LE_EXT_ADV_CONN, &adv_cb, &adv);
 	if (err) {
 		printk("Failed to create advertising set (err %d)\n", err);
 		return err;
@@ -296,8 +298,9 @@ int main(void)
 	if (peer_is_ums) {
 		/* Play media with MCP */
 		err = mcp_send_cmd(BT_MCS_OPC_PLAY);
-		if (err != 0)
+		if (err != 0) {
 			printk("Error sending media play command!\n");
+		}
 
 		/* Start timer to send media pause command */
 		k_work_schedule(&media_pause_set_work, K_MSEC(2000));

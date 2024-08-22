@@ -275,11 +275,11 @@ struct spi_pl022_cfg {
 	const uint32_t reg;
 	const uint32_t pclk;
 	const bool dma_enabled;
-#if IS_ENABLED(CONFIG_CLOCK_CONTROL)
+#if defined(CONFIG_CLOCK_CONTROL)
 	const struct device *clk_dev;
 	const clock_control_subsys_t clk_id;
 #endif
-#if IS_ENABLED(CONFIG_RESET)
+#if defined(CONFIG_RESET)
 	const struct reset_dt_spec reset;
 #endif
 #if defined(CONFIG_PINCTRL)
@@ -354,7 +354,7 @@ static int spi_pl022_configure(const struct device *dev,
 		return 0;
 	}
 
-#if IS_ENABLED(CONFIG_CLOCK_CONTROL)
+#if defined(CONFIG_CLOCK_CONTROL)
 	ret = clock_control_get_rate(cfg->clk_dev, cfg->clk_id, &pclk);
 	if (ret < 0 || pclk == 0) {
 		return -EINVAL;
@@ -741,8 +741,9 @@ static void spi_pl022_xfer(const struct device *dev)
 	data->rx_count = 0;
 
 	/* Ensure writable */
-	while (!SSP_TX_FIFO_EMPTY(cfg->reg))
+	while (!SSP_TX_FIFO_EMPTY(cfg->reg)) {
 		;
+	}
 	/* Drain RX FIFO */
 	while (SSP_RX_FIFO_NOT_EMPTY(cfg->reg))
 		SSP_READ_REG(SSP_DR(cfg->reg));
@@ -762,8 +763,9 @@ static void spi_pl022_xfer(const struct device *dev)
 			fifo_cnt++;
 		}
 		while (data->rx_count < chunk_len && fifo_cnt > 0) {
-			if (!SSP_RX_FIFO_NOT_EMPTY(cfg->reg))
+			if (!SSP_RX_FIFO_NOT_EMPTY(cfg->reg)) {
 				continue;
+			}
 
 			txrx = SSP_READ_REG(SSP_DR(cfg->reg));
 
@@ -906,7 +908,7 @@ static int spi_pl022_init(const struct device *dev)
 	struct spi_pl022_data *data = dev->data;
 	int ret;
 
-#if IS_ENABLED(CONFIG_CLOCK_CONTROL)
+#if defined(CONFIG_CLOCK_CONTROL)
 	if (cfg->clk_dev) {
 		ret = clock_control_on(cfg->clk_dev, cfg->clk_id);
 		if (ret < 0) {
@@ -916,7 +918,7 @@ static int spi_pl022_init(const struct device *dev)
 	}
 #endif
 
-#if IS_ENABLED(CONFIG_RESET)
+#if defined(CONFIG_RESET)
 	if (cfg->reset.dev) {
 		ret = reset_line_toggle_dt(&cfg->reset);
 		if (ret < 0) {

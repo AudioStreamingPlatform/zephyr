@@ -467,7 +467,7 @@ static int send_ipv4_fragment(struct net_pkt *pkt, uint16_t rand_id, uint16_t fi
 
 	ipv4_hdr = (struct net_ipv4_hdr *)net_pkt_get_data(frag_pkt, &ipv4_access);
 	if (!ipv4_hdr) {
-		return -ENOBUFS;
+		goto fail;
 	}
 
 	memcpy(ipv4_hdr->id, &rand_id, sizeof(rand_id));
@@ -538,7 +538,7 @@ int net_ipv4_send_fragmented_pkt(struct net_if *iface, struct net_pkt *pkt,
 	}
 
 	/* Generate a random ID to be used for packet identification, ensuring that it is not 0 */
-	uint16_t rand_id = (uint16_t)sys_rand32_get();
+	uint16_t rand_id = sys_rand16_get();
 
 	if (rand_id == 0) {
 		rand_id = 1;

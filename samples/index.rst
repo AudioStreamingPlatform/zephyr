@@ -13,6 +13,7 @@ Samples and Demos
    classic
    basic/*
    userspace/*
+   sysbuild/*
    subsys/subsys.rst
    net/net.rst
    bluetooth/bluetooth.rst
@@ -27,7 +28,6 @@ Samples and Demos
    kernel/*
    tfm_integration/tfm_integration.rst
    modules/*
-   compression/*
    fuel_gauge/*
 
 .. comment

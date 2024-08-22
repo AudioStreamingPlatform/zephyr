@@ -3,23 +3,22 @@
 Test Runner (Twister)
 #####################
 
-This script scans for the set of unit test applications in the git repository
+Twister scans for the set of test applications in the git repository
 and attempts to execute them. By default, it tries to build each test
-case on boards marked as default in the board definition file.
+application on boards marked as default in the board definition file.
 
-The default options will build the majority of the tests on a defined set of
-boards and will run in an emulated environment if available for the
-architecture or configuration being tested.
+The default options will build the majority of the test applications on a
+defined set of boards and will run in an emulated environment if available for
+the architecture or configuration being tested.
 
-In normal use, twister runs a limited set of kernel tests (inside
-an emulator).  Because of its limited test execution coverage, twister
+Because of the limited test execution coverage, twister
 cannot guarantee local changes will succeed in the full build
 environment, but it does sufficient testing by building samples and
 tests for different boards and different configurations to help keep the
 complete code tree buildable.
 
 When using (at least) one ``-v`` option, twister's console output
-shows for every test how the test is run (qemu, native_sim, etc.) or
+shows for every test application how the test is run (qemu, native_sim, etc.) or
 whether the binary was just built.  There are a few reasons why twister
 only builds a test and doesn't run it:
 
@@ -157,10 +156,10 @@ toolchain:
   The list of supported toolchains that can build this board. This should match
   one of the values used for :envvar:`ZEPHYR_TOOLCHAIN_VARIANT` when building on the command line
 ram:
-  Available RAM on the board (specified in KB). This is used to match testcase
+  Available RAM on the board (specified in KB). This is used to match test scenario
   requirements.  If not specified we default to 128KB.
 flash:
-  Available FLASH on the board (specified in KB). This is used to match testcase
+  Available FLASH on the board (specified in KB). This is used to match test scenario
   requirements.  If not specified we default to 512KB.
 supported:
   A list of features this board supports. This can be specified as a single word
@@ -171,7 +170,7 @@ supported:
         supported:
           - pci
 
-  This indicates the board does support PCI. You can make a testcase build or
+  This indicates the board does support PCI. You can make a test scenario build or
   run only on such boards, or:
 
   .. code-block:: yaml
@@ -180,12 +179,14 @@ supported:
           - netif:eth
           - sensor:bmi16
 
-  A testcase can both depend on 'eth' to only test ethernet or on 'netif' to run
+  A test scenario can depend on 'eth' to only test ethernet or on 'netif' to run
   on any board with a networking interface.
 
 testing:
   testing relating keywords to provide best coverage for the features of this
   board.
+
+.. _twister_default_testing_board:
 
   default: [True|False]:
     This is a default board, it will tested with the highest priority and is
@@ -200,31 +201,58 @@ testing:
   .. _twister_board_timeout_multiplier:
 
   timeout_multiplier: <float> (default 1)
-    Multiply each test case timeout by specified ratio. This option allows to tune timeouts only
+    Multiply each test scenario timeout by specified ratio. This option allows to tune timeouts only
     for required platform. It can be useful in case naturally slow platform I.e.: HW board with
     power-efficient but slow CPU or simulation platform which can perform instruction accurate
     simulation but does it slowly.
 
-Test Cases
-**********
+env:
+  A list of environment variables. Twister will check if all these environment variables are set,
+  and otherwise skip this platform. This allows the user to define a platform which should be
+  used, for example, only if some required software or hardware is present, and to signal that
+  presence to twister using these environment variables.
 
-Test cases are detected by the presence of a ``testcase.yaml`` or a ``sample.yaml``
-files in the application's project directory. This file may contain one or more
-entries in the test section each identifying a test scenario.
+Tests
+******
 
-The name of each testcase needs to be unique in the context of the overall
-testsuite and has to follow basic rules:
+Tests are detected by the presence of a ``testcase.yaml`` or a ``sample.yaml``
+files in the application's project directory. This test application
+configuration file may contain one or more entries in the tests section each
+identifying a test scenario.
 
-#. The format of the test identifier shall be a string without any spaces or
+.. _twister_test_project_diagram:
+
+.. figure:: figures/twister_test_project.svg
+   :alt: Twister and a Test applications' project.
+   :figclass: align-center
+
+   Twister and a Test applications' project.
+
+
+Test application configurations are written using the YAML syntax and share the
+same structure as samples.
+
+A test scenario is a set of conditions or variables, defined in test scenario
+entry, under which a set of test suites will be executed. Can be used
+interchangeably with test scenario entry.
+
+A test suite is a collection of test cases that are intended to be used to test
+a software program to ensure it meets certain requirements. The test cases in a
+test suite are often related or meant to be executed together.
+
+The name of each test scenario needs to be unique in the context of the overall
+test application and has to follow basic rules:
+
+#. The format of the test scenario identifier shall be a string without any spaces or
    special characters (allowed characters: alphanumeric and [\_=]) consisting
    of multiple sections delimited with a dot (.).
 
-#. Each test identifier shall start with a section followed by a subsection
-   separated by a dot. For example, a test that covers semaphores in the kernel
-   shall start with ``kernel.semaphore``.
+#. Each test scenario identifier shall start with a section followed by a
+   subsection separated by a dot. For example, a test scenario that covers
+   semaphores in the kernel shall start with ``kernel.semaphore``.
 
-#. All test identifiers within a testcase.yaml file need to be unique. For
-   example a testcase.yaml file covering semaphores in the kernel can have:
+#. All test scenario identifiers within a ``testcase.yaml`` file need to be unique. For
+   example a ``testcase.yaml`` file covering semaphores in the kernel can have:
 
    * ``kernel.semaphore``: For general semaphore tests
    * ``kernel.semaphore.stress``: Stress testing semaphores in the kernel.
@@ -232,17 +260,17 @@ testsuite and has to follow basic rules:
 #. Depending on the nature of the test, an identifier can consist of at least
    two sections:
 
-   * Ztest tests: The individual testcases in the ztest testsuite will be
-     concatenated to identifier in the testcase.yaml file generating unique
-     identifiers for every testcase in the suite.
+   * Ztest tests: The individual test cases in the ztest testsuite will be
+     concatenated by dot (`.`) to the identifier in the ``testcase.yaml`` file
+     generating unique identifiers for every test case in the suite.
 
    * Standalone tests and samples: This type of test should at least have 3
-     sections in the test identifier in the testcase.yaml (or sample.yaml) file.
-     The last section of the name shall signify the test itself.
+     sections concatnated by dot (`.`) in the test scenario identifier in the
+     ``testcase.yaml`` (or ``sample.yaml``) file.
+     The last section of the name shall signify the test case itself.
 
 
-Test cases are written using the YAML syntax and share the same structure as
-samples. The following is an example test with a few options that are
+The following is an example test configuration with a few options that are
 explained in this document.
 
 
@@ -282,32 +310,38 @@ related to the sample and what is being demonstrated:
             tags: tests
             min_ram: 16
 
-The full canonical name for each test case is:``<path to test case>/<test entry>``
+The full canonical name for each test scenario is:``<path to test application>/<test scenario identifier>``
 
-Each test block in the testcase meta data can define the following key/value
-pairs:
+A test scenario entry is a a block or entry starting with test scenario
+identifier in the YAML files.
+
+Each test scenario entry in the test application configuration can define the
+following key/value pairs:
+
+..  _test_config_args:
 
 tags: <list of tags> (required)
-    A set of string tags for the testcase. Usually pertains to
+    A set of string tags for the test scenario. Usually pertains to
     functional domains but can be anything. Command line invocations
     of this script can filter the set of tests to run based on tag.
 
 skip: <True|False> (default False)
-    skip testcase unconditionally. This can be used for broken tests.
+    skip test scenario unconditionally. This can be used for broken tests for
+    example.
 
 slow: <True|False> (default False)
-    Don't run this test case unless ``--enable-slow`` or ``--enable-slow-only`` was
-    passed in on the command line. Intended for time-consuming test cases that
+    Don't run this test scenario unless ``--enable-slow`` or ``--enable-slow-only`` was
+    passed in on the command line. Intended for time-consuming test scenarios that
     are only run under certain circumstances, like daily builds. These test
-    cases are still compiled.
+    scenarios are still compiled.
 
 extra_args: <list of extra arguments>
-    Extra arguments to pass to Make when building or running the
-    test case.
+    Extra arguments to pass to build tool when building or running the
+    test scenario.
 
 extra_configs: <list of extra configurations>
-    Extra configuration options to be merged with a master prj.conf
-    when building or running the test case. For example:
+    Extra configuration options to be merged with a main prj.conf
+    when building or running the test scenario. For example:
 
     .. code-block:: yaml
 
@@ -347,10 +381,10 @@ build_only: <True|False> (default False)
 
     This option is often used to test drivers and the fact that they are correctly
     enabled in Zephyr and that the code builds, for example sensor drivers. Such
-    test shall not be used to verify the functionality of the dritver.
+    test shall not be used to verify the functionality of the driver.
 
 build_on_all: <True|False> (default False)
-    If true, attempt to build test on all available platforms. This is mostly
+    If true, attempt to build test scenario on all available platforms. This is mostly
     used in CI for increased coverage. Do not use this flag in new tests.
 
 depends_on: <list of features>
@@ -376,13 +410,13 @@ timeout: <number of seconds>
     Default to 60 seconds.
 
 arch_allow: <list of arches, such as x86, arm, arc>
-    Set of architectures that this test case should only be run for.
+    Set of architectures that this test scenario should only be run for.
 
 arch_exclude: <list of arches, such as x86, arm, arc>
-    Set of architectures that this test case should not run on.
+    Set of architectures that this test scenario should not run on.
 
 platform_allow: <list of platforms>
-    Set of platforms that this test case should only be run for. Do not use
+    Set of platforms that this test scenario should only be run for. Do not use
     this option to limit testing or building in CI due to time or resource
     constraints, this option should only be used if the test or sample can
     only be run on the allowed platform and nothing else.
@@ -394,7 +428,7 @@ integration_platforms: <YML list of platforms/boards>
     resource constraints.
 
 platform_exclude: <list of platforms>
-    Set of platforms that this test case should not run on.
+    Set of platforms that this test scenario should not run on.
 
 extra_sections: <list of extra binary sections>
     When computing sizes, twister will report errors if it finds
@@ -473,7 +507,7 @@ platform_key: <list of platform attributes>
     Adding platform (board) attributes to include things such as soc name,
     soc family, and perhaps sets of IP blocks implementing each peripheral
     interface would enable other interesting uses. For example, this could enable
-    building and running SPI tests once for eacn unique IP block.
+    building and running SPI tests once for each unique IP block.
 
 harness_config: <harness configuration options>
     Extra harness configuration options to be used to select a board and/or
@@ -493,42 +527,78 @@ harness_config: <harness configuration options>
     ordered: <True|False> (default False)
         Check the regular expression strings in orderly or randomly fashion
 
-    repeat: <integer>
-        Number of times to validate the repeated regex expression
-
     record: <recording options> (optional)
       regex: <regular expression> (required)
-        The regular experssion with named subgroups to match data fields
+        The regular expression with named subgroups to match data fields
         at the test's output lines where the test provides some custom data
         for further analysis. These records will be written into the build
-        directory 'recording.csv' file as well as 'recording' property
-        of the test suite object in 'twister.json'.
+        directory ``recording.csv`` file as well as ``recording`` property
+        of the test suite object in ``twister.json``.
 
-        For example, to extract three data fields 'metric', 'cycles', 'nanoseconds':
+        For example, to extract three data fields ``metric``, ``cycles``,
+        ``nanoseconds``:
 
         .. code-block:: yaml
 
           record:
             regex: "(?P<metric>.*):(?P<cycles>.*) cycles, (?P<nanoseconds>.*) ns"
 
+      as_json: <list of regex subgroup names> (optional)
+        Data fields, extracted by the regular expression into named subgroups,
+        which will be additionally parsed as JSON encoded strings and written
+        into ``twister.json`` as nested ``recording`` object properties.
+        The corresponding ``recording.csv`` columns will contain strings as-is.
+
+        Using this option, a test log can convey layered data structures
+        passed from the test image for further analysis with summary results,
+        traces, statistics, etc.
+
+        For example, this configuration:
+
+        .. code-block:: yaml
+
+          record:
+            regex: "RECORD:(?P<type>.*):DATA:(?P<metrics>.*)"
+            as_json: [metrics]
+
+        when matched to a test log string:
+
+        .. code-block:: none
+
+          RECORD:jitter_drift:DATA:{"rollovers":0, "mean_us":1000.0}
+
+        will be reported in ``twister.json`` as:
+
+        .. code-block:: json
+
+          "recording":[
+              {
+                   "type":"jitter_drift",
+                   "metrics":{
+                       "rollovers":0,
+                       "mean_us":1000.0
+                   }
+              }
+          ]
+
     fixture: <expression>
-        Specify a test case dependency on an external device(e.g., sensor),
+        Specify a test scenario dependency on an external device(e.g., sensor),
         and identify setups that fulfill this dependency. It depends on
         specific test setup and board selection logic to pick the particular
         board(s) out of multiple boards that fulfill the dependency in an
         automation setup based on ``fixture`` keyword. Some sample fixture names
         are i2c_hts221, i2c_bme280, i2c_FRAM, ble_fw and gpio_loop.
 
-        Only one fixture can be defined per testcase and the fixture name has to
+        Only one fixture can be defined per test scenario and the fixture name has to
         be unique across all tests in the test suite.
 
 .. _pytest_root:
 
     pytest_root: <list of pytest testpaths> (default pytest)
         Specify a list of pytest directories, files or subtests that need to be
-        executed when a test case begins to run. The default pytest directory is
+        executed when a test scenario begins to run. The default pytest directory is
         ``pytest``. After the pytest run is finished, Twister will check if
-        the test case passed or failed according to the pytest report.
+        the test scenario passed or failed according to the pytest report.
         As an example, a list of valid pytest roots is presented below:
 
         .. code-block:: yaml
@@ -558,8 +628,11 @@ harness_config: <harness configuration options>
         If the scope is set to ``function``, DUT is launched for every test case
         in python script. For ``session`` scope, DUT is launched only once.
 
-    robot_test_path: <robot file path> (default empty)
-        Specify a path to a file containing a Robot Framework test suite to be run.
+    robot_testsuite: <robot file path> (default empty)
+        Specify one or more paths to a file containing a Robot Framework test suite to be run.
+
+    robot_option: <robot option> (default empty)
+        One or more options to be send to robotframework.
 
     bsim_exe_name: <string>
         If provided, the executable filename when copying to BabbleSim's bin
@@ -616,10 +689,36 @@ harness_config: <harness configuration options>
           robot.example:
             harness: robot
             harness_config:
-              robot_test_path: [robot file path]
+              robot_testsuite: [robot file path]
+
+    It can be more than one test suite using a list.
+
+    .. code-block:: yaml
+
+        tests:
+          robot.example:
+            harness: robot
+            harness_config:
+              robot_testsuite:
+                - [robot file path 1]
+                - [robot file path 2]
+                - [robot file path n]
+
+    One or more options can be passed to robotframework.
+
+    .. code-block:: yaml
+
+        tests:
+          robot.example:
+            harness: robot
+            harness_config:
+              robot_testsuite: [robot file path]
+              robot_option:
+                - --exclude tag
+                - --stop-on-error
 
 filter: <expression>
-    Filter whether the testcase should be run by evaluating an expression
+    Filter whether the test scenario should be run by evaluating an expression
     against an environment containing the following values:
 
     .. code-block:: none
@@ -695,7 +794,7 @@ filter: <expression>
     Would match it.
 
 required_snippets: <list of needed snippets>
-    :ref:`Snippets <snippets>` are supported in twister for test cases that
+    :ref:`Snippets <snippets>` are supported in twister for test scenarios that
     require them. As with normal applications, twister supports using the base
     zephyr snippet directory and test application directory for finding
     snippets. Listed snippets will filter supported tests for boards (snippets
@@ -712,10 +811,10 @@ required_snippets: <list of needed snippets>
               - cdc-acm-console
               - user-snippet-example
 
-The set of test cases that actually run depends on directives in the testcase
+The set of test scenarios that actually run depends on directives in the test scenario
 filed and options passed in on the command line. If there is any confusion,
 running with ``-v`` or examining the discard report
-(:file:`twister_discard.csv`) can help show why particular test cases were
+(:file:`twister_discard.csv`) can help show why particular test scenarios were
 skipped.
 
 Metrics (such as pass/fail state and binary size) for the last code
@@ -728,12 +827,43 @@ line break instead of white spaces.
 
 Most everyday users will run with no arguments.
 
+Selecting platform scope
+************************
+
+One of the key features of Twister is its ability to decide on which platforms a given
+test scenario should run. This behavior has its roots in Twister being developed as
+a test runner for Zephyr's CI. With hundreds of available platforms and thousands of
+tests, the testing tools should be able to adapt the scope and select/filter out what
+is relevant and what is not.
+
+Twister always prepares an initial list of platforms in scope for a given test,
+based on command line arguments and the :ref:`test's configuration <test_config_args>`. Then,
+platforms that don't fulfill the conditions required in the configuration yaml
+(e.g. minimum ram) are filtered out from the scope.
+Using ``--force-platform`` allows to override filtering caused by ``platform_allow``,
+``platform_exclude``, ``arch_allow`` and ``arch_exclude`` keys in test configuration
+files.
+
+Command line arguments define the initial scope in the following way:
+
+* ``-p/--platform <platform_name>`` (can be used multiple times): only platforms
+  passed with this argument;
+* ``-l/--all``: all available platforms;
+* ``-G/--integration``: all platforms from an ``integration_platforms`` list in
+  a given test configuration file. If a test has no ``integration_platforms``
+  `"scope presumption"` will happen;
+* No scope argument: `"scope presumption"` will happen.
+
+`"Scope presumption"`: A list of Twister's :ref:`default platforms <twister_default_testing_board>`
+is used as the initial list. If nothing is left after the filtration, the ``platform_allow`` list
+is used as the initial scope.
+
 Managing tests timeouts
 ***********************
 
 There are several parameters which control tests timeouts on various levels:
 
-* ``timeout`` option in each test case. See :ref:`here <twister_test_case_timeout>` for more
+* ``timeout`` option in each test scenario. See :ref:`here <twister_test_case_timeout>` for more
   details.
 * ``timeout_multiplier`` option in board configuration. See
   :ref:`here <twister_board_timeout_multiplier>` for more details.
@@ -742,7 +872,7 @@ There are several parameters which control tests timeouts on various levels:
   speed & load or we may select different simulation method (i.e. cycle accurate but slower
   one), etc...
 
-Overall test case timeout is a multiplication of these three parameters.
+Overall test scenario timeout is a multiplication of these three parameters.
 
 Running in Integration Mode
 ***************************
@@ -751,8 +881,8 @@ This mode is used in continuous integration (CI) and other automated
 environments used to give developers fast feedback on changes. The mode can
 be activated using the ``--integration`` option of twister and narrows down
 the scope of builds and tests if applicable to platforms defined under the
-integration keyword in the testcase definition file (testcase.yaml and
-sample.yaml).
+integration keyword in the test configuration file (``testcase.yaml`` and
+``sample.yaml``).
 
 
 Running tests on custom emulator
@@ -839,7 +969,7 @@ In this case you can run twister with the following options:
       .. code-block:: bash
 
          scripts/twister --device-testing --device-serial-pty "script.py" \
-         -p intel_adsp_cavs25 -T tests/kernel
+         -p intel_adsp/cavs25 -T tests/kernel
 
    .. group-tab:: Windows
 
@@ -855,8 +985,8 @@ device flash operation, for example when device flashing takes significantly
 large time.
 
 The ``--device-flash-with-test`` option indicates that on the platform
-the flash operation also executes a test case, so the flash timeout is
-increased by a test case timeout.
+the flash operation also executes a test scenario, so the flash timeout is
+increased by a test scenario timeout.
 
 Executing tests on multiple devices
 ===================================
@@ -923,7 +1053,7 @@ devices, for example:
 Any options marked as ``unknown`` need to be changed and set with the correct
 values, in the above example the platform names, the products and the runners need
 to be replaced with the correct values corresponding to the connected hardware.
-In this example we are using a reel_board and an nrf52840dk_nrf52840:
+In this example we are using a reel_board and an nrf52840dk/nrf52840:
 
 .. tabs::
 
@@ -940,7 +1070,7 @@ In this example we are using a reel_board and an nrf52840dk_nrf52840:
            baud: 9600
          - connected: true
            id: 000683759358
-           platform: nrf52840dk_nrf52840
+           platform: nrf52840dk/nrf52840
            product: J-Link
            runner: nrfjprog
            serial: /dev/cu.usbmodem0006837593581
@@ -959,7 +1089,7 @@ In this example we are using a reel_board and an nrf52840dk_nrf52840:
            baud: 9600
          - connected: true
            id: 000683759358
-           platform: nrf52840dk_nrf52840
+           platform: nrf52840dk/nrf52840
            product: J-Link
            runner: nrfjprog
            serial: COM2
@@ -993,8 +1123,8 @@ on those platforms.
 
 .. note::
 
-  Currently only boards with support for both pyocd and nrfjprog are supported
-  with the hardware map features. Boards that require other runners to flash the
+  Currently only boards with support for pyocd, nrfjprog, jlink, openocd, or dediprog
+  are supported with the hardware map features. Boards that require other runners to flash the
   Zephyr binary are still work in progress.
 
 Hardware map allows to set ``--device-flash-timeout`` and ``--device-flash-with-test``
@@ -1008,7 +1138,7 @@ hardware map:
 
    - connected: true
      id: None
-     platform: intel_adsp_cavs25
+     platform: intel_adsp/cavs25
      product: None
      runner: intel_adsp
      serial_pty: path/to/script.py
@@ -1029,7 +1159,7 @@ work. It is equivalent to following west and twister commands.
 
          west flash --remote-host remote_host_ip_addr --key /path/to/key.pem
 
-         twister -p intel_adsp_cavs25 --device-testing --device-serial-pty script.py
+         twister -p intel_adsp/cavs25 --device-testing --device-serial-pty script.py
          --west-flash="--remote-host=remote_host_ip_addr,--key=/path/to/key.pem"
 
    .. group-tab:: Windows
@@ -1049,7 +1179,7 @@ Fixtures
 +++++++++
 
 Some tests require additional setup or special wiring specific to the test.
-Running the tests without this setup or test fixture may fail. A testcase can
+Running the tests without this setup or test fixture may fail. A test scenario can
 specify the fixture it needs which can then be matched with hardware capability
 of a board and the fixtures it supports via the command line or using the hardware
 map file.
@@ -1068,16 +1198,20 @@ Fixtures are defined in the hardware map file as a list:
         serial: /dev/ttyACM9
 
 When running ``twister`` with ``--device-testing``, the configured fixture
-in the hardware map file will be matched to testcases requesting the same fixtures
+in the hardware map file will be matched to test scenarios requesting the same fixtures
 and these tests will be executed on the boards that provide this fixture.
 
-.. figure:: fixtures.svg
+.. figure:: figures/fixtures.svg
    :figclass: align-center
 
 Fixtures can also be provided via twister command option ``--fixture``, this option
 can be used multiple times and all given fixtures will be appended as a list. And the
 given fixtures will be assigned to all boards, this means that all boards set by
-current twister command can run those testcases which request the same fixtures.
+current twister command can run those test scenarios which request the same fixtures.
+
+Some fixtures allow for configuration strings to be appended, separated from the
+fixture name by a ``:``. Only the fixture name is matched against the fixtures
+requested by test scenarios.
 
 Notes
 +++++
@@ -1092,12 +1226,12 @@ example:
       fixtures:
         - gpio_loopback
       id: 000683290670
-      notes: An nrf5340dk_nrf5340 is detected as an nrf52840dk_nrf52840 with no serial
+      notes: An nrf5340dk/nrf5340 is detected as an nrf52840dk/nrf52840 with no serial
         port, and three serial ports with an unknown platform.  The board id of the serial
         ports is not the same as the board id of the development kit.  If you regenerate
         this file you will need to update serial to reference the third port, and platform
-        to nrf5340dk_nrf5340_cpuapp or another supported board target.
-      platform: nrf52840dk_nrf52840
+        to nrf5340dk/nrf5340/cpuapp or another supported board target.
+      platform: nrf52840dk/nrf52840
       product: J-Link
       runner: jlink
       serial: null
@@ -1124,7 +1258,7 @@ using an external J-Link probe.  The ``probe_id`` keyword overrides the
 Quarantine
 ++++++++++
 
-Twister allows user to provide onfiguration files defining a list of tests or
+Twister allows user to provide configuration files defining a list of tests or
 platforms to be put under quarantine. Such tests will be skipped and marked
 accordingly in the output reports. This feature is especially useful when
 running larger test suits, where a failure of one test can affect the execution
@@ -1177,7 +1311,7 @@ Additionally you can quarantine entire architectures or a specific simulator for
 Test Configuration
 ******************
 
-A test configuration can be used to customize various apects of twister
+A test configuration can be used to customize various aspects of twister
 and the default enabled options and features. This allows tweaking the filtering
 capabilities depending on the environment and makes it possible to adapt and
 improve coverage when targeting different sets of platforms.
@@ -1187,7 +1321,7 @@ assign a specific test to one or more levels. Using command line options of
 twister it is then possible to select a level and just execute the tests
 included in this level.
 
-Additionally, the test configuration allows  defining level
+Additionally, the test configuration allows defining level
 dependencies and additional inclusion of tests into a specific level if
 the test itself does not have this information already.
 
@@ -1204,7 +1338,7 @@ locally. As of now, those options are available:
   CI)
 - Option to specify your own list of default platforms overriding what
   upstream defines.
-- Ability to override `build_onl_all` options used in some testcases.
+- Ability to override `build_on_all` options used in some test scenarios.
   This will treat tests or sample as any other just build for default
   platforms you specify in the configuration file or on the command line.
 - Ignore some logic in twister to expand platform coverage in cases where
@@ -1269,7 +1403,7 @@ Combined configuration
 
 To mix the Platform and level configuration, you can take an example as below:
 
-And example platforms plus level configuration:
+An example platforms plus level configuration:
 
 .. code-block:: yaml
 
@@ -1298,8 +1432,8 @@ And example platforms plus level configuration:
 	        A plan to be used verifying regression.
 
 
-To run with above test_config.yaml file, only default_paltforms with given test level
-test cases will run.
+To run with above test_config.yaml file, only default_platforms with given test level
+test scenarios will run.
 
 .. tabs::
 
@@ -1344,12 +1478,6 @@ To execute a Robot test suite with twister, run the following command:
 
          python .\scripts\twister --platform hifive1 --test samples/subsys/shell/shell_module/sample.shell.shell_module.robot
 
-It's also possible to run it by `west` directly, with:
-
-.. code-block:: bash
-
-   $ ROBOT_FILES=shell_module.robot west build -p -b hifive1 -s samples/subsys/shell/shell_module -t run_renode_test
-
 Writing Robot tests
 ===================
 
@@ -1360,3 +1488,12 @@ It provides a list of the most commonly used keywords together with links to the
 
 It's possible to extend the framework by adding new keywords expressed directly in Robot test suite files, as an external Python library or, like Renode does it, dynamically via XML-RPC.
 For details see the `extending Robot Framework <https://robotframework.org/robotframework/latest/RobotFrameworkUserGuide.html#extending-robot-framework>`_ section in the official Robot documentation.
+
+Running a single testsuite
+==========================
+
+To run a single testsuite instead of a whole group of test you can run:
+
+.. code-block:: bash
+
+   $ twister -p qemu_riscv32 -s tests/kernel/interrupt/arch.shared_interrupt

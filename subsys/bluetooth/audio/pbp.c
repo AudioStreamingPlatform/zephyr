@@ -3,14 +3,21 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include <errno.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include <zephyr/sys/byteorder.h>
-#include <zephyr/types.h>
-#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/autoconf.h>
 #include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/pbp.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/gap.h>
+#include <zephyr/bluetooth/uuid.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/net/buf.h>
+#include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/check.h>
+#include <zephyr/types.h>
 
 LOG_MODULE_REGISTER(bt_pbp, CONFIG_BT_PBP_LOG_LEVEL);
 
@@ -45,37 +52,43 @@ int bt_pbp_get_announcement(const uint8_t meta[], size_t meta_len,
 	return 0;
 }
 
-uint8_t bt_pbp_parse_announcement(struct bt_data *data,
-				  enum bt_pbp_announcement_feature *features,
-				  uint8_t *meta)
+int bt_pbp_parse_announcement(struct bt_data *data, enum bt_pbp_announcement_feature *features,
+			      uint8_t **meta)
 {
-	uint8_t meta_len = 0;
 	struct bt_uuid_16 adv_uuid;
+	struct net_buf_simple buf;
+	uint8_t meta_len = 0;
+	void *uuid;
 
 	CHECKIF(!data || !features || !meta) {
 		return -EINVAL;
 	}
 
-	if (data->data_len < BT_PBP_MIN_PBA_SIZE) {
-		return -EBADMSG;
-	}
-
 	if (data->type != BT_DATA_SVC_DATA16) {
-		return -EINVAL;
+		return -ENOENT;
 	}
 
-	if (!bt_uuid_create(&adv_uuid.uuid, data->data, BT_UUID_SIZE_16)) {
-		return -EINVAL;
+	if (data->data_len < BT_PBP_MIN_PBA_SIZE) {
+		return -EMSGSIZE;
 	}
+
+	net_buf_simple_init_with_data(&buf, (void *)data->data, data->data_len);
+	uuid = net_buf_simple_pull_mem(&buf, BT_UUID_SIZE_16);
+
+	(void)bt_uuid_create(&adv_uuid.uuid, uuid, BT_UUID_SIZE_16); /* cannot fail */
 
 	if (bt_uuid_cmp(&adv_uuid.uuid, BT_UUID_PBA)) {
-		return -EBADMSG;
+		return -ENOENT;
 	}
 
 	/* Copy source features, metadata length and metadata from the Announcement */
-	*features = data->data[BT_UUID_SIZE_16];
-	meta_len = data->data[BT_UUID_SIZE_16 + sizeof(uint8_t)];
-	memcpy(meta, data->data + BT_PBP_MIN_PBA_SIZE, meta_len);
+	*features = net_buf_simple_pull_u8(&buf);
+	meta_len = net_buf_simple_pull_u8(&buf);
+	if (buf.len < meta_len) {
+		return -EBADMSG;
+	}
+
+	*meta = (uint8_t *)net_buf_simple_pull_mem(&buf, meta_len);
 
 	return meta_len;
 }

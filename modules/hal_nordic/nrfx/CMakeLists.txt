@@ -36,6 +36,19 @@ zephyr_compile_definitions_ifdef(CONFIG_SOC_NRF5340_CPUAPP      NRF5340_XXAA_APP
 zephyr_compile_definitions_ifdef(CONFIG_SOC_COMPATIBLE_NRF5340_CPUAPP NRF5340_XXAA_APPLICATION)
 zephyr_compile_definitions_ifdef(CONFIG_SOC_NRF5340_CPUNET      NRF5340_XXAA_NETWORK)
 zephyr_compile_definitions_ifdef(CONFIG_SOC_COMPATIBLE_NRF5340_CPUNET NRF5340_XXAA_NETWORK)
+zephyr_compile_definitions_ifdef(CONFIG_SOC_NRF54H20_CPUAPP     NRF54H20_XXAA
+                                                                NRF_APPLICATION)
+zephyr_compile_definitions_ifdef(CONFIG_SOC_NRF54H20_CPURAD     NRF54H20_XXAA
+                                                                NRF_RADIOCORE)
+zephyr_compile_definitions_ifdef(CONFIG_SOC_NRF54H20_CPUPPR     NRF54H20_XXAA
+                                                                NRF_PPR)
+zephyr_compile_definitions_ifdef(CONFIG_SOC_NRF54H20_CPUFLPR    NRF54H20_XXAA
+                                                                NRF_FLPR)
+zephyr_compile_definitions_ifdef(CONFIG_SOC_NRF54L15_ENGA       NRF54L15_ENGA_XXAA)
+zephyr_compile_definitions_ifdef(CONFIG_SOC_NRF54L15_ENGA_CPUAPP NRF_APPLICATION)
+zephyr_compile_definitions_ifdef(CONFIG_SOC_NRF54L15_ENGA_CPUFLPR NRF_FLPR)
+zephyr_compile_definitions_ifdef(CONFIG_SOC_COMPATIBLE_NRF54L15 NRF54L15_XXAA)
+zephyr_compile_definitions_ifdef(CONFIG_SOC_COMPATIBLE_NRF54L15_CPUAPP NRF_APPLICATION)
 zephyr_compile_definitions_ifdef(CONFIG_SOC_NRF9120             NRF9120_XXAA)
 zephyr_compile_definitions_ifdef(CONFIG_SOC_NRF9160             NRF9160_XXAA)
 
@@ -69,12 +82,15 @@ zephyr_library_sources_ifdef(CONFIG_SOC_NRF52833       ${MDK_DIR}/system_nrf5283
 zephyr_library_sources_ifdef(CONFIG_SOC_NRF52840       ${MDK_DIR}/system_nrf52840.c)
 zephyr_library_sources_ifdef(CONFIG_SOC_NRF5340_CPUAPP ${MDK_DIR}/system_nrf5340_application.c)
 zephyr_library_sources_ifdef(CONFIG_SOC_NRF5340_CPUNET ${MDK_DIR}/system_nrf5340_network.c)
+zephyr_library_sources_ifdef(CONFIG_SOC_SERIES_NRF54HX ${MDK_DIR}/system_nrf54h.c)
+zephyr_library_sources_ifdef(CONFIG_SOC_SERIES_NRF54LX ${MDK_DIR}/system_nrf54l.c)
 zephyr_library_sources_ifdef(CONFIG_SOC_SERIES_NRF91X  ${MDK_DIR}/system_nrf91.c)
 
 zephyr_library_sources(nrfx_glue.c)
 zephyr_library_sources(${HELPERS_DIR}/nrfx_flag32_allocator.c)
-zephyr_library_sources_ifdef(CONFIG_NRFX_DPPI    ${HELPERS_DIR}/nrfx_gppi_dppi.c)
-zephyr_library_sources_ifdef(CONFIG_NRFX_PPI     ${HELPERS_DIR}/nrfx_gppi_ppi.c)
+zephyr_library_sources_ifdef(CONFIG_RETAINED_MEM_NRF_RAM_CTRL ${HELPERS_DIR}/nrfx_ram_ctrl.c)
+zephyr_library_sources_ifdef(CONFIG_NRFX_DPPI                 ${HELPERS_DIR}/nrfx_gppi_dppi.c)
+zephyr_library_sources_ifdef(CONFIG_NRFX_PPI                  ${HELPERS_DIR}/nrfx_gppi_ppi.c)
 
 zephyr_library_sources_ifdef(CONFIG_NRFX_PRS     ${SRC_DIR}/prs/nrfx_prs.c)
 
@@ -84,6 +100,7 @@ zephyr_library_sources_ifdef(CONFIG_NRFX_COMP    ${SRC_DIR}/nrfx_comp.c)
 zephyr_library_sources_ifdef(CONFIG_NRFX_DPPI    ${SRC_DIR}/nrfx_dppi.c)
 zephyr_library_sources_ifdef(CONFIG_NRFX_EGU     ${SRC_DIR}/nrfx_egu.c)
 zephyr_library_sources_ifdef(CONFIG_NRFX_GPIOTE  ${SRC_DIR}/nrfx_gpiote.c)
+zephyr_library_sources_ifdef(CONFIG_NRFX_GRTC    ${SRC_DIR}/nrfx_grtc.c)
 zephyr_library_sources_ifdef(CONFIG_NRFX_I2S     ${SRC_DIR}/nrfx_i2s.c)
 zephyr_library_sources_ifdef(CONFIG_NRFX_IPC     ${SRC_DIR}/nrfx_ipc.c)
 zephyr_library_sources_ifdef(CONFIG_NRFX_LPCOMP  ${SRC_DIR}/nrfx_lpcomp.c)
@@ -96,6 +113,7 @@ zephyr_library_sources_ifdef(CONFIG_NRFX_PWM     ${SRC_DIR}/nrfx_pwm.c)
 zephyr_library_sources_ifdef(CONFIG_NRFX_QDEC    ${SRC_DIR}/nrfx_qdec.c)
 zephyr_library_sources_ifdef(CONFIG_NRFX_QSPI    ${SRC_DIR}/nrfx_qspi.c)
 zephyr_library_sources_ifdef(CONFIG_NRFX_RNG     ${SRC_DIR}/nrfx_rng.c)
+zephyr_library_sources_ifdef(CONFIG_NRFX_RRAMC   ${SRC_DIR}/nrfx_rramc.c)
 zephyr_library_sources_ifdef(CONFIG_NRFX_RTC     ${SRC_DIR}/nrfx_rtc.c)
 zephyr_library_sources_ifdef(CONFIG_NRFX_SAADC   ${SRC_DIR}/nrfx_saadc.c)
 zephyr_library_sources_ifdef(CONFIG_NRFX_SPI     ${SRC_DIR}/nrfx_spi.c)
@@ -125,7 +143,10 @@ dt_nodelabel(uicr_path NODELABEL "uicr")
 if(DEFINED uicr_path)
   dt_prop(nfct_pins_as_gpios PATH ${uicr_path} PROPERTY "nfct-pins-as-gpios")
   if(${nfct_pins_as_gpios})
-    zephyr_library_compile_definitions(CONFIG_NFCT_PINS_AS_GPIOS)
+    zephyr_library_compile_definitions(
+      CONFIG_NFCT_PINS_AS_GPIOS
+      NRF_CONFIG_NFCT_PINS_AS_GPIOS
+    )
   endif()
 
   dt_prop(gpio_as_nreset PATH ${uicr_path} PROPERTY "gpio-as-nreset")
@@ -133,3 +154,52 @@ if(DEFINED uicr_path)
     zephyr_library_compile_definitions(CONFIG_GPIO_AS_PINRESET)
   endif()
 endif()
+
+if(CONFIG_SOC_NRF54L15_ENGA_CPUAPP)
+	dt_prop(clock_frequency PATH "/cpus/cpu@0" PROPERTY "clock-frequency")
+	math(EXPR clock_frequency_mhz "${clock_frequency} / 1000000")
+	zephyr_compile_definitions("NRF_CONFIG_CPU_FREQ_MHZ=${clock_frequency_mhz}")
+endif()
+
+zephyr_compile_definitions_ifdef(CONFIG_SOC_NRF54LX_SKIP_CLOCK_CONFIG NRF_SKIP_CLOCK_CONFIGURATION)
+zephyr_compile_definitions_ifdef(CONFIG_SOC_NRF54LX_DISABLE_FICR_TRIMCNF NRF_DISABLE_FICR_TRIMCNF)
+zephyr_compile_definitions_ifdef(CONFIG_SOC_NRF54LX_SKIP_GLITCHDETECTOR_DISABLE NRF_SKIP_GLITCHDETECTOR_DISABLE)
+
+if(CONFIG_SOC_SERIES_NRF54LX AND CONFIG_NRFX_DPPI)
+  zephyr_library_sources(${HELPERS_DIR}/nrfx_gppi_dppi_ppib_lumos.c)
+  zephyr_library_sources(${NRFX_DIR}/soc/interconnect/dppic_ppib/nrfx_interconnect_dppic_ppib.c)
+endif()
+
+if(CONFIG_SOC_SERIES_NRF54HX AND
+   (CONFIG_DT_HAS_NORDIC_NRF_DPPIC_LOCAL_ENABLED OR
+    CONFIG_DT_HAS_NORDIC_NRF_DPPIC_GLOBAL_ENABLED))
+  zephyr_library_sources(${HELPERS_DIR}/nrfx_gppi_dppi_ppib.c)
+  zephyr_library_sources(${NRFX_DIR}/soc/interconnect/apb/nrfx_interconnect_apb.c)
+  zephyr_library_sources(${NRFX_DIR}/soc/interconnect/ipct/nrfx_interconnect_ipct.c)
+endif()
+
+# Get the SVD file for the current SoC
+macro(mdk_svd_ifdef feature_toggle filename)
+  if(${feature_toggle})
+    set(SOC_SVD_FILE ${MDK_DIR}/${filename} CACHE FILEPATH "Path to a CMSIS-SVD file")
+  endif()
+endmacro()
+
+mdk_svd_ifdef(CONFIG_SOC_SERIES_NRF51X        nrf51.svd)
+mdk_svd_ifdef(CONFIG_SOC_NRF52805             nrf52805.svd)
+mdk_svd_ifdef(CONFIG_SOC_NRF52810             nrf52810.svd)
+mdk_svd_ifdef(CONFIG_SOC_NRF52811             nrf52811.svd)
+mdk_svd_ifdef(CONFIG_SOC_NRF52820             nrf52820.svd)
+mdk_svd_ifdef(CONFIG_SOC_NRF52832             nrf52.svd)
+mdk_svd_ifdef(CONFIG_SOC_NRF52833             nrf52833.svd)
+mdk_svd_ifdef(CONFIG_SOC_NRF52840             nrf52840.svd)
+mdk_svd_ifdef(CONFIG_SOC_NRF5340_CPUAPP       nrf5340_application.svd)
+mdk_svd_ifdef(CONFIG_SOC_NRF5340_CPUNET       nrf5340_network.svd)
+mdk_svd_ifdef(CONFIG_SOC_NRF54H20_CPUAPP      nrf54h20_application.svd)
+mdk_svd_ifdef(CONFIG_SOC_NRF54H20_CPUPPR      nrf54h20_ppr.svd)
+mdk_svd_ifdef(CONFIG_SOC_NRF54H20_CPUFLPR     nrf54h20_flpr.svd)
+mdk_svd_ifdef(CONFIG_SOC_NRF54H20_CPURAD      nrf54h20_radiocore.svd)
+mdk_svd_ifdef(CONFIG_SOC_NRF54L15_ENGA_CPUAPP nrf54l15_enga_application.svd)
+mdk_svd_ifdef(CONFIG_SOC_NRF54L15_ENGA_CPUFLPR nrf54l15_enga_flpr.svd)
+mdk_svd_ifdef(CONFIG_SOC_NRF9120              nrf9120.svd)
+mdk_svd_ifdef(CONFIG_SOC_NRF9160              nrf9160.svd)

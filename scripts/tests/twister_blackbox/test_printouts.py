@@ -13,7 +13,13 @@ import pytest
 import sys
 import re
 
-from conftest import TEST_DATA, ZEPHYR_BASE, testsuite_filename_mock
+from conftest import (
+    TEST_DATA,
+    ZEPHYR_BASE,
+    clear_log_in_test,
+    sample_filename_mock,
+    testsuite_filename_mock
+)
 from twisterlib.testplan import TestPlan
 
 
@@ -77,7 +83,7 @@ class TestPrintOuts:
     TESTDATA_4 = [
         (
             os.path.join(TEST_DATA, 'tests', 'dummy'),
-            ['qemu_x86', 'qemu_x86_64', 'frdm_k64f']
+            ['qemu_x86', 'qemu_x86_64', 'intel_adl_crb']
         )
     ]
 
@@ -167,7 +173,6 @@ class TestPrintOuts:
         assert expected in out
         assert str(sys_exit.value) == '0'
 
-    @pytest.mark.usefixtures("clear_log")
     @pytest.mark.parametrize(
         'test_path, test_platforms',
         TESTDATA_4,
@@ -204,7 +209,6 @@ class TestPrintOuts:
             assert False, f'No timestamp in line {err_lines}'
         assert str(sys_exit.value) == '0'
 
-    @pytest.mark.usefixtures("clear_log")
     @pytest.mark.parametrize(
         'flag',
         ['--abcd', '--1234', '-%', '-1']
@@ -226,7 +230,6 @@ class TestPrintOuts:
         else:
             assert str(sys_exit.value) == '2'
 
-    @pytest.mark.usefixtures("clear_log")
     @pytest.mark.parametrize(
         'flag',
         ['--help', '-h']
@@ -265,3 +268,46 @@ class TestPrintOuts:
         sys.stderr.write(err)
 
         assert str(sys_exit.value) == '0'
+
+    @mock.patch.object(TestPlan, 'SAMPLE_FILENAME', sample_filename_mock)
+    def test_size(self, capfd, out_path):
+        test_platforms = ['qemu_x86', 'intel_adl_crb']
+        path = os.path.join(TEST_DATA, 'samples', 'hello_world')
+        args = ['-i', '--outdir', out_path, '-T', path] + \
+               [val for pair in zip(
+                   ['-p'] * len(test_platforms), test_platforms
+               ) for val in pair]
+
+        with mock.patch.object(sys, 'argv', [sys.argv[0]] + args), \
+                pytest.raises(SystemExit) as sys_exit:
+            self.loader.exec_module(self.twister_module)
+
+        assert str(sys_exit.value) == '0'
+
+        clear_log_in_test()
+        capfd.readouterr()
+
+        p = os.path.relpath(path, ZEPHYR_BASE)
+        prev_path = os.path.join(out_path, 'qemu_x86', p,
+                                 'sample.basic.helloworld', 'zephyr', 'zephyr.elf')
+        args = ['--size', prev_path]
+
+        with mock.patch.object(sys, 'argv', [sys.argv[0]] + args), \
+                pytest.raises(SystemExit) as sys_exit:
+            self.loader.exec_module(self.twister_module)
+
+        assert str(sys_exit.value) == '0'
+
+        out, err = capfd.readouterr()
+        sys.stdout.write(out)
+        sys.stderr.write(err)
+
+        # Header and footer should be the most constant out of the report format.
+        header_pattern = r'SECTION NAME\s+VMA\s+LMA\s+SIZE\s+HEX SZ\s+TYPE\s*\n'
+        res = re.search(header_pattern, out)
+        assert res, 'No stdout size report header found.'
+
+        footer_pattern = r'Totals:\s+(?P<rom>[0-9]+)\s+bytes\s+\(ROM\),\s+' \
+                         r'(?P<ram>[0-9]+)\s+bytes\s+\(RAM\)\s*\n'
+        res = re.search(footer_pattern, out)
+        assert res, 'No stdout size report footer found.'

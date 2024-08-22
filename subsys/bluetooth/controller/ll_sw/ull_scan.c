@@ -228,7 +228,8 @@ uint8_t ll_scan_enable(uint8_t enable)
 	}
 #endif /* CONFIG_BT_CTLR_ADV_EXT */
 
-#if defined(CONFIG_BT_CTLR_PRIVACY)
+#if (defined(CONFIG_BT_CTLR_ADV_EXT) && defined(CONFIG_BT_CTLR_JIT_SCHEDULING)) || \
+	defined(CONFIG_BT_CTLR_PRIVACY)
 	struct lll_scan *lll;
 
 	if (IS_ENABLED(CONFIG_BT_CTLR_ADV_EXT) && is_coded_phy) {
@@ -240,6 +241,7 @@ uint8_t ll_scan_enable(uint8_t enable)
 		own_addr_type = scan->own_addr_type;
 	}
 
+#if defined(CONFIG_BT_CTLR_PRIVACY)
 	ull_filter_scan_update(lll->filter_policy);
 
 	lll->rl_idx = FILTER_IDX_NONE;
@@ -253,6 +255,11 @@ uint8_t ll_scan_enable(uint8_t enable)
 		lll->rpa_gen = 1;
 	}
 #endif /* CONFIG_BT_CTLR_PRIVACY */
+
+#if defined(CONFIG_BT_CTLR_ADV_EXT) && defined(CONFIG_BT_CTLR_JIT_SCHEDULING)
+	lll->scan_aux_score = 0;
+#endif /* CONFIG_BT_CTLR_ADV_EXT && CONFIG_BT_CTLR_JIT_SCHEDULING */
+#endif /* (CONFIG_BT_CTLR_ADV_EXT && CONFIG_BT_CTLR_JIT_SCHEDULING) || CONFIG_BT_CTLR_PRIVACY */
 
 #if defined(CONFIG_BT_CTLR_ADV_EXT)
 #if defined(CONFIG_BT_CTLR_PHY_CODED)
@@ -653,7 +660,7 @@ uint8_t ull_scan_disable(uint8_t handle, struct ll_scan_set *scan)
 
 	err = ull_ticker_stop_with_mark(TICKER_ID_SCAN_BASE + handle,
 					scan, &scan->lll);
-	LL_ASSERT(err == 0 || err == -EALREADY);
+	LL_ASSERT_INFO2(err == 0 || err == -EALREADY, handle, err);
 	if (err) {
 		return BT_HCI_ERR_CMD_DISALLOWED;
 	}
@@ -699,7 +706,7 @@ uint8_t ull_scan_disable(uint8_t handle, struct ll_scan_set *scan)
 #if defined(CONFIG_BT_CTLR_ADV_EXT)
 void ull_scan_done(struct node_rx_event_done *done)
 {
-	struct node_rx_hdr *rx_hdr;
+	struct node_rx_pdu *rx;
 	struct ll_scan_set *scan;
 	struct lll_scan *lll;
 	uint8_t handle;
@@ -734,9 +741,9 @@ void ull_scan_done(struct node_rx_event_done *done)
 	scan_other->lll.duration_reload = 0U;
 #endif /* CONFIG_BT_CTLR_PHY_CODED */
 
-	rx_hdr = (void *)scan->node_rx_scan_term;
-	rx_hdr->type = NODE_RX_TYPE_EXT_SCAN_TERMINATE;
-	rx_hdr->handle = handle;
+	rx = (void *)scan->node_rx_scan_term;
+	rx->hdr.type = NODE_RX_TYPE_EXT_SCAN_TERMINATE;
+	rx->hdr.handle = handle;
 
 	ret = ticker_stop(TICKER_INSTANCE_ID_CTLR, TICKER_USER_ID_ULL_HIGH,
 			  (TICKER_ID_SCAN_BASE + handle), ticker_stop_ext_op_cb,
@@ -985,7 +992,7 @@ static uint8_t is_scan_update(uint8_t handle, uint16_t duration,
 			      struct node_rx_pdu **node_rx_scan_term)
 {
 	*scan = ull_scan_set_get(handle);
-	*node_rx_scan_term = (void *)(*scan)->node_rx_scan_term;
+	*node_rx_scan_term = (*scan)->node_rx_scan_term;
 	return duration && period && (*scan)->lll.duration_reload &&
 	       (*scan)->duration_lazy;
 }
@@ -1019,8 +1026,7 @@ static uint8_t duration_period_setup(struct ll_scan_set *scan,
 			scan->duration_lazy = 0U;
 
 			if (*node_rx_scan_term) {
-				scan->node_rx_scan_term =
-					(void *)*node_rx_scan_term;
+				scan->node_rx_scan_term = *node_rx_scan_term;
 
 				return 0;
 			}
@@ -1039,7 +1045,7 @@ static uint8_t duration_period_setup(struct ll_scan_set *scan,
 			}
 
 			node_rx->hdr.link = (void *)link_scan_term;
-			scan->node_rx_scan_term = (void *)node_rx;
+			scan->node_rx_scan_term = node_rx;
 			*node_rx_scan_term = node_rx;
 		}
 	} else {
@@ -1134,7 +1140,7 @@ static void ext_disable(void *param)
 
 static void ext_disabled_cb(void *param)
 {
-	struct node_rx_hdr *rx_hdr;
+	struct node_rx_pdu *rx;
 	struct ll_scan_set *scan;
 	struct lll_scan *lll;
 
@@ -1143,15 +1149,15 @@ static void ext_disabled_cb(void *param)
 	 */
 	lll = (void *)param;
 	scan = HDR_LLL2ULL(lll);
-	rx_hdr = (void *)scan->node_rx_scan_term;
-	if (!rx_hdr) {
+	rx = scan->node_rx_scan_term;
+	if (!rx) {
 		return;
 	}
 
 	/* NOTE: parameters are already populated on disable,
 	 * just enqueue here
 	 */
-	ll_rx_put_sched(rx_hdr->link, rx_hdr);
+	ll_rx_put_sched(rx->hdr.link, rx);
 }
 #endif /* CONFIG_BT_CTLR_ADV_EXT */
 
@@ -1180,8 +1186,7 @@ static uint8_t disable(uint8_t handle)
 
 #if defined(CONFIG_BT_CTLR_ADV_EXT)
 	if (scan->node_rx_scan_term) {
-		struct node_rx_pdu *node_rx_scan_term =
-			(void *)scan->node_rx_scan_term;
+		struct node_rx_pdu *node_rx_scan_term = scan->node_rx_scan_term;
 
 		scan->node_rx_scan_term = NULL;
 

@@ -14,6 +14,8 @@
 /**
  * @brief OpenThread Layer 2 abstraction layer
  * @defgroup openthread OpenThread L2 abstraction layer
+ * @since 1.11
+ * @version 0.8.0
  * @ingroup ieee802154
  * @{
  */
@@ -128,15 +130,6 @@ int openthread_state_changed_cb_unregister(struct openthread_context *ot_context
 					   struct openthread_state_changed_cb *cb);
 
 /**
- * @brief Sets function which will be called when certain configuration or state
- * changes within OpenThread.
- *
- * @param cb function to call in callback procedure.
- * @deprecated Use openthread_state_changed_cb_register() instead.
- */
-__deprecated void openthread_set_state_changed_cb(otStateChangedCallback cb);
-
-/**
  * @brief Get OpenThread thread identification.
  */
 k_tid_t openthread_thread_id_get(void);
@@ -199,7 +192,11 @@ int openthread_api_mutex_try_lock(struct openthread_context *ot_context);
  */
 void openthread_api_mutex_unlock(struct openthread_context *ot_context);
 
+/** @cond INTERNAL_HIDDEN */
+
 #define OPENTHREAD_L2_CTX_TYPE struct openthread_context
+
+/** @endcond */
 
 #ifdef __cplusplus
 }

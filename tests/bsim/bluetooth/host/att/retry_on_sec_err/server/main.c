@@ -39,8 +39,7 @@ static void test_common(struct bt_conn **conn)
 	err = bt_set_name("d1");
 	__ASSERT_NO_MSG(!err);
 
-	err = bt_testlib_adv_conn(conn, BT_ID_DEFAULT,
-				  (BT_LE_ADV_OPT_USE_NAME | BT_LE_ADV_OPT_FORCE_NAME_IN_AD));
+	err = bt_testlib_adv_conn(conn, BT_ID_DEFAULT, bt_get_name());
 	__ASSERT_NO_MSG(!err);
 }
 
@@ -67,13 +66,13 @@ static void test_server_security_request(void)
 static const struct bst_test_instance server_tests[] = {
 	{
 		.test_id = "test_server",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_server,
 	},
 	{
 		.test_id = "test_server_security_request",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_server_security_request,
 	},

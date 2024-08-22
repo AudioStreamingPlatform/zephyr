@@ -15,6 +15,8 @@
 /**
  * @brief I2C Interface
  * @defgroup i2c_interface I2C Interface
+ * @since 1.0
+ * @version 1.0.0
  * @ingroup io_interfaces
  * @{
  */
@@ -257,7 +259,7 @@ __subsystem struct i2c_driver_api {
 typedef int (*i2c_target_api_register_t)(const struct device *dev);
 typedef int (*i2c_target_api_unregister_t)(const struct device *dev);
 
-struct i2c_target_driver_api {
+__subsystem struct i2c_target_driver_api {
 	i2c_target_api_register_t driver_register;
 	i2c_target_api_unregister_t driver_unregister;
 };
@@ -469,6 +471,30 @@ static inline bool i2c_is_ready_dt(const struct i2c_dt_spec *spec)
 }
 
 /**
+ * @brief Check if the current message is a read operation
+ *
+ * @param msg The message to check
+ * @return true if the I2C message is a read operation
+ * @return false if the I2C message is a write operation
+ */
+static inline bool i2c_is_read_op(const struct i2c_msg *msg)
+{
+	return (msg->flags & I2C_MSG_READ) == I2C_MSG_READ;
+}
+
+/**
+ * @brief Check if the current message includes a stop.
+ *
+ * @param msg The message to check
+ * @return true if the I2C message includes a stop
+ * @return false if the I2C message includes a stop
+ */
+static inline bool i2c_is_stop_op(const struct i2c_msg *msg)
+{
+	return (msg->flags & I2C_MSG_STOP) == I2C_MSG_STOP;
+}
+
+/**
  * @brief Dump out an I2C message
  *
  * Dumps out a list of I2C messages. For any that are writes (W), the data is
@@ -599,7 +625,7 @@ static inline void i2c_xfer_stats(const struct device *dev, struct i2c_msg *msgs
 		stats_init(&state->stats.s_hdr, STATS_SIZE_32, 4,	\
 			   STATS_NAME_INIT_PARMS(i2c));			\
 		stats_register(dev->name, &(state->stats.s_hdr));	\
-		if (init_fn != NULL) {					\
+		if (!is_null_no_warn(init_fn)) {			\
 			return init_fn(dev);				\
 		}							\
 									\
@@ -747,6 +773,10 @@ static inline int z_impl_i2c_get_config(const struct device *dev, uint32_t *dev_
  * the same behavior.  See the documentation of `struct i2c_msg` for
  * limitations on support for multi-message bus transactions.
  *
+ * @note The last message in the scatter/gather transaction implies a STOP
+ * whether or not it is explicitly set. This ensures the bus is in a good
+ * state for the next transaction which may be from a different call context.
+ *
  * @param dev Pointer to the device structure for an I2C controller
  * driver configured in controller mode.
  * @param msgs Array of messages to transfer.
@@ -766,6 +796,12 @@ static inline int z_impl_i2c_transfer(const struct device *dev,
 {
 	const struct i2c_driver_api *api =
 		(const struct i2c_driver_api *)dev->api;
+
+	if (!num_msgs) {
+		return 0;
+	}
+
+	msgs[num_msgs - 1].flags |= I2C_MSG_STOP;
 
 	int res =  api->transfer(dev, msgs, num_msgs, addr);
 
@@ -803,17 +839,25 @@ static inline int z_impl_i2c_transfer(const struct device *dev,
  * @retval -EWOULDBLOCK If the device is temporarily busy doing another transfer
  */
 static inline int i2c_transfer_cb(const struct device *dev,
-				 struct i2c_msg *msgs,
-				 uint8_t num_msgs,
-				 uint16_t addr,
-				 i2c_callback_t cb,
-				 void *userdata)
+				  struct i2c_msg *msgs,
+				  uint8_t num_msgs,
+				  uint16_t addr,
+				  i2c_callback_t cb,
+				  void *userdata)
 {
-	const struct i2c_driver_api *api = (const struct i2c_driver_api *)dev->api;
+	const struct i2c_driver_api *api =
+		(const struct i2c_driver_api *)dev->api;
 
 	if (api->transfer_cb == NULL) {
 		return -ENOSYS;
 	}
+
+	if (!num_msgs) {
+		cb(dev, 0, userdata);
+		return 0;
+	}
+
+	msgs[num_msgs - 1].flags |= I2C_MSG_STOP;
 
 	return api->transfer_cb(dev, msgs, num_msgs, addr, cb, userdata);
 }
@@ -993,6 +1037,23 @@ extern const struct rtio_iodev_api i2c_iodev_api;
 #define I2C_DT_IODEV_DEFINE(name, node_id)					\
 	const struct i2c_dt_spec _i2c_dt_spec_##name =				\
 		I2C_DT_SPEC_GET(node_id);					\
+	RTIO_IODEV_DEFINE(name, &i2c_iodev_api, (void *)&_i2c_dt_spec_##name)
+
+/**
+ * @brief Define an iodev for a given i2c device on a bus
+ *
+ * These do not need to be shared globally but doing so
+ * will save a small amount of memory.
+ *
+ * @param name Symbolic name of the iodev to define
+ * @param _bus Node ID for I2C bus
+ * @param _addr I2C target address
+ */
+#define I2C_IODEV_DEFINE(name, _bus, _addr)                                     \
+	const struct i2c_dt_spec _i2c_dt_spec_##name = {                        \
+		.bus = DEVICE_DT_GET(_bus),                                     \
+		.addr = _addr,                                                  \
+	};                                                                      \
 	RTIO_IODEV_DEFINE(name, &i2c_iodev_api, (void *)&_i2c_dt_spec_##name)
 
 /**
@@ -1599,6 +1660,6 @@ static inline int i2c_reg_update_byte_dt(const struct i2c_dt_spec *spec,
  * @}
  */
 
-#include <syscalls/i2c.h>
+#include <zephyr/syscalls/i2c.h>
 
 #endif /* ZEPHYR_INCLUDE_DRIVERS_I2C_H_ */

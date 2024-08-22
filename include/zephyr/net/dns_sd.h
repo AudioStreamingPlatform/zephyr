@@ -13,6 +13,7 @@
 
 #include <stdint.h>
 #include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/iterable_sections.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,6 +30,8 @@ extern "C" {
  * @see <a href="https://tools.ietf.org/html/rfc6763">RFC 6763</a>
  *
  * @defgroup dns_sd DNS Service Discovery
+ * @since 2.5
+ * @version 0.8.0
  * @ingroup networking
  * @{
  */
@@ -126,21 +129,18 @@ extern "C" {
  * The service can be referenced using the @p id variable.
  *
  * Example (with TXT):
- * @code{c}
+ * @code{.c}
  * #include <zephyr/net/dns_sd.h>
- * static const bar_txt[] = {
+ * static const char bar_txt[] = {
  *   "\x06" "path=/"
  *   "\x0f" "this=is the way"
  *   "\x0e" "foo or=foo not"
  *   "\x17" "this=has\0embedded\0nulls"
  *   "\x04" "true"
  * };
- * // Possibly use an ephemeral port
- * // Possibly only assign bar_port when the service is running
- * static uint16_t bar_port;
  * DNS_SD_REGISTER_TCP_SERVICE(bar, CONFIG_NET_HOSTNAME,
- *   "_bar", "local", bar_txt, &bar_port);
- * @endcode{c}
+ *   "_bar", "local", bar_txt, 4242);
+ * @endcode
  *
  * TXT records begin with a single length byte (hex-encoded)
  * and contain key=value pairs. Thus, the length of the key-value pair
@@ -172,13 +172,11 @@ extern "C" {
  * The service can be referenced using the @p id variable.
  *
  * Example (no TXT):
- * @code{c}
+ * @code{.c}
  * #include <zephyr/net/dns_sd.h>
- * #include <zephyr/sys/byteorder.h>
- * static const foo_port = sys_cpu_to_be16(4242);
  * DNS_SD_REGISTER_UDP_SERVICE(foo, CONFIG_NET_HOSTNAME,
- *   "_foo", DNS_SD_EMPTY_TXT, &foo_port);
- * @endcode{c}
+ *   "_foo", "local", DNS_SD_EMPTY_TXT, 4242);
+ * @endcode
  *
  * @param id variable name for the DNS-SD service record
  * @param instance name of the service instance such as "My TFTP Server"
@@ -198,8 +196,6 @@ extern "C" {
 /** Empty DNS-SD TXT specifier */
 #define DNS_SD_EMPTY_TXT dns_sd_empty_txt
 
-/** @cond INTERNAL_HIDDEN */
-
 /**
  * @brief DNS Service Discovery record
  *
@@ -214,18 +210,16 @@ extern "C" {
  * Thus, it is possible for multiple services to advertise on a
  * particular port if they hard-code the port.
  *
- * @internal
- *
  * @see <a href="https://tools.ietf.org/html/rfc6763">RFC 6763</a>
  */
 struct dns_sd_rec {
-	/** <Instance> - e.g. "My HTTP Server" */
+	/** "<Instance>" - e.g. "My HTTP Server" */
 	const char *instance;
-	/** Top half of the <Service> such as "_http" */
+	/** Top half of the "<Service>" such as "_http" */
 	const char *service;
-	/** Bottom half of the <Service> "_tcp" or "_udp" */
+	/** Bottom half of the "<Service>" "_tcp" or "_udp" */
 	const char *proto;
-	/** <Domain> such as "local" or "zephyrproject.org" */
+	/** "<Domain>" such as "local" or "zephyrproject.org" */
 	const char *domain;
 	/** DNS TXT record */
 	const char *text;
@@ -234,6 +228,8 @@ struct dns_sd_rec {
 	/** A pointer to the port number used by the service */
 	const uint16_t *port;
 };
+
+/** @cond INTERNAL_HIDDEN */
 
 /**
  * @brief Empty TXT specifier for DNS-SD

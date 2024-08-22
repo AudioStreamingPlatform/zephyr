@@ -243,6 +243,9 @@ static const char *link_source_name_get(uint8_t domain_id, uint32_t source_id)
 const char *log_source_name_get(uint32_t domain_id, uint32_t source_id)
 {
 	if (z_log_is_local_domain(domain_id)) {
+		if (IS_ENABLED(CONFIG_LOG_FMT_SECTION_STRIP)) {
+			return "unknown";
+		}
 		if (source_id < log_src_cnt_get(domain_id)) {
 			return TYPE_SECTION_START(log_const)[source_id].name;
 		} else {
@@ -362,6 +365,10 @@ void z_log_runtime_filters_init(void)
 
 int log_source_id_get(const char *name)
 {
+	if (IS_ENABLED(CONFIG_LOG_FMT_SECTION_STRIP)) {
+		return -1;
+	}
+
 	for (int i = 0; i < log_src_cnt_get(Z_LOG_LOCAL_DOMAIN_ID); i++) {
 		const char *sname = log_source_name_get(Z_LOG_LOCAL_DOMAIN_ID, i);
 
@@ -412,9 +419,23 @@ static void set_runtime_filter(uint8_t backend_id, uint8_t domain_id,
 	}
 }
 
-uint32_t z_impl_log_filter_set(struct log_backend const *const backend,
-			       uint32_t domain_id, int16_t source_id,
-			       uint32_t level)
+static uint32_t filter_get(uint8_t id, uint32_t domain_id, int16_t source_id, bool runtime)
+{
+	__ASSERT_NO_MSG(source_id < log_src_cnt_get(domain_id));
+
+	if (IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING) && runtime) {
+		if (source_id < 0) {
+			return LOG_LEVEL_DBG;
+		}
+
+		return LOG_FILTER_SLOT_GET(get_dynamic_filter(domain_id, source_id), id);
+	}
+
+	return log_compiled_level_get(domain_id, source_id);
+}
+
+
+uint32_t filter_set(int id, uint32_t domain_id, int16_t source_id, uint32_t level)
 {
 	if (!IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING)) {
 		return log_compiled_level_get(domain_id, source_id);
@@ -423,12 +444,21 @@ uint32_t z_impl_log_filter_set(struct log_backend const *const backend,
 	__ASSERT_NO_MSG(source_id < log_src_cnt_get(domain_id));
 
 
-	if (backend == NULL) {
+	if (id < 0) {
 		uint32_t max = 0U;
+		size_t backend_cnt;
 
-		STRUCT_SECTION_FOREACH(log_backend, iter_backend) {
-			uint32_t current = log_filter_set(iter_backend,
-						 domain_id, source_id, level);
+		if (IS_ENABLED(CONFIG_LOG_FRONTEND)) {
+			max = filter_set(LOG_FRONTEND_SLOT_ID, domain_id, source_id, level);
+			if (IS_ENABLED(CONFIG_LOG_FRONTEND_ONLY)) {
+				return max;
+			}
+		}
+
+		STRUCT_SECTION_COUNT(log_backend, &backend_cnt);
+		for (size_t i = 0; i < backend_cnt; i++) {
+			uint32_t current = filter_set(log_backend_id_get(log_backend_get(i)),
+							domain_id, source_id, level);
 
 			max = MAX(current, max);
 		}
@@ -436,11 +466,25 @@ uint32_t z_impl_log_filter_set(struct log_backend const *const backend,
 		return max;
 	}
 
-	level = MIN(level, MAX(log_filter_get(backend, domain_id, source_id, false),
+	level = MIN(level, MAX(filter_get(id, domain_id, source_id, false),
 			       CONFIG_LOG_OVERRIDE_LEVEL));
-	set_runtime_filter(log_backend_id_get(backend), domain_id, source_id, level);
+	set_runtime_filter(id, domain_id, source_id, level);
 
 	return level;
+}
+
+uint32_t z_impl_log_filter_set(struct log_backend const *const backend,
+			       uint32_t domain_id, int16_t source_id,
+			       uint32_t level)
+{
+	int id = (backend == NULL) ? -1 : log_backend_id_get(backend);
+
+	return filter_set(id, domain_id, source_id, level);
+}
+
+uint32_t z_impl_log_frontend_filter_set(int16_t source_id, uint32_t level)
+{
+	return filter_set(LOG_FRONTEND_SLOT_ID, Z_LOG_LOCAL_DOMAIN_ID, source_id, level);
 }
 
 #ifdef CONFIG_USERSPACE
@@ -461,7 +505,7 @@ uint32_t z_vrfy_log_filter_set(struct log_backend const *const backend,
 
 	return z_impl_log_filter_set(NULL, domain_id, src_id, level);
 }
-#include <syscalls/log_filter_set_mrsh.c>
+#include <zephyr/syscalls/log_filter_set_mrsh.c>
 #endif
 
 static void link_filter_set(const struct log_link *link,
@@ -541,18 +585,18 @@ void log_backend_disable(struct log_backend const *const backend)
 uint32_t log_filter_get(struct log_backend const *const backend,
 			uint32_t domain_id, int16_t source_id, bool runtime)
 {
-	__ASSERT_NO_MSG(source_id < log_src_cnt_get(domain_id));
+	int id = (backend == NULL) ? -1 : log_backend_id_get(backend);
 
-	if (IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING) && runtime) {
-		if (source_id < 0) {
-			return LOG_LEVEL_DBG;
-		}
+	return filter_get(id, domain_id, source_id, runtime);
+}
 
-		return LOG_FILTER_SLOT_GET(get_dynamic_filter(domain_id, source_id),
-					   log_backend_id_get(backend));
+uint32_t log_frontend_filter_get(int16_t source_id, bool runtime)
+{
+	if (!IS_ENABLED(CONFIG_LOG_FRONTEND)) {
+		return LOG_LEVEL_NONE;
 	}
 
-	return log_compiled_level_get(domain_id, source_id);
+	return filter_get(LOG_FRONTEND_SLOT_ID, Z_LOG_LOCAL_DOMAIN_ID, source_id, runtime);
 }
 
 void z_log_links_initiate(void)

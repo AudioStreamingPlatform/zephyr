@@ -16,6 +16,7 @@ import mock
 ZEPHYR_BASE = os.getenv("ZEPHYR_BASE")
 sys.path.insert(0, os.path.join(ZEPHYR_BASE, "scripts/pylib/twister"))
 
+from twisterlib.statuses import TwisterStatus
 from twisterlib.testinstance import TestInstance
 from twisterlib.error import BuildError
 from twisterlib.runner import TwisterRunner
@@ -72,8 +73,16 @@ def test_check_build_or_run(
     assert run == r
 
     with mock.patch('os.name', 'nt'):
+        # path to QEMU binary is not in QEMU_BIN_PATH environment variable
         run = testinstance.check_runnable()
         assert not run
+
+        # mock path to QEMU binary in QEMU_BIN_PATH environment variable
+        with mock.patch('os.environ', {'QEMU_BIN_PATH': ''}):
+            run = testinstance.check_runnable()
+            _, r = expected
+            assert run == r
+
 
 TESTDATA_PART_2 = [
     (True, True, True, ["demo_board_2"], "native",
@@ -91,9 +100,9 @@ TESTDATA_PART_2 = [
     (False, False, False, ["demo_board_2"], 'native',
      ["CONFIG_LOG=y"], 'CONFIG_LOG=y'),
     (False, False, False, ["demo_board_2"], 'native',
-     ["arch:x86_demo:CONFIG_LOG=y"], 'CONFIG_LOG=y'),
+     ["arch:x86:CONFIG_LOG=y"], 'CONFIG_LOG=y'),
     (False, False, False, ["demo_board_2"], 'native',
-     ["arch:arm_demo:CONFIG_LOG=y"], ''),
+     ["arch:arm:CONFIG_LOG=y"], ''),
     (False, False, False, ["demo_board_2"], 'native',
      ["platform:demo_board_2:CONFIG_LOG=y"], 'CONFIG_LOG=y'),
     (False, False, False, ["demo_board_2"], 'native',
@@ -207,6 +216,7 @@ def test_testinstance_init(all_testsuites_dict, class_testplan, platforms_list, 
     testsuite = class_testplan.testsuites.get(testsuite_path)
     testsuite.detailed_test_id = detailed_test_id
     class_testplan.platforms = platforms_list
+    print(class_testplan.platforms)
     platform = class_testplan.get_platform("demo_board_2")
 
     testinstance = TestInstance(testsuite, platform, class_testplan.env.outdir)
@@ -218,6 +228,37 @@ def test_testinstance_init(all_testsuites_dict, class_testplan, platforms_list, 
 
 
 @pytest.mark.parametrize('testinstance', [{'testsuite_kind': 'sample'}], indirect=True)
+def test_testinstance_record(testinstance):
+    testinstance.testcases = [mock.Mock()]
+    recording = [ {'field_1':  'recording_1_1', 'field_2': 'recording_1_2'},
+                  {'field_1':  'recording_2_1', 'field_2': 'recording_2_2'}
+                ]
+    with mock.patch(
+        'builtins.open',
+        mock.mock_open(read_data='')
+    ) as mock_file, \
+        mock.patch(
+        'csv.DictWriter.writerow',
+        mock.Mock()
+    ) as mock_writeheader, \
+        mock.patch(
+        'csv.DictWriter.writerows',
+        mock.Mock()
+    ) as mock_writerows:
+        testinstance.record(recording)
+
+    print(mock_file.mock_calls)
+
+    mock_file.assert_called_with(
+        os.path.join(testinstance.build_dir, 'recording.csv'),
+        'wt'
+    )
+
+    mock_writeheader.assert_has_calls([mock.call({ k:k for k in recording[0]})])
+    mock_writerows.assert_has_calls([mock.call(recording)])
+
+
+@pytest.mark.parametrize('testinstance', [{'testsuite_kind': 'sample'}], indirect=True)
 def test_testinstance_add_filter(testinstance):
     reason = 'dummy reason'
     filter_type = 'dummy type'
@@ -225,7 +266,7 @@ def test_testinstance_add_filter(testinstance):
     testinstance.add_filter(reason, filter_type)
 
     assert {'type': filter_type, 'reason': reason} in testinstance.filters
-    assert testinstance.status == 'filtered'
+    assert testinstance.status == TwisterStatus.FILTER
     assert testinstance.reason == reason
     assert testinstance.filter_type == filter_type
 
@@ -270,17 +311,17 @@ TESTDATA_2 = [
 def test_testinstance_add_missing_case_status(testinstance, reason, expected_reason):
     testinstance.reason = 'dummy reason'
 
-    status = 'passed'
+    status = TwisterStatus.PASS
 
     assert len(testinstance.testcases) > 1, 'Selected testsuite does not have enough testcases.'
 
-    testinstance.testcases[0].status = 'started'
-    testinstance.testcases[-1].status = None
+    testinstance.testcases[0].status = TwisterStatus.STARTED
+    testinstance.testcases[-1].status = TwisterStatus.NONE
 
     testinstance.add_missing_case_status(status, reason)
 
-    assert testinstance.testcases[0].status == 'failed'
-    assert testinstance.testcases[-1].status == 'passed'
+    assert testinstance.testcases[0].status == TwisterStatus.FAIL
+    assert testinstance.testcases[-1].status == TwisterStatus.PASS
     assert testinstance.testcases[-1].reason == expected_reason
 
 
@@ -315,7 +356,7 @@ def test_testinstance_dunders(all_testsuites_dict, class_testplan, platforms_lis
 @pytest.mark.parametrize('testinstance', [{'testsuite_kind': 'tests'}], indirect=True)
 def test_testinstance_set_case_status_by_name(testinstance):
     name = 'test_a.check_1.2a'
-    status = 'dummy status'
+    status = TwisterStatus.PASS
     reason = 'dummy reason'
 
     tc = testinstance.set_case_status_by_name(name, status, reason)
@@ -557,7 +598,7 @@ def test_testinstance_get_elf_file(caplog, tmp_path, testinstance, sysbuild, exp
     sysbuild_elf2 = zephyr_dir / 'dummy2.elf'
     sysbuild_elf2.write_bytes(b'0')
 
-    testinstance.testsuite.sysbuild = sysbuild
+    testinstance.sysbuild = sysbuild
     testinstance.domains = mock.Mock(
         get_default_domain=mock.Mock(
             return_value=mock.Mock(

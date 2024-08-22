@@ -5,7 +5,7 @@
  */
 
 /** @file
- * @brief Utility functions to be used by the Wi-Fi subsytem.
+ * @brief Utility functions to be used by the Wi-Fi subsystem.
  */
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_wifi_utils, CONFIG_NET_L2_WIFI_MGMT_LOG_LEVEL);
@@ -24,7 +24,7 @@ LOG_MODULE_REGISTER(net_wifi_utils, CONFIG_NET_L2_WIFI_MGMT_LOG_LEVEL);
 /* Ensure 'strtok_r' is available even with -std=c99. */
 char *strtok_r(char *str, const char *delim, char **saveptr);
 
-static const uint16_t valid_5g_chans_20mhz[] = {32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 96, 100,
+static const uint8_t valid_5g_chans_20mhz[] = {32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 96, 100,
 	104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 159, 161,
 	163, 165, 167, 169, 171, 173, 175, 177};
 
@@ -44,7 +44,7 @@ static enum wifi_frequency_bands wifi_utils_map_band_str_to_idx(char *band_str)
 }
 
 
-static bool wifi_utils_validate_chan_2g(uint16_t chan)
+bool wifi_utils_validate_chan_2g(uint16_t chan)
 {
 	if ((chan >= 1) && (chan <= 14)) {
 		return true;
@@ -54,7 +54,7 @@ static bool wifi_utils_validate_chan_2g(uint16_t chan)
 }
 
 
-static bool wifi_utils_validate_chan_5g(uint16_t chan)
+bool wifi_utils_validate_chan_5g(uint16_t chan)
 {
 	uint16_t i;
 
@@ -68,9 +68,9 @@ static bool wifi_utils_validate_chan_5g(uint16_t chan)
 }
 
 
-static bool wifi_utils_validate_chan_6g(uint16_t chan)
+bool wifi_utils_validate_chan_6g(uint16_t chan)
 {
-	if (((chan >= 1) && (chan <= 233) && (!((chan - 1)%4))) ||
+	if (((chan >= 1) && (chan <= 233) && (!((chan - 1) % 4))) ||
 	    (chan == 2)) {
 		return true;
 	}
@@ -79,8 +79,8 @@ static bool wifi_utils_validate_chan_6g(uint16_t chan)
 }
 
 
-static bool wifi_utils_validate_chan(uint8_t band,
-				     uint16_t chan)
+bool wifi_utils_validate_chan(uint8_t band,
+			      uint16_t chan)
 {
 	bool result = false;
 
@@ -102,6 +102,23 @@ static bool wifi_utils_validate_chan(uint8_t band,
 	return result;
 }
 
+/**
+ * @brief Get the next Wi-Fi 6GHz channel based on the given (valid) channel.
+ * The function handles the initial edge cases (1 -> 2, 2 -> 5) and then increments by 4.
+ *
+ * @param chan Current channel number.
+ * @return Next valid channel number.
+ */
+uint16_t wifi_utils_get_next_chan_6g(uint16_t chan)
+{
+	if (chan == 1) {
+		return 2;
+	} else if (chan == 2) {
+		return 5;
+	} else {
+		return chan + 4;
+	}
+}
 
 static int wifi_utils_get_all_chans_in_range(uint8_t chan_start,
 		uint8_t chan_end,
@@ -135,7 +152,7 @@ static int wifi_utils_get_all_chans_in_range(uint8_t chan_start,
 	case WIFI_FREQ_BAND_2_4_GHZ:
 		idx = *chan_idx;
 
-		for (i = chan_start; i <= chan_end; i++) {
+		for (i = chan_start+1; i <= chan_end; i++) {
 			band_chan[idx].band = band_idx;
 			band_chan[idx].channel = i;
 			idx++;
@@ -150,6 +167,7 @@ static int wifi_utils_get_all_chans_in_range(uint8_t chan_start,
 		for (i = 0; i < ARRAY_SIZE(valid_5g_chans_20mhz); i++) {
 			if (valid_5g_chans_20mhz[i] == chan_start) {
 				start = true;
+				continue;
 			}
 
 			if (valid_5g_chans_20mhz[i] == chan_end) {
@@ -172,20 +190,14 @@ static int wifi_utils_get_all_chans_in_range(uint8_t chan_start,
 	case WIFI_FREQ_BAND_6_GHZ:
 		idx = *chan_idx;
 
-		i = chan_start;
+		i = wifi_utils_get_next_chan_6g(chan_start);
 
 		while (i <= chan_end) {
 			band_chan[idx].band = band_idx;
 			band_chan[idx].channel = i;
 			idx++;
 
-			if (i == 1) {
-				i++;
-			} else if (i == 2) {
-				i += 3;
-			} else {
-				i += 4;
-			}
+			i = wifi_utils_get_next_chan_6g(i);
 		}
 
 		*chan_idx = idx;
@@ -241,7 +253,8 @@ int wifi_utils_parse_scan_bands(char *scan_bands_str, uint8_t *band_map)
 		return -EINVAL;
 	}
 
-	strncpy(parse_str, scan_bands_str, sizeof(parse_str));
+	strncpy(parse_str, scan_bands_str, sizeof(parse_str) - 1);
+	parse_str[sizeof(parse_str) - 1] = '\0';
 
 	band_str = strtok_r(parse_str, ",", &ctx);
 
@@ -367,10 +380,6 @@ int wifi_utils_parse_scan_chan(char *scan_chan_str,
 			memset(chan_str, 0, sizeof(chan_str));
 
 			if (chan_start) {
-				if ((chan_idx + (chan_val - chan_start)) > max_channels) {
-					NET_ERR("Too many channels specified (%d)", max_channels);
-					return -EINVAL;
-				}
 				if (wifi_utils_get_all_chans_in_range(chan_start,
 								      chan_val,
 								      band_chan,
@@ -380,6 +389,10 @@ int wifi_utils_parse_scan_chan(char *scan_chan_str,
 					return -EINVAL;
 				}
 
+				if (chan_idx > max_channels) {
+					NET_ERR("Too many channels specified (%d)", max_channels);
+					return -EINVAL;
+				}
 				chan_start = 0;
 			} else {
 				if (!wifi_utils_validate_chan(band,

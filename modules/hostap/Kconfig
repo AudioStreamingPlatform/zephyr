@@ -7,21 +7,43 @@
 
 config WIFI_NM_WPA_SUPPLICANT
 	bool "WPA Suplicant from hostap project [EXPERIMENTAL]"
-	select POSIX_CLOCK
+	select POSIX_TIMERS
+	select POSIX_SIGNALS
+	select POSIX_API
+	select FILE_SYSTEM
 	select NET_SOCKETS
 	select NET_SOCKETS_PACKET
 	select NET_SOCKETPAIR
 	select NET_L2_WIFI_MGMT
 	select WIFI_NM
 	select EXPERIMENTAL
+	select COMMON_LIBC_MALLOC
 	help
 	  WPA supplicant as a network management backend for WIFI_NM.
+
+if WIFI_NM_WPA_SUPPLICANT
+
+config COMMON_LIBC_MALLOC_ARENA_SIZE
+	default 85000 if WIFI_NM_WPA_SUPPLICANT_CRYPTO_ENTERPRISE && !MBEDTLS_ENABLE_HEAP
+	default 40000 if WIFI_NM_WPA_SUPPLICANT_AP
+	# 8192 for MbedTLS heap
+	default 21808 if MBEDTLS_ENABLE_HEAP
+	# 30K is mandatory, but might need more for long duration use cases
+	default 30000
 
 config WIFI_NM_WPA_SUPPLICANT_THREAD_STACK_SIZE
 	int "Stack size for wpa_supplicant thread"
 	default 8192
 
-# Currently we default POSIX_MAX_FDS to 16 in lib/posix/Kconfig
+config WIFI_NM_WPA_SUPPLICANT_WQ_STACK_SIZE
+	int "Stack size for wpa_supplicant iface workqueue"
+	default 6144
+
+config WIFI_NM_WPA_SUPPLICANT_WQ_PRIO
+	int "Thread priority of wpa_supplicant iface workqueue"
+	default 7
+
+# Currently we default ZVFS_OPEN_MAX to 16 in lib/posix/Kconfig
 # l2_packet - 1
 # ctrl_iface - 2 * socketpairs = 4(local and global)
 # z_wpa_event_sock - 1 socketpair = 2
@@ -49,7 +71,174 @@ config WIFI_NM_WPA_SUPPLICANT_DEBUG_LEVEL
 	  runtime filtering can also be configured in addition to the compile-time
 	  filtering.
 
-if WIFI_NM_WPA_SUPPLICANT
+# Memory optimizations
+config WIFI_NM_WPA_SUPPLICANT_ADVANCED_FEATURES
+	bool "Advanced features"
+	default y
+
+if WIFI_NM_WPA_SUPPLICANT_ADVANCED_FEATURES
+
+config WIFI_NM_WPA_SUPPLICANT_ROBUST_AV
+	bool "Robust Audio Video streaming support"
+	default y
+
+# Hidden as these are mandatory for WFA certification
+config WIFI_NM_WPA_SUPPLICANT_WMM_AC
+	bool
+	default y
+
+config WIFI_NM_WPA_SUPPLICANT_MBO
+	bool
+	default y
+
+config WIFI_NM_WPA_SUPPLICANT_WNM
+	bool "Wireless Network Management support"
+	default y
+
+config WIFI_NM_WPA_SUPPLICANT_RRM
+	bool "Radio Resource Management support"
+	default y
+endif
+
+config WIFI_NM_WPA_SUPPLICANT_WEP
+	bool "WEP (Legacy crypto) support"
+
+choice WIFI_NM_WPA_SUPPLICANT_CRYPTO_BACKEND
+	prompt "WPA supplicant crypto implementation"
+	default WIFI_NM_WPA_SUPPLICANT_CRYPTO
+	help
+	  Select the crypto implementation to use for WPA supplicant.
+	  WIFI_NM_WPA_SUPPLICANT_CRYPTO_ALT support enterprise
+	  and DPP. And use Mbedtls PSA apis for HW acceleration.
+
+config WIFI_NM_WPA_SUPPLICANT_CRYPTO
+	bool "Crypto support for WiFi"
+	select MBEDTLS
+	select MBEDTLS_SHA1
+	select MBEDTLS_CIPHER
+	select MBEDTLS_CIPHER_MODE_CTR_ENABLED
+	select MBEDTLS_CIPHER_MODE_CBC_ENABLED
+	select MBEDTLS_CIPHER_AES_ENABLED
+	select MBEDTLS_ECP_C
+	select MBEDTLS_ECP_ALL_ENABLED
+	select MBEDTLS_CMAC
+	select MBEDTLS_PKCS5_C
+	select MBEDTLS_PK_WRITE_C
+	select MBEDTLS_ECDH_C
+	select MBEDTLS_ECDSA_C
+	select MBEDTLS_ECJPAKE_C
+	select MBEDTLS_KEY_EXCHANGE_ECDHE_PSK_ENABLED
+	select MBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED
+	select MBEDTLS_KEY_EXCHANGE_ECJPAKE_ENABLED
+	select MBEDTLS_KEY_EXCHANGE_ALL_ENABLED
+
+config WIFI_NM_WPA_SUPPLICANT_CRYPTO_ALT
+	bool "Crypto Mbedtls alt support for WiFi"
+	select MBEDTLS
+	select MBEDTLS_CIPHER_MODE_CTR_ENABLED
+	select MBEDTLS_CIPHER_MODE_CBC_ENABLED
+	select MBEDTLS_CIPHER_AES_ENABLED
+	select MBEDTLS_CIPHER_DES_ENABLED
+	select MBEDTLS_SHA1
+	select MBEDTLS_ENTROPY_ENABLED
+	select MBEDTLS_CIPHER
+	select MBEDTLS_ECP_C
+	select MBEDTLS_ECP_ALL_ENABLED
+	select MBEDTLS_CMAC
+	select MBEDTLS_PKCS5_C
+	select MBEDTLS_PK_WRITE_C
+	select MBEDTLS_ECDH_C
+	select MBEDTLS_ECDSA_C
+	select MBEDTLS_KEY_EXCHANGE_ECDHE_PSK_ENABLED
+	select MBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED
+	select MBEDTLS_NIST_KW_C
+	select MBEDTLS_DHM_C
+	select MBEDTLS_HKDF_C
+	select MBEDTLS_SERVER_NAME_INDICATION
+	select MBEDTLS_X509_CRL_PARSE_C
+
+config WIFI_NM_WPA_SUPPLICANT_CRYPTO_NONE
+	bool "No Crypto support for WiFi"
+
+endchoice
+
+config WIFI_NM_WPA_SUPPLICANT_CRYPTO_MBEDTLS_PSA
+	bool "Crypto Platform Secure Architecture support for WiFi"
+	default y if WIFI_NM_WPA_SUPPLICANT_CRYPTO_ALT
+	help
+	  Support Mbedtls 3.x to use PSA apis instead of legacy apis.
+
+config WIFI_NM_WPA_SUPPLICANT_CRYPTO_ENTERPRISE
+	bool "Enterprise Crypto support for WiFi"
+	select MBEDTLS_PEM_CERTIFICATE_FORMAT
+	depends on !WIFI_NM_WPA_SUPPLICANT_CRYPTO_NONE
+
+config WIFI_NM_WPA_SUPPLICANT_WPA3
+	bool "WPA3 support"
+	depends on !WIFI_NM_WPA_SUPPLICANT_CRYPTO_NONE
+	default y
+
+config WIFI_NM_WPA_SUPPLICANT_AP
+	bool "AP mode support"
+
+config WIFI_NM_WPA_SUPPLICANT_WPS
+	bool "WPS support"
+	depends on !WIFI_NM_WPA_SUPPLICANT_CRYPTO_NONE
+
+config WIFI_NM_WPA_SUPPLICANT_P2P
+	bool "P2P mode support"
+	select WIFI_NM_WPA_SUPPLICANT_AP
+	select WIFI_NM_WPA_SUPPLICANT_WPS
+
+config WIFI_NM_WPA_SUPPLICANT_EAPOL
+	bool "EAPoL supplicant"
+	default y if WIFI_NM_WPA_SUPPLICANT_CRYPTO_ENTERPRISE
+
+config WIFI_NM_WPA_SUPPLICANT_CLI
+	bool "CLI support for wpa_supplicant"
+	default n
+
+config WIFI_NM_WPA_SUPPLICANT_INF_MON
+	bool "Monitor the net mgmt event to add/del interface"
+	default y
+
+config WIFI_NM_WPA_SUPPLICANT_BSS_MAX_IDLE_TIME
+	int "BSS max idle timeout in seconds"
+	range 0 64000
+	default 300
+	help
+	  BSS max idle timeout is the period for which AP may keep a client
+	  in associated state while there is no traffic from that particular
+	  client. Set 0 to disable inclusion of BSS max idle time tag in
+	  association request. If a non-zero value is set, STA can suggest a
+	  timeout by including BSS max idle period in the association request.
+	  AP may choose to consider or ignore the STA's preferred value.
+	  Ref: Sec 11.21.13 of IEEE Std 802.11™-2020
+
+config WIFI_NM_WPA_SUPPLICANT_NO_DEBUG
+	bool "Disable printing of debug messages, saves code size significantly"
+
+
+config WIFI_NM_WPA_SUPPLICANT_DPP
+	bool "WFA Easy Connect DPP"
+	select DPP
+	select DPP2
+	select DPP3
+	select GAS
+	select GAS_SERVER
+	select OFFCHANNEL
+	select MBEDTLS_X509_CSR_WRITE_C
+	select MBEDTLS_X509_CSR_PARSE_C
+
+config WPA_CLI
+	bool "WPA CLI support"
+	help
+	  Enable WPA CLI support for wpa_supplicant.
+
+if WIFI_NM_WPA_SUPPLICANT_CRYPTO_ENTERPRISE
+	config MBEDTLS_SSL_MAX_CONTENT_LEN
+		default 16384
+endif
 
 # Create hidden config options that are used in hostap. This way we do not need
 # to mark them as allowed for CI checks, and also someone else cannot use the
@@ -65,9 +254,13 @@ config NO_CONFIG_WRITE
 
 config NO_CONFIG_BLOBS
 	bool
-	default y
+	default y if !WIFI_NM_WPA_SUPPLICANT_DPP && !WIFI_NM_WPA_SUPPLICANT_CRYPTO_ENTERPRISE
 
 config CTRL_IFACE
+	bool
+	default y
+
+config CTRL_IFACE_ZEPHYR
 	bool
 	default y
 
@@ -75,16 +268,206 @@ config NO_RANDOM_POOL
 	bool
 	default y
 
+config WNM
+	bool
+
 config NO_WPA
 	bool
-	default y
+	default y if WIFI_NM_WPA_SUPPLICANT_CRYPTO_NONE
 
 config NO_PBKDF2
 	bool
-	default y
+	default y if WIFI_NM_WPA_SUPPLICANT_CRYPTO_NONE
 
-config ZEPHYR
+config SAE_PK
+	bool
+
+config FST
+	bool
+
+config TESTING_OPTIONS
+	bool
+
+config AP
+	bool
+	depends on WIFI_NM_WPA_SUPPLICANT_AP
+	default y if WIFI_NM_WPA_SUPPLICANT_AP
+
+config NO_RADIUS
+	bool
+
+config NO_VLAN
+	bool
+
+config NO_ACCOUNTING
+	bool
+
+config NEED_AP_MLME
+	bool
+
+config IEEE80211AX
+	bool
+
+config EAP_SERVER
+	bool
+
+config EAP_SERVER_IDENTITY
+	bool
+
+config P2P
+	bool
+
+config GAS
+	bool
+
+config GAS_SERVER
+	bool
+
+config OFFCHANNEL
+	bool
+
+config WPS
+	bool
+
+config WSC
+	bool
+
+config EAP_TLS
+	bool
+
+config IEEE8021X_EAPOL
+	bool
+
+config EAP_PEAP
+	bool
+
+config EAP_TTLS
+	bool
+
+config EAP_MD5
+	bool
+
+config EAP_MSCHAPv2
+	bool
+
+config EAP_LEAP
+	bool
+
+config EAP_PSK
+	bool
+
+config EAP_FAST
+	bool
+
+config EAP_PAX
+	bool
+
+config EAP_SAKE
+	bool
+
+config EAP_GPSK
+	bool
+
+config EAP_PWD
+	bool
+
+config EAP_EKE
+	bool
+
+config EAP_IKEv2
+	bool
+
+config IEEE8021X_EAPOL
+	bool
+
+config CRYPTO_INTERNAL
+	bool
+
+config ECC
+	bool
+
+config MBO
+	bool
+
+config NO_STDOUT_DEBUG
+	bool
+
+config SAE
+	bool
+
+config SHA256
+	bool
+
+config SHA384
+	bool
+
+config SHA512
+	bool
+
+config SUITEB192
+	bool
+
+config WEP
+	bool
+	default y if WIFI_NM_WPA_SUPPLICANT_WEP
+
+config WPA_CRYPTO
+	bool
+
+config WPA_SUPP_CRYPTO
+	bool
+
+config ROBUST_AV
 	bool
 	default y
+	depends on WIFI_NM_WPA_SUPPLICANT_ROBUST_AV
+
+config RRM
+	bool
+	default y
+	depends on WIFI_NM_WPA_SUPPLICANT_RRM
+
+config WMM_AC
+	bool
+
+config DPP
+	bool
+
+config DPP2
+	bool
+
+config DPP3
+	bool
+
+config NW_SEL_RELIABILITY
+	bool
+	default y
+	depends on WIFI_NM_WPA_SUPPLICANT_NW_SEL_RELIABILITY
+
+choice WIFI_NM_WPA_SUPPLICANT_NW_SEL
+	prompt "WPA supplicant Network selection criterion"
+	default WIFI_NM_WPA_SUPPLICANT_NW_SEL_THROUGHPUT
+	help
+	  Select the network selection method for the supplicant.
+
+config WIFI_NM_WPA_SUPPLICANT_NW_SEL_THROUGHPUT
+	bool "Throughput based network selection"
+	help
+	  Select the network based on throughput.
+
+config WIFI_NM_WPA_SUPPLICANT_NW_SEL_RELIABILITY
+	bool "Reliability based network selection"
+	help
+	  Select the network based on reliability.
+
+endchoice
+
+config SAE_PWE_EARLY_EXIT
+	bool "Exit early if PWE if found"
+	help
+	  In order to mitigate side channel attacks, even if the PWE is found the WPA
+	  supplicant goes through full iterations, but in some low-resource systems
+	  this can be intensive, so, add an option to exit early.
+	  Note that this is highly insecure and shouldn't be used in production
 
 endif # WIFI_NM_WPA_SUPPLICANT

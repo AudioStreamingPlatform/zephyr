@@ -35,8 +35,8 @@ are able to either send or receive at the same time.
   When data is received from the network, it is placed into net_buf data portion.
   Depending on device resources and desired network usage, user can tweak
   the size of the fixed buffer by setting :kconfig:option:`CONFIG_NET_BUF_DATA_SIZE`, and
-  the size of the data pool size by setting :kconfig:option:`CONFIG_NET_BUF_DATA_POOL_SIZE`
-  if variable size buffers are used.
+  the size of the data pool size by setting :kconfig:option:`CONFIG_NET_PKT_BUF_RX_DATA_POOL_SIZE`
+  and :kconfig:option:`CONFIG_NET_PKT_BUF_TX_DATA_POOL_SIZE` if variable size buffers are used.
 
   When using the fixed size data buffers, the memory consumption of network buffers
   can be tweaked by selecting the size of the data part according to what kind of network
@@ -87,7 +87,7 @@ Socket Options
   Maximum number of supported poll() entries. One needs to select proper value here depending
   on how many BSD sockets are polled in the system.
 
-:kconfig:option:`CONFIG_POSIX_MAX_FDS`
+:kconfig:option:`CONFIG_ZVFS_OPEN_MAX`
   Maximum number of open file descriptors, this includes files, sockets, special devices, etc.
   One needs to select proper value here depending on how many BSD sockets are created in
   the system.
@@ -174,7 +174,7 @@ TCP Options
 :kconfig:option:`CONFIG_NET_TCP_RETRY_COUNT`
   Maximum number of TCP segment retransmissions.
   The following formula can be used to determine the time (in ms)
-  that a segment will be be buffered awaiting retransmission:
+  that a segment will be buffered awaiting retransmission:
 
   .. math::
 

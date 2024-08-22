@@ -14,6 +14,7 @@
 #include <zephyr/linker/sections.h>
 #include <zephyr/devicetree.h>
 
+#include <zephyr/linker/devicetree_regions.h>
 #include <zephyr/linker/linker-defs.h>
 #include <zephyr/linker/linker-tool.h>
 
@@ -52,8 +53,8 @@
   _region_min_align = CONFIG_ARM_MPU_REGION_MIN_ALIGN_AND_SIZE;
   #define BSS_ALIGN ALIGN(_region_min_align)
 #else
-  /* If building without MMU support, use default 4-byte alignment. */
-  _region_min_align = 4;
+  /* If building without MMU support, use default 8-byte alignment. */
+  _region_min_align = 8;
 #endif
 
 #ifndef BSS_ALIGN
@@ -66,8 +67,9 @@ MEMORY
 {
     FLASH     (rx) : ORIGIN = ROM_ADDR, LENGTH = ROM_SIZE
     RAM       (wx) : ORIGIN = RAM_ADDR, LENGTH = RAM_SIZE
+    LINKER_DT_REGIONS()
     /* Used by and documented in include/linker/intlist.ld */
-    IDT_LIST  (wx) : ORIGIN = 0xFFFFF7FF, LENGTH = 2K
+    IDT_LIST  (wx) : ORIGIN = 0xFFFF8000, LENGTH = 32K
 }
 
 ENTRY(CONFIG_KERNEL_ENTRY)
@@ -76,6 +78,10 @@ SECTIONS
 {
 
 #include <zephyr/linker/rel-sections.ld>
+
+#ifdef CONFIG_LLEXT
+#include <zephyr/linker/llext-sections.ld>
+#endif
 
     /*
      * .plt and .iplt are here according to 'arm-zephyr-elf-ld --verbose',
@@ -111,19 +117,16 @@ SECTIONS
         KEEP(*(.exc_vector_table))
         KEEP(*(".exc_vector_table.*"))
 
+#if LINKER_ZEPHYR_FINAL && defined(CONFIG_ISR_TABLES_LOCAL_DECLARATION)
+        INCLUDE isr_tables_vt.ld
+#else
         KEEP(*(.vectors))
-
+#endif
         _vector_end = .;
 
         *(.text)
         *(".text.*")
         *(.gnu.linkonce.t.*)
-
-        /*
-         * These are here according to 'arm-zephyr-elf-ld --verbose',
-         * after .gnu.linkonce.t.*
-         */
-        *(.glue_7t) *(.glue_7) *(.vfp11_veneer) *(.v4_bx)
 
 #include <zephyr/linker/kobject-text.ld>
 
@@ -161,6 +164,10 @@ SECTIONS
         __rodata_region_start = .;
 
 #include <zephyr/linker/common-rom.ld>
+/* Located in generated directory. This file is populated by calling
+ * zephyr_linker_sources(ROM_SECTIONS ...). Useful for grouping iterable RO structs.
+ */
+#include <snippets-rom-sections.ld>
 #include <zephyr/linker/thread-local-storage.ld>
 
     SECTION_PROLOGUE(_RODATA_SECTION_NAME,,)
@@ -244,11 +251,7 @@ SECTIONS
 
     SECTION_DATA_PROLOGUE(_BSS_SECTION_NAME,(NOLOAD), BSS_ALIGN)
     {
-        /*
-         * For performance, BSS section is assumed to be 4 byte aligned and
-         * a multiple of 4 bytes
-         */
-        . = ALIGN(4);
+        . = ALIGN(8);
         __bss_start = .;
         __kernel_ram_start = .;
 
@@ -257,11 +260,7 @@ SECTIONS
         *(COMMON)
         *(".kernel_bss.*")
 
-        /*
-         * As memory is cleared in words only, it is simpler to ensure the BSS
-         * section ends on a 4 byte boundary. This wastes a maximum of 3 bytes.
-                 */
-        __bss_end = ALIGN(4);
+        __bss_end = ALIGN(8);
     } GROUP_NOLOAD_LINK_IN(RAMABLE_REGION, RAMABLE_REGION)
 
 #include <zephyr/linker/common-noinit.ld>
@@ -326,6 +325,17 @@ SECTIONS
 
     /DISCARD/ : { *(.note.GNU-stack) }
 
+/* Output section descriptions are needed for these sections to suppress
+ * warnings when "--orphan-handling=warn" is set for lld.
+ */
+#if defined(CONFIG_LLVM_USE_LLD)
+    SECTION_PROLOGUE(.symtab, 0,) { *(.symtab) }
+    SECTION_PROLOGUE(.strtab, 0,) { *(.strtab) }
+    SECTION_PROLOGUE(.shstrtab, 0,) { *(.shstrtab) }
+#endif
+
+    /* Sections generated from 'zephyr,memory-region' nodes */
+    LINKER_DT_SECTIONS()
 
     /* Must be last in romable region */
     SECTION_PROLOGUE(.last_section,,)

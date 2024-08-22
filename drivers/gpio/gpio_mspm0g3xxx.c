@@ -162,10 +162,10 @@ static int gpio_mspm0g3xxx_pin_interrupt_configure(const struct device *port, gp
 		uint32_t polarity = 0x00;
 
 		if (trig & GPIO_INT_TRIG_LOW) {
-			polarity |= 0x01;
+			polarity |= 0x02;
 		}
 		if (trig & GPIO_INT_TRIG_HIGH) {
-			polarity |= 0x02;
+			polarity |= 0x01;
 		}
 		if (pin < 16) {
 			DL_GPIO_setLowerPinsPolarity(config->base, polarity << (2 * pin));

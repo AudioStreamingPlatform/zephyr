@@ -204,7 +204,7 @@ static void gpio_mspm0g3xxx_isr(const struct device *port)
 	struct gpio_mspm0g3xxx_data *data_a = dev_a->data;
 	const struct gpio_mspm0g3xxx_config *config_a = dev_a->config;
 
-	uint32_t status_a = DL_GPIO_getRawInterruptStatus(config_a->base, 0xFFFFFFFF);
+	uint32_t status_a = DL_GPIO_getEnabledInterruptStatus(config_a->base, 0xFFFFFFFF);
 
 	DL_GPIO_clearInterruptStatus(config_a->base, status_a);
 
@@ -216,7 +216,7 @@ static void gpio_mspm0g3xxx_isr(const struct device *port)
 	struct gpio_mspm0g3xxx_data *data_b = dev_b->data;
 	const struct gpio_mspm0g3xxx_config *config_b = dev_b->config;
 
-	uint32_t status_b = DL_GPIO_getRawInterruptStatus(config_b->base, 0xFFFFFFFF);
+	uint32_t status_b = DL_GPIO_getEnabledInterruptStatus(config_b->base, 0xFFFFFFFF);
 
 	DL_GPIO_clearInterruptStatus(config_b->base, status_b);
 

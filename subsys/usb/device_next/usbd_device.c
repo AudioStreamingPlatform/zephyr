@@ -20,10 +20,42 @@ LOG_MODULE_REGISTER(usbd_dev, CONFIG_USBD_LOG_LEVEL);
  * All the functions below are part of public USB device support API.
  */
 
-int usbd_device_set_bcd(struct usbd_contex *const uds_ctx,
-			const uint16_t bcd)
+enum usbd_speed usbd_bus_speed(const struct usbd_context *const uds_ctx)
 {
-	struct usb_device_descriptor *desc = uds_ctx->desc;
+	return uds_ctx->status.speed;
+}
+
+enum usbd_speed usbd_caps_speed(const struct usbd_context *const uds_ctx)
+{
+	struct udc_device_caps caps = udc_caps(uds_ctx->dev);
+
+	/* For now, either high speed is supported or not. */
+	if (caps.hs) {
+		return USBD_SPEED_HS;
+	}
+
+	return USBD_SPEED_FS;
+}
+
+static struct usb_device_descriptor *
+get_device_descriptor(struct usbd_context *const uds_ctx,
+		      const enum usbd_speed speed)
+{
+	switch (speed) {
+	case USBD_SPEED_FS:
+		return uds_ctx->fs_desc;
+	case USBD_SPEED_HS:
+		return uds_ctx->hs_desc;
+	default:
+		__ASSERT(false, "Not supported speed");
+		return NULL;
+	}
+}
+
+int usbd_device_set_bcd_usb(struct usbd_context *const uds_ctx,
+			    const enum usbd_speed speed, const uint16_t bcd)
+{
+	struct usb_device_descriptor *desc;
 	int ret = 0;
 
 	usbd_device_lock(uds_ctx);
@@ -33,6 +65,7 @@ int usbd_device_set_bcd(struct usbd_contex *const uds_ctx,
 		goto set_bcd_exit;
 	}
 
+	desc = get_device_descriptor(uds_ctx, speed);
 	desc->bcdUSB = sys_cpu_to_le16(bcd);
 
 set_bcd_exit:
@@ -40,10 +73,10 @@ set_bcd_exit:
 	return ret;
 }
 
-int usbd_device_set_vid(struct usbd_contex *const uds_ctx,
+int usbd_device_set_vid(struct usbd_context *const uds_ctx,
 			 const uint16_t vid)
 {
-	struct usb_device_descriptor *desc = uds_ctx->desc;
+	struct usb_device_descriptor *fs_desc, *hs_desc;
 	int ret = 0;
 
 	usbd_device_lock(uds_ctx);
@@ -53,17 +86,21 @@ int usbd_device_set_vid(struct usbd_contex *const uds_ctx,
 		goto set_vid_exit;
 	}
 
-	desc->idVendor = sys_cpu_to_le16(vid);
+	fs_desc = get_device_descriptor(uds_ctx, USBD_SPEED_FS);
+	fs_desc->idVendor = sys_cpu_to_le16(vid);
+
+	hs_desc = get_device_descriptor(uds_ctx, USBD_SPEED_HS);
+	hs_desc->idVendor = sys_cpu_to_le16(vid);
 
 set_vid_exit:
 	usbd_device_unlock(uds_ctx);
 	return ret;
 }
 
-int usbd_device_set_pid(struct usbd_contex *const uds_ctx,
+int usbd_device_set_pid(struct usbd_context *const uds_ctx,
 			 const uint16_t pid)
 {
-	struct usb_device_descriptor *desc = uds_ctx->desc;
+	struct usb_device_descriptor *fs_desc, *hs_desc;
 	int ret = 0;
 
 	usbd_device_lock(uds_ctx);
@@ -73,18 +110,47 @@ int usbd_device_set_pid(struct usbd_contex *const uds_ctx,
 		goto set_pid_exit;
 	}
 
-	desc->idProduct = sys_cpu_to_le16(pid);
+	fs_desc = get_device_descriptor(uds_ctx, USBD_SPEED_FS);
+	fs_desc->idProduct = sys_cpu_to_le16(pid);
+
+	hs_desc = get_device_descriptor(uds_ctx, USBD_SPEED_HS);
+	hs_desc->idProduct = sys_cpu_to_le16(pid);
 
 set_pid_exit:
 	usbd_device_unlock(uds_ctx);
 	return ret;
 }
 
-int usbd_device_set_code_triple(struct usbd_contex *const uds_ctx,
+int usbd_device_set_bcd_device(struct usbd_context *const uds_ctx,
+			       const uint16_t bcd)
+{
+	struct usb_device_descriptor *fs_desc, *hs_desc;
+	int ret = 0;
+
+	usbd_device_lock(uds_ctx);
+
+	if (usbd_is_enabled(uds_ctx)) {
+		ret = -EALREADY;
+		goto set_bcd_device_exit;
+	}
+
+	fs_desc = get_device_descriptor(uds_ctx, USBD_SPEED_FS);
+	fs_desc->bcdDevice = sys_cpu_to_le16(bcd);
+
+	hs_desc = get_device_descriptor(uds_ctx, USBD_SPEED_HS);
+	hs_desc->bcdDevice = sys_cpu_to_le16(bcd);
+
+set_bcd_device_exit:
+	usbd_device_unlock(uds_ctx);
+	return ret;
+}
+
+int usbd_device_set_code_triple(struct usbd_context *const uds_ctx,
+				const enum usbd_speed speed,
 				const uint8_t base_class,
 				const uint8_t subclass, const uint8_t protocol)
 {
-	struct usb_device_descriptor *desc = uds_ctx->desc;
+	struct usb_device_descriptor *desc;
 	int ret = 0;
 
 	usbd_device_lock(uds_ctx);
@@ -94,6 +160,7 @@ int usbd_device_set_code_triple(struct usbd_contex *const uds_ctx,
 		goto set_code_triple_exit;
 	}
 
+	desc = get_device_descriptor(uds_ctx, speed);
 	desc->bDeviceClass = base_class;
 	desc->bDeviceSubClass = subclass;
 	desc->bDeviceProtocol = protocol;
@@ -103,7 +170,7 @@ set_code_triple_exit:
 	return ret;
 }
 
-int usbd_wakeup_request(struct usbd_contex *const uds_ctx)
+int usbd_wakeup_request(struct usbd_context *const uds_ctx)
 {
 	struct udc_device_caps caps = udc_caps(uds_ctx->dev);
 	int ret = 0;
@@ -117,7 +184,7 @@ int usbd_wakeup_request(struct usbd_contex *const uds_ctx)
 	}
 
 	if (!uds_ctx->status.rwup || !usbd_is_suspended(uds_ctx)) {
-		LOG_ERR("Remote wakeup feature not enabled or not suspended");
+		LOG_WRN("Remote wakeup feature not enabled or not suspended");
 		ret = -EACCES;
 		goto wakeup_request_error;
 	}
@@ -130,15 +197,20 @@ wakeup_request_error:
 	return ret;
 }
 
-bool usbd_is_suspended(struct usbd_contex *uds_ctx)
+bool usbd_is_suspended(struct usbd_context *uds_ctx)
 {
 	return uds_ctx->status.suspended;
 }
 
-int usbd_init(struct usbd_contex *const uds_ctx)
+int usbd_init(struct usbd_context *const uds_ctx)
 {
 	int ret;
 
+	/*
+	 * Lock the scheduler to ensure that the context is not preempted
+	 * before it is fully initialized.
+	 */
+	k_sched_lock();
 	usbd_device_lock(uds_ctx);
 
 	if (uds_ctx->dev == NULL) {
@@ -168,10 +240,12 @@ int usbd_init(struct usbd_contex *const uds_ctx)
 
 init_exit:
 	usbd_device_unlock(uds_ctx);
+	k_sched_unlock();
+
 	return ret;
 }
 
-int usbd_enable(struct usbd_contex *const uds_ctx)
+int usbd_enable(struct usbd_context *const uds_ctx)
 {
 	int ret;
 
@@ -208,7 +282,7 @@ enable_exit:
 	return ret;
 }
 
-int usbd_disable(struct usbd_contex *const uds_ctx)
+int usbd_disable(struct usbd_context *const uds_ctx)
 {
 	int ret;
 
@@ -236,7 +310,7 @@ int usbd_disable(struct usbd_contex *const uds_ctx)
 	return ret;
 }
 
-int usbd_shutdown(struct usbd_contex *const uds_ctx)
+int usbd_shutdown(struct usbd_context *const uds_ctx)
 {
 	int ret;
 
@@ -252,4 +326,11 @@ int usbd_shutdown(struct usbd_contex *const uds_ctx)
 	usbd_device_unlock(uds_ctx);
 
 	return 0;
+}
+
+bool usbd_can_detect_vbus(struct usbd_context *const uds_ctx)
+{
+	const struct udc_device_caps caps = udc_caps(uds_ctx->dev);
+
+	return caps.can_detect_vbus;
 }

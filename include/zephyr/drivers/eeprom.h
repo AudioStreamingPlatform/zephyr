@@ -19,6 +19,8 @@
 /**
  * @brief EEPROM Interface
  * @defgroup eeprom_interface EEPROM Interface
+ * @since 2.1
+ * @version 1.0.0
  * @ingroup io_interfaces
  * @{
  */
@@ -137,6 +139,6 @@ static inline size_t z_impl_eeprom_get_size(const struct device *dev)
  * @}
  */
 
-#include <syscalls/eeprom.h>
+#include <zephyr/syscalls/eeprom.h>
 
 #endif /* ZEPHYR_INCLUDE_DRIVERS_EEPROM_H_ */

@@ -28,7 +28,9 @@
 #define SSD1306_SET_ENTIRE_DISPLAY_OFF		0xa4
 #define SSD1306_SET_ENTIRE_DISPLAY_ON		0xa5
 
+/* RAM data of 1 indicates an "ON" pixel */
 #define SSD1306_SET_NORMAL_DISPLAY		0xa6
+/* RAM data of 0 indicates an "ON" pixel */
 #define SSD1306_SET_REVERSE_DISPLAY		0xa7
 
 #define SSD1306_DISPLAY_OFF			0xae
@@ -74,7 +76,11 @@
 
 #define SSD1306_SET_PADS_HW_CONFIG		0xda /* double byte command */
 #define SSD1306_SET_PADS_HW_SEQUENTIAL		0x02
-#define SSD1306_SET_PADS_HW_ALTERNATIVE		0x12
+#define SSD1306_SET_PADS_HW_ALTERNATIVE         0x12
+
+#define SSD1306_SET_IREF_MODE			0xad
+#define SSD1306_SET_IREF_MODE_INTERNAL		0x30
+#define SSD1306_SET_IREF_MODE_EXTERNAL		0x00
 
 
 /*

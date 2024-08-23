@@ -4,6 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/** @file
+ * @brief Dummy layer 2
+ *
+ * This is not to be included by the application.
+ */
 
 #ifndef ZEPHYR_INCLUDE_NET_DUMMY_H_
 #define ZEPHYR_INCLUDE_NET_DUMMY_H_
@@ -18,10 +23,13 @@ extern "C" {
 /**
  * @brief Dummy L2/driver support functions
  * @defgroup dummy Dummy L2/driver Support Functions
+ * @since 1.14
+ * @version 0.8.0
  * @ingroup networking
  * @{
  */
 
+/** Dummy L2 API operations. */
 struct dummy_api {
 	/**
 	 * The net_if_api must be placed in first position in this
@@ -31,6 +39,12 @@ struct dummy_api {
 
 	/** Send a network packet */
 	int (*send)(const struct device *dev, struct net_pkt *pkt);
+
+	/**
+	 * Receive a network packet (only limited use for this, for example
+	 * receiving capturing packets and post processing them).
+	 */
+	enum net_verdict (*recv)(struct net_if *iface, struct net_pkt *pkt);
 
 	/** Start the device. Called when the bound network interface is brought up. */
 	int (*start)(const struct device *dev);

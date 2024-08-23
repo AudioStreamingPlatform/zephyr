@@ -14,12 +14,17 @@
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/drivers/sensor.h>
+#include <zephyr/bluetooth/hci.h>
 
 #include "mesh.h"
 #include "board.h"
 
 static const struct bt_data ad[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, BT_LE_AD_NO_BREDR),
+};
+
+static const struct bt_data sd[] = {
+	BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof(CONFIG_BT_DEVICE_NAME) - 1),
 };
 
 static ssize_t read_name(struct bt_conn *conn, const struct bt_gatt_attr *attr,
@@ -133,7 +138,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
-	printk("Disconnected (reason 0x%02x)\n", reason);
+	printk("Disconnected, reason 0x%02x %s\n", reason, bt_hci_err_to_str(reason));
 
 	if (strcmp(CONFIG_BT_DEVICE_NAME, bt_get_name()) &&
 	    !mesh_is_initialized()) {
@@ -176,8 +181,8 @@ static void bt_ready(int err)
 
 	if (!mesh_is_initialized()) {
 		/* Start advertising */
-		err = bt_le_adv_start(BT_LE_ADV_CONN_NAME,
-				      ad, ARRAY_SIZE(ad), NULL, 0);
+		err = bt_le_adv_start(BT_LE_ADV_CONN_ONE_TIME, ad, ARRAY_SIZE(ad), sd,
+				      ARRAY_SIZE(sd));
 		if (err) {
 			printk("Advertising failed to start (err %d)\n", err);
 			return;

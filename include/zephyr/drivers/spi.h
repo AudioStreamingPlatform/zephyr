@@ -15,6 +15,8 @@
 /**
  * @brief SPI Interface
  * @defgroup spi_interface SPI Interface
+ * @since 1.0
+ * @version 1.0.0
  * @ingroup io_interfaces
  * @{
  */
@@ -387,9 +389,8 @@ struct spi_dt_spec {
  * data from the devicetree.
  *
  * Important: multiple fields are automatically constructed by this macro
- * which must be checked before use. @ref spi_is_ready performs the required
+ * which must be checked before use. @ref spi_is_ready_dt performs the required
  * @ref device_is_ready checks.
- * @deprecated Use @ref spi_is_ready_dt instead.
  *
  * @param node_id Devicetree node identifier for the SPI device whose
  *                struct spi_dt_spec to create an initializer for
@@ -416,6 +417,40 @@ struct spi_dt_spec {
  */
 #define SPI_DT_SPEC_INST_GET(inst, operation_, delay_) \
 	SPI_DT_SPEC_GET(DT_DRV_INST(inst), operation_, delay_)
+
+/**
+ * @brief Value that will never compare true with any valid overrun character
+ */
+#define SPI_MOSI_OVERRUN_UNKNOWN 0x100
+
+/**
+ * @brief The value sent on MOSI when all TX bytes are sent, but RX continues
+ *
+ * For drivers where the MOSI line state when receiving is important, this value
+ * can be queried at compile-time to determine whether allocating a constant
+ * array is necessary.
+ *
+ * @param node_id Devicetree node identifier for the SPI device to query
+ *
+ * @retval SPI_MOSI_OVERRUN_UNKNOWN if controller does not export the value
+ * @retval byte default MOSI value otherwise
+ */
+#define SPI_MOSI_OVERRUN_DT(node_id) \
+	DT_PROP_OR(node_id, overrun_character, SPI_MOSI_OVERRUN_UNKNOWN)
+
+/**
+ * @brief The value sent on MOSI when all TX bytes are sent, but RX continues
+ *
+ * This is equivalent to
+ * <tt>SPI_MOSI_OVERRUN_DT(DT_DRV_INST(inst))</tt>.
+ *
+ * @param inst Devicetree instance number
+ *
+ * @retval SPI_MOSI_OVERRUN_UNKNOWN if controller does not export the value
+ * @retval byte default MOSI value otherwise
+ */
+#define SPI_MOSI_OVERRUN_DT_INST(inst) \
+	DT_INST_PROP_OR(inst, overrun_character, SPI_MOSI_OVERRUN_UNKNOWN)
 
 /**
  * @brief SPI buffer structure
@@ -614,7 +649,7 @@ typedef void (*spi_callback_t)(const struct device *dev, int result, void *data)
 /**
  * @typedef spi_api_io
  * @brief Callback API for asynchronous I/O
- * See spi_transceive_async() for argument descriptions
+ * See spi_transceive_signal() for argument descriptions
  */
 typedef int (*spi_api_io_async)(const struct device *dev,
 				const struct spi_config *config,
@@ -679,29 +714,6 @@ static inline bool spi_cs_is_gpio(const struct spi_config *config)
 static inline bool spi_cs_is_gpio_dt(const struct spi_dt_spec *spec)
 {
 	return spi_cs_is_gpio(&spec->config);
-}
-
-/**
- * @brief Validate that SPI bus is ready.
- *
- * @param spec SPI specification from devicetree
- *
- * @retval true if the SPI bus is ready for use.
- * @retval false if the SPI bus is not ready for use.
- */
-__deprecated
-static inline bool spi_is_ready(const struct spi_dt_spec *spec)
-{
-	/* Validate bus is ready */
-	if (!device_is_ready(spec->bus)) {
-		return false;
-	}
-	/* Validate CS gpio port is ready, if it is used */
-	if (spi_cs_is_gpio_dt(spec) &&
-	    !gpio_is_ready_dt(&spec->config.cs.gpio)) {
-		return false;
-	}
-	return true;
 }
 
 /**
@@ -799,6 +811,7 @@ static inline int spi_transceive_dt(const struct spi_dt_spec *spec,
  *        previous operations.
  * @param rx_bufs Buffer array where data to be read will be written to.
  *
+ * @retval frames Positive number of frames received in slave mode.
  * @retval 0 If successful.
  * @retval -errno Negative errno code on failure.
  */
@@ -954,20 +967,6 @@ static inline int spi_transceive_signal(const struct device *dev,
 }
 
 /**
- * @brief Alias for spi_transceive_signal for backwards compatibility
- *
- * @deprecated Use @ref spi_transceive_signal instead.
- */
-__deprecated static inline int spi_transceive_async(const struct device *dev,
-				       const struct spi_config *config,
-				       const struct spi_buf_set *tx_bufs,
-				       const struct spi_buf_set *rx_bufs,
-				       struct k_poll_signal *sig)
-{
-	return spi_transceive_signal(dev, config, tx_bufs, rx_bufs, sig);
-}
-
-/**
  * @brief Read the specified amount of data from the SPI driver.
  *
  * @note This function is asynchronous.
@@ -987,6 +986,7 @@ __deprecated static inline int spi_transceive_async(const struct device *dev,
  *        notify the end of the transaction, and whether it went
  *        successfully or not).
  *
+ * @retval frames Positive number of frames received in slave mode.
  * @retval 0 If successful
  * @retval -errno Negative errno code on failure.
  */
@@ -999,24 +999,11 @@ static inline int spi_read_signal(const struct device *dev,
 }
 
 /**
- * @brief Alias for spi_read_signal for backwards compatibility
- *
- * @deprecated Use @ref spi_read_signal instead.
- */
-__deprecated static inline int spi_read_async(const struct device *dev,
-				 const struct spi_config *config,
-				 const struct spi_buf_set *rx_bufs,
-				 struct k_poll_signal *sig)
-{
-	return spi_read_signal(dev, config, rx_bufs, sig);
-}
-
-/**
  * @brief Write the specified amount of data from the SPI driver.
  *
  * @note This function is asynchronous.
  *
- * @note This function is a helper function calling spi_transceive_async.
+ * @note This function is a helper function calling spi_transceive_signal.
  *
  * @note This function is available only if @kconfig{CONFIG_SPI_ASYNC}
  * and @kconfig{CONFIG_POLL} are selected.
@@ -1040,19 +1027,6 @@ static inline int spi_write_signal(const struct device *dev,
 				  struct k_poll_signal *sig)
 {
 	return spi_transceive_signal(dev, config, tx_bufs, NULL, sig);
-}
-
-/**
- * @brief Alias for spi_write_signal for backwards compatibility
- *
- * @deprecated Use @ref spi_write_signal instead.
- */
-__deprecated static inline int spi_write_async(const struct device *dev,
-				 const struct spi_config *config,
-				 const struct spi_buf_set *tx_bufs,
-				 struct k_poll_signal *sig)
-{
-	return spi_write_signal(dev, config, tx_bufs, sig);
 }
 
 #endif /* CONFIG_POLL */
@@ -1327,6 +1301,6 @@ static inline int spi_release_dt(const struct spi_dt_spec *spec)
  * @}
  */
 
-#include <syscalls/spi.h>
+#include <zephyr/syscalls/spi.h>
 
 #endif /* ZEPHYR_INCLUDE_DRIVERS_SPI_H_ */

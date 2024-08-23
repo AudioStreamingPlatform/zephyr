@@ -233,6 +233,7 @@ class JLinkBinaryRunner(ZephyrBinaryRunner):
         rtos = self.thread_info_enabled and self.supports_thread_info
         plugin_dir = os.fspath(Path(self.commander).parent / 'GDBServer' /
                                'RTOSPlugin_Zephyr')
+        big_endian = self.build_conf.getboolean('CONFIG_BIG_ENDIAN')
 
         server_cmd = ([self.gdbserver] +
                       ['-select',
@@ -243,6 +244,7 @@ class JLinkBinaryRunner(ZephyrBinaryRunner):
                        '-speed', self.speed,
                        '-device', self.device,
                        '-silent',
+                       '-endian', 'big' if big_endian else 'little',
                        '-singlerun'] +
                       (['-nogui'] if self.supports_nogui else []) +
                       (['-rtos', plugin_dir] if rtos else []) +
@@ -290,6 +292,7 @@ class JLinkBinaryRunner(ZephyrBinaryRunner):
         lines = [
             'ExitOnError 1',  # Treat any command-error as fatal
             'r',  # Reset and halt the target
+            'BE' if self.build_conf.getboolean('CONFIG_BIG_ENDIAN') else 'LE'
         ]
 
         if self.erase:
@@ -317,10 +320,12 @@ class JLinkBinaryRunner(ZephyrBinaryRunner):
                 raise ValueError(err)
 
         else:
-            # use hex or bin file provided by the buildsystem, preferring .hex over .bin
+            # Use hex, bin or elf file provided by the buildsystem.
+            # Preferring .hex over .bin and .elf
             if self.hex_name is not None and os.path.isfile(self.hex_name):
                 flash_file = self.hex_name
                 flash_cmd = f'loadfile "{self.hex_name}"'
+            # Preferring .bin over .elf
             elif self.bin_name is not None and os.path.isfile(self.bin_name):
                 if self.dt_flash:
                     flash_addr = self.flash_address_from_build_conf(self.build_conf)
@@ -328,9 +333,12 @@ class JLinkBinaryRunner(ZephyrBinaryRunner):
                     flash_addr = 0
                 flash_file = self.bin_name
                 flash_cmd = f'loadfile "{self.bin_name}" 0x{flash_addr:x}'
+            elif self.elf_name is not None and os.path.isfile(self.elf_name):
+                flash_file = self.elf_name
+                flash_cmd = f'loadfile "{self.elf_name}"'
             else:
-                err = 'Cannot flash; no hex ({}) or bin ({}) files found.'
-                raise ValueError(err.format(self.hex_name, self.bin_name))
+                err = 'Cannot flash; no hex ({}), bin ({}) or elf ({}) files found.'
+                raise ValueError(err.format(self.hex_name, self.bin_name, self.elf_name))
 
         # Flash the selected build artifact
         lines.append(flash_cmd)

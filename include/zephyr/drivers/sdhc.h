@@ -19,6 +19,8 @@
 /**
  * @brief SDHC interface
  * @defgroup sdhc_interface SDHC interface
+ * @since 3.1
+ * @version 0.1.0
  * @ingroup io_interfaces
  * @{
  */
@@ -517,5 +519,5 @@ static inline int z_impl_sdhc_disable_interrupt(const struct device *dev,
 }
 #endif
 
-#include <syscalls/sdhc.h>
+#include <zephyr/syscalls/sdhc.h>
 #endif /* ZEPHYR_INCLUDE_DRIVERS_SDHC_H_ */

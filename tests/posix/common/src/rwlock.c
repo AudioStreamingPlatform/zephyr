@@ -47,7 +47,7 @@ static void *thread_top(void *p1)
 	return NULL;
 }
 
-ZTEST(posix_apis, test_rw_lock)
+ZTEST(rwlock, test_rw_lock)
 {
 	int ret;
 	pthread_t newthread[N_THR];
@@ -116,3 +116,42 @@ ZTEST(posix_apis, test_rw_lock)
 
 	zassert_ok(pthread_rwlock_destroy(&rwlock), "Failed to destroy rwlock");
 }
+
+static void test_pthread_rwlockattr_pshared_common(bool set, int pshared)
+{
+	int tmp_pshared = 4242;
+	pthread_rwlockattr_t attr;
+
+	zassert_ok(pthread_rwlockattr_init(&attr));
+	zassert_ok(pthread_rwlockattr_getpshared(&attr, &tmp_pshared));
+	zassert_equal(tmp_pshared, PTHREAD_PROCESS_PRIVATE);
+	if (set) {
+		zassert_ok(pthread_rwlockattr_setpshared(&attr, pshared));
+		zassert_ok(pthread_rwlockattr_getpshared(&attr, &tmp_pshared));
+		zassert_equal(tmp_pshared, pshared);
+	}
+	zassert_ok(pthread_rwlockattr_destroy(&attr));
+}
+
+ZTEST(rwlock, test_pthread_rwlockattr_getpshared)
+{
+	test_pthread_rwlockattr_pshared_common(false, 0);
+}
+
+ZTEST(rwlock, test_pthread_rwlockattr_setpshared)
+{
+	test_pthread_rwlockattr_pshared_common(true, PTHREAD_PROCESS_PRIVATE);
+	test_pthread_rwlockattr_pshared_common(true, PTHREAD_PROCESS_SHARED);
+}
+
+static void before(void *arg)
+{
+	ARG_UNUSED(arg);
+
+	if (!IS_ENABLED(CONFIG_DYNAMIC_THREAD)) {
+		/* skip redundant testing if there is no thread pool / heap allocation */
+		ztest_test_skip();
+	}
+}
+
+ZTEST_SUITE(rwlock, NULL, NULL, before, NULL, NULL);

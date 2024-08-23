@@ -25,11 +25,11 @@ over time. It provides the following functionalities:
   customer applications. The APIs is described in
   :zephyr_file:`include/zephyr/usb/usb_device.h`
 
-The device stack and :ref:`usb_dc_api` have some limitations, such as not being
-able to support more than one controller instance at runtime and only supporting
-one USB device configuration. We are actively working on new USB support, which
-means we will continue to maintain the device stack described here until all
-supported USB classes are ported, but do not expect any new features or enhancements.
+.. note::
+   It is planned to deprecate all APIs listed in :ref:`usb_api` and the
+   functions that depend on them between Zephyr v3.7.0 and v4.0.0, and remove
+   them in v4.2.0. The new USB device support, represented by the APIs in
+   :ref:`usb_device_next_api`, will become the default in Zephyr v4.0.0.
 
 Supported USB classes
 *********************
@@ -110,7 +110,7 @@ and looks like this:
 		};
 	};
 
-Samples :zephyr:code-sample:`usb-cdc-acm` and :zephyr:code-sample:`usb-hid-cdc` have similar overlay files.
+Sample :zephyr:code-sample:`usb-cdc-acm` has similar overlay files.
 And since no special properties are present, it may seem overkill to use
 devicetree to describe CDC ACM UART.  The motivation behind using devicetree
 is the easy interchangeability of a real UART controller and CDC ACM UART
@@ -311,7 +311,7 @@ The disadvantage of this is that Kconfig options such as
 :kconfig:option:`CONFIG_HID_INTERRUPT_EP_MPS` apply to all instances. This design
 issue will be fixed in the HID class implementation for the new USB support.
 
-See :zephyr:code-sample:`usb-hid` or :zephyr:code-sample:`usb-hid-mouse` sample for reference.
+See :zephyr:code-sample:`usb-hid-mouse` sample for reference.
 
 Mass Storage Class
 ==================
@@ -447,6 +447,70 @@ before transmitting any data.
 
 .. _testing_USB_native_sim:
 
+Interface number and endpoint address assignment
+************************************************
+
+In USB terminology, a ``function`` is a device that provides a capability to the
+host, such as a HID class device that implements a keyboard. A function
+contains a collection of ``interfaces``; at least one interface is required. An
+interface may contain device ``endpoints``; for example, at least one input
+endpoint is required to implement a HID class device, and no endpoints are
+required to implement a USB DFU class. A USB device that combines functions is
+a multifunction USB device, for example, a combination of a HID class device
+and a CDC ACM device.
+
+With Zephyr RTOS USB support, various combinations are possible with built-in USB
+classes/functions or custom user implementations. The limitation is the number
+of available device endpoints. Each device endpoint is uniquely addressable.
+The endpoint address is a combination of endpoint direction and endpoint
+number, a four-bit value. Endpoint number zero is used for the default control
+method to initialize and configure a USB device. By specification, a maximum of
+``15 IN`` and ``15 OUT`` device endpoints are also available for use in functions.
+The actual number depends on the device controller used. Not all controllers
+support the maximum number of endpoints and all endpoint types. For example, a
+device controller might support one IN and one OUT isochronous endpoint, but
+only for endpoint number 8, resulting in endpoint addresses 0x88 and 0x08.
+Also, one controller may be able to have IN/OUT endpoints on the same endpoint
+number, interrupt IN endpoint 0x81 and bulk OUT endpoint 0x01, while the other
+may only be able to handle one endpoint per endpoint number. Information about
+the number of interfaces, interface associations, endpoint types, and addresses
+is provided to the host by the interface, interface specific, and endpoint
+descriptors.
+
+Host driver for specific function, uses interface and endpoint descriptor to
+obtain endpoint addresses, types, and other properties. This allows function
+host drivers to be generic, for example, a multi-function device consisting of
+one or more CDC ACM and one or more CDC ECM class implementations is possible
+and no specific drivers are required.
+
+Interface and endpoint descriptors of built-in USB class/function
+implementations in Zephyr RTOS typically have default interface numbers and
+endpoint addresses assigned in ascending order. During initialization,
+default interface numbers may be reassigned based on the number of interfaces in
+a given configuration. Endpoint addresses are reassigned based on controller
+capabilities, since certain endpoint combinations are not possible with every
+controller, and the number of interfaces in a given configuration. This also
+means that the device side class/function in the Zephyr RTOS must check the
+actual interface and endpoint descriptor values at runtime.
+This mechanism also allows as to provide generic samples and generic
+multifunction samples that are limited only by the resources provided by the
+controller, such as the number of endpoints and the size of the endpoint FIFOs.
+
+There may be host drivers for a specific function, for example in the Linux
+Kernel, where the function driver does not read interface and endpoint
+descriptors to check interface numbers or endpoint addresses, but instead uses
+hardcoded values. Therefore, the host driver cannot be used in a generic way,
+meaning it cannot be used with different device controllers and different
+device configurations in combination with other functions. This may also be
+because the driver is designed for a specific hardware and is not intended to
+be used with a clone of this specific hardware. On the contrary, if the driver
+is generic in nature and should work with different hardware variants, then it
+must not use hardcoded interface numbers and endpoint addresses.
+It is not possible to disable endpoint reassignment in Zephyr RTOS, which may
+prevent you from implementing a hardware-clone firmware. Instead, if possible,
+the host driver implementation should be fixed to use values from the interface
+and endpoint descriptor.
+
 Testing over USPIP in native_sim
 ********************************
 
@@ -513,15 +577,15 @@ The following Product IDs are currently used:
 +====================================================+========+
 | :zephyr:code-sample:`usb-cdc-acm`                  | 0x0001 |
 +----------------------------------------------------+--------+
-| :zephyr:code-sample:`usb-cdc-acm-composite`        | 0x0002 |
+| Reserved (previously: usb-cdc-acm-composite)       | 0x0002 |
 +----------------------------------------------------+--------+
-| :zephyr:code-sample:`usb-hid-cdc`                  | 0x0003 |
+| Reserved (previously: usb-hid-cdc)                 | 0x0003 |
 +----------------------------------------------------+--------+
 | :zephyr:code-sample:`usb-cdc-acm-console`          | 0x0004 |
 +----------------------------------------------------+--------+
-| :zephyr:code-sample:`usb-dfu`                      | 0x0005 |
+| :zephyr:code-sample:`usb-dfu` (Run-Time)           | 0x0005 |
 +----------------------------------------------------+--------+
-| :zephyr:code-sample:`usb-hid`                      | 0x0006 |
+| Reserved (previously: usb-hid)                     | 0x0006 |
 +----------------------------------------------------+--------+
 | :zephyr:code-sample:`usb-hid-mouse`                | 0x0007 |
 +----------------------------------------------------+--------+
@@ -535,7 +599,11 @@ The following Product IDs are currently used:
 +----------------------------------------------------+--------+
 | :ref:`bluetooth-hci-usb-h4-sample`                 | 0x000C |
 +----------------------------------------------------+--------+
-| :zephyr:code-sample:`wpan-usb`                     | 0x000D |
+| Reserved (previously: wpan-usb)                    | 0x000D |
++----------------------------------------------------+--------+
+| :zephyr:code-sample:`uac2-explicit-feedback`       | 0x000E |
++----------------------------------------------------+--------+
+| :zephyr:code-sample:`usb-dfu` (DFU Mode)           | 0xFFFF |
 +----------------------------------------------------+--------+
 
 The USB device descriptor field ``bcdDevice`` (Device Release Number) represents

@@ -12,8 +12,9 @@
  * and follows, with few exceptions, the USB Specification 2.0.
  */
 
-#include <version.h>
+#include <zephyr/version.h>
 #include <zephyr/sys/util.h>
+#include <zephyr/math/ilog2.h>
 #include <zephyr/usb/class/usb_hub.h>
 
 #ifndef ZEPHYR_INCLUDE_USB_CH9_H_
@@ -163,6 +164,19 @@ struct usb_device_descriptor {
 	uint8_t bNumConfigurations;
 } __packed;
 
+/** USB Device Qualifier Descriptor defined in spec. Table 9-9 */
+struct usb_device_qualifier_descriptor {
+	uint8_t bLength;
+	uint8_t bDescriptorType;
+	uint16_t bcdUSB;
+	uint8_t bDeviceClass;
+	uint8_t bDeviceSubClass;
+	uint8_t bDeviceProtocol;
+	uint8_t bMaxPacketSize0;
+	uint8_t bNumConfigurations;
+	uint8_t bReserved;
+} __packed;
+
 /** USB Standard Configuration Descriptor defined in spec. Table 9-10 */
 struct usb_cfg_descriptor {
 	uint8_t bLength;
@@ -254,6 +268,7 @@ struct usb_association_descriptor {
 /** USB Specification Release Numbers (bcdUSB Descriptor field) */
 #define USB_SRN_1_1			0x0110
 #define USB_SRN_2_0			0x0200
+#define USB_SRN_2_0_1			0x0201
 #define USB_SRN_2_1			0x0210
 
 #define USB_DEC_TO_BCD(dec)	((((dec) / 10) << 4) | ((dec) % 10))
@@ -320,6 +335,41 @@ struct usb_association_descriptor {
 
 /** USB endpoint transfer type interrupt */
 #define USB_EP_TYPE_INTERRUPT		3U
+
+/** Calculate full speed interrupt endpoint bInterval from a value in microseconds */
+#define USB_FS_INT_EP_INTERVAL(us)	CLAMP(((us) / 1000U), 1U, 255U)
+
+/** Calculate high speed interrupt endpoint bInterval from a value in microseconds */
+#define USB_HS_INT_EP_INTERVAL(us)	CLAMP((ilog2((us) / 125U) + 1U), 1U, 16U)
+
+/** Calculate high speed isochronous endpoint bInterval from a value in microseconds */
+#define USB_FS_ISO_EP_INTERVAL(us)	CLAMP(((us) / 1000U), 1U, 16U)
+
+/** Calculate high speed isochronous endpoint bInterval from a value in microseconds */
+#define USB_HS_ISO_EP_INTERVAL(us)	CLAMP((ilog2((us) / 125U) + 1U), 1U, 16U)
+
+/** Get endpoint size field from Max Packet Size value */
+#define USB_MPS_EP_SIZE(mps)		((mps) & BIT_MASK(11))
+
+/** Get number of additional transactions per microframe from Max Packet Size value */
+#define USB_MPS_ADDITIONAL_TRANSACTIONS(mps) (((mps) & 0x1800) >> 11)
+
+/** Calculate total payload length from Max Packet Size value */
+#define USB_MPS_TO_TPL(mps)	\
+	((1 + USB_MPS_ADDITIONAL_TRANSACTIONS(mps)) * USB_MPS_EP_SIZE(mps))
+
+/** Calculate Max Packet Size value from total payload length */
+#define USB_TPL_TO_MPS(tpl)				\
+	(((tpl) > 2048) ? ((2 << 11) | ((tpl) / 3)) :	\
+	 ((tpl) > 1024) ? ((1 << 11) | ((tpl) / 2)) :	\
+	 (tpl))
+
+/** Determine whether total payload length value is valid according to USB 2.0 */
+#define USB_TPL_IS_VALID(tpl)				\
+	(((tpl) > 3072) ? false :			\
+	 ((tpl) > 2048) ? ((tpl) % 3 == 0) :		\
+	 ((tpl) > 1024) ? ((tpl) % 2 == 0) :		\
+	 ((tpl) >= 0))
 
 #ifdef __cplusplus
 }

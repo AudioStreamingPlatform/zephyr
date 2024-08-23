@@ -13,27 +13,11 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(sha_npcx, CONFIG_CRYPTO_LOG_LEVEL);
 
+#include "soc_ncl.h"
+
 #define NPCX_HASH_CAPS_SUPPORT  (CAP_SEPARATE_IO_BUFS | CAP_SYNC_OPS)
 #define NPCX_SHA256_HANDLE_SIZE DT_INST_PROP(0, context_buffer_size)
 #define NPCX_SHA_MAX_SESSION    1
-
-/* The status code returns from Nuvoton Cryptographic Library ROM APIs */
-enum ncl_status {
-	NCL_STATUS_OK = 0xA5A5,
-	NCL_STATUS_FAIL = 0x5A5A,
-	NCL_STATUS_INVALID_PARAM = 0x02,
-	NCL_STATUS_PARAM_NOT_SUPPORTED,
-	NCL_STATUS_SYSTEM_BUSY,
-	NCL_STATUS_AUTHENTICATION_FAIL,
-	NCL_STATUS_NO_RESPONSE,
-	NCL_STATUS_HARDWARE_ERROR,
-};
-enum ncl_sha_type {
-	NCL_SHA_TYPE_2_256 = 0,
-	NCL_SHA_TYPE_2_384 = 1,
-	NCL_SHA_TYPE_2_512 = 2,
-	NCL_SHA_TYPE_NUM
-};
 
 /* The following table holds the function pointer for each SHA API in NPCX ROM. */
 struct npcx_ncl_sha {
@@ -218,7 +202,7 @@ static int npcx_hash_init(const struct device *dev)
 	return 0;
 }
 
-static struct crypto_driver_api npcx_crypto_api = {
+static const struct crypto_driver_api npcx_crypto_api = {
 	.hash_begin_session = npcx_hash_session_setup,
 	.hash_free_session = npcx_hash_session_free,
 	.query_hw_caps = npcx_query_caps,

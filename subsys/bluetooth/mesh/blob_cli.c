@@ -19,8 +19,6 @@ LOG_MODULE_REGISTER(bt_mesh_blob_cli);
 	SYS_SLIST_FOR_EACH_CONTAINER((sys_slist_t *)&(cli)->inputs->targets,   \
 				     target, n)
 
-#define CHUNK_SIZE_MAX BLOB_CHUNK_SIZE_MAX(BT_MESH_TX_SDU_MAX)
-
 /* The Maximum BLOB Poll Interval - T_MBPI */
 #define BLOB_POLL_TIME_MAX_SECS 30
 
@@ -764,9 +762,9 @@ static void block_get_tx(struct bt_mesh_blob_cli *cli, uint16_t dst)
  *
  * After sending all reported missing chunks to each target, the Client updates
  * @ref bt_mesh_blob_target_pull::block_report_timestamp value for every target individually in
- * chunk_tx_complete. The Client then proceedes to block_report_wait state and uses the earliest of
+ * chunk_tx_complete. The Client then proceeds to block_report_wait state and uses the earliest of
  * all block_report_timestamp and cli_timestamp to schedule the retry timer. When the retry
- * timer expires, the Client proceedes to the block_check_end state.
+ * timer expires, the Client proceeds to the block_check_end state.
  *
  * In Pull mode, target nodes send a Partial Block Report message to the Client to inform about
  * missing chunks. The Client doesn't control when these messages are sent by target nodes, and
@@ -916,7 +914,7 @@ static void chunk_tx_complete(struct bt_mesh_blob_cli *cli, uint16_t dst)
 	int64_t timestamp = k_uptime_get() + BLOCK_REPORT_TIME_MSEC;
 
 	if (!UNICAST_MODE(cli)) {
-		/* If using group adressing, reset timestamp for all targets after all chunks are
+		/* If using group addressing, reset timestamp for all targets after all chunks are
 		 * sent to the group address
 		 */
 		TARGETS_FOR_EACH(cli, target) {
@@ -1496,7 +1494,7 @@ int bt_mesh_blob_cli_caps_get(struct bt_mesh_blob_cli *cli,
 	cli->caps.min_block_size_log = 0x06;
 	cli->caps.max_block_size_log = 0x20;
 	cli->caps.max_chunks = CONFIG_BT_MESH_BLOB_CHUNK_COUNT_MAX;
-	cli->caps.max_chunk_size = CHUNK_SIZE_MAX;
+	cli->caps.max_chunk_size = BLOB_TX_CHUNK_SIZE;
 	cli->caps.max_size = 0xffffffff;
 	cli->caps.mtu_size = 0xffff;
 	cli->caps.modes = BT_MESH_BLOB_XFER_MODE_ALL;
@@ -1521,9 +1519,9 @@ int bt_mesh_blob_cli_send(struct bt_mesh_blob_cli *cli,
 		return -EBUSY;
 	}
 
-	if (!(xfer->mode & BT_MESH_BLOB_XFER_MODE_ALL) ||
-	    xfer->block_size_log < 0x06 || xfer->block_size_log > 0x20 ||
-	    xfer->chunk_size < 8 || xfer->chunk_size > CHUNK_SIZE_MAX) {
+	if (!(xfer->mode & BT_MESH_BLOB_XFER_MODE_ALL) || xfer->block_size_log < 0x06 ||
+	    xfer->block_size_log > 0x20 || xfer->chunk_size < 8 ||
+	    xfer->chunk_size > BLOB_TX_CHUNK_SIZE) {
 		LOG_ERR("Incompatible transfer parameters");
 		return -EINVAL;
 	}

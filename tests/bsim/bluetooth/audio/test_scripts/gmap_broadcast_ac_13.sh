@@ -4,7 +4,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-SIMULATION_ID="gmap_unicast_ac_13"
+SIMULATION_ID="gmap_broadcast_ac_13"
 VERBOSITY_LEVEL=2
 EXECUTE_TIMEOUT=60
 
@@ -15,11 +15,11 @@ cd ${BSIM_OUT_PATH}/bin
 function Execute_AC_13() {
     printf "\n\n======== Running GMAP AC_13 with %s =========\n\n" $1
 
-    Execute ./bs_${BOARD}_tests_bsim_bluetooth_audio_prj_conf \
+    Execute ./bs_${BOARD_TS}_tests_bsim_bluetooth_audio_prj_conf \
         -v=${VERBOSITY_LEVEL} -s=${SIMULATION_ID} -d=0 -testid=gmap_ugg_ac_13 \
         -RealEncryption=1 -rs=23 -D=2 -argstest broadcast_preset $1
 
-    Execute ./bs_${BOARD}_tests_bsim_bluetooth_audio_prj_conf \
+    Execute ./bs_${BOARD_TS}_tests_bsim_bluetooth_audio_prj_conf \
         -v=${VERBOSITY_LEVEL} -s=${SIMULATION_ID} -d=1 -testid=cap_acceptor_broadcast \
         -RealEncryption=1 -rs=46 -D=2
 
@@ -33,7 +33,7 @@ function Execute_AC_13() {
 set -e # Exit on error
 
 # Low latency tests
-# Execute_AC_13 48_1_g # BT_ISO_FLAGS_ERROR
+Execute_AC_13 48_1_g
 Execute_AC_13 48_2_g
-# Execute_AC_13 48_3_g # BT_ISO_FLAGS_ERROR
+Execute_AC_13 48_3_g
 Execute_AC_13 48_4_g

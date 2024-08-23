@@ -7,9 +7,11 @@
 import argparse
 import collections
 from email.utils import parseaddr
+import json
 import logging
 import os
 from pathlib import Path
+import platform
 import re
 import subprocess
 import sys
@@ -18,6 +20,7 @@ import traceback
 import shlex
 import shutil
 import textwrap
+import unidiff
 
 from yamllint import config, linter
 
@@ -29,6 +32,8 @@ from west.manifest import ManifestProject
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from get_maintainer import Maintainers, MaintainersError
+import list_boards
+import list_hardware
 
 logger = None
 
@@ -176,7 +181,6 @@ class ComplianceTest:
         self._result(fail, fail.text)
         self.fmtd_failures.append(fail)
 
-
 class EndTest(Exception):
     """
     Raised by ComplianceTest.error()/skip() to end the test.
@@ -200,7 +204,7 @@ class CheckPatch(ComplianceTest):
         if not os.path.exists(checkpatch):
             self.skip(f'{checkpatch} not found')
 
-        diff = subprocess.Popen(('git', 'diff', COMMIT_RANGE),
+        diff = subprocess.Popen(('git', 'diff', '--no-ext-diff', COMMIT_RANGE),
                                 stdout=subprocess.PIPE,
                                 cwd=GIT_TOP)
         try:
@@ -224,6 +228,80 @@ class CheckPatch(ComplianceTest):
             # If the regex has not matched add the whole output as a failure
             if len(matches) == 0:
                 self.failure(output)
+
+
+class BoardYmlCheck(ComplianceTest):
+    """
+    Check the board.yml files
+    """
+    name = "BoardYml"
+    doc = "Check the board.yml file format"
+    path_hint = "<zephyr-base>"
+
+    def check_board_file(self, file, vendor_prefixes):
+        """Validate a single board file."""
+        with open(file) as fp:
+            for line_num, line in enumerate(fp.readlines(), start=1):
+                if "vendor:" in line:
+                    _, vnd = line.strip().split(":", 2)
+                    vnd = vnd.strip()
+                    if vnd not in vendor_prefixes:
+                        desc = f"invalid vendor: {vnd}"
+                        self.fmtd_failure("error", "BoardYml", file, line_num,
+                                          desc=desc)
+
+    def run(self):
+        vendor_prefixes = ["others"]
+        with open(os.path.join(ZEPHYR_BASE, "dts", "bindings", "vendor-prefixes.txt")) as fp:
+            for line in fp.readlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                vendor, _ = line.split("\t", 2)
+                vendor_prefixes.append(vendor)
+
+        path = Path(ZEPHYR_BASE)
+        for file in path.glob("**/board.yml"):
+            self.check_board_file(file, vendor_prefixes)
+
+
+class ClangFormatCheck(ComplianceTest):
+    """
+    Check if clang-format reports any issues
+    """
+    name = "ClangFormat"
+    doc = "See https://docs.zephyrproject.org/latest/contribute/guidelines.html#clang-format for more details."
+    path_hint = "<git-top>"
+
+    def run(self):
+        exe = f"clang-format-diff.{'exe' if platform.system() == 'Windows' else 'py'}"
+
+        for file in get_files():
+            if Path(file).suffix not in ['.c', '.h']:
+                continue
+
+            diff = subprocess.Popen(('git', 'diff', '-U0', '--no-color', COMMIT_RANGE, '--', file),
+                                    stdout=subprocess.PIPE,
+                                    cwd=GIT_TOP)
+            try:
+                subprocess.run((exe, '-p1'),
+                               check=True,
+                               stdin=diff.stdout,
+                               stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT,
+                               cwd=GIT_TOP)
+
+            except subprocess.CalledProcessError as ex:
+                patchset = unidiff.PatchSet.from_string(ex.output, encoding="utf-8")
+                for patch in patchset:
+                    for hunk in patch:
+                        # Strip the before and after context
+                        msg = "".join([str(l) for l in hunk[3:-3]])
+                        # show the hunk at the last line
+                        self.fmtd_failure("notice",
+                                          "You may want to run clang-format on this change",
+                                          file, line=hunk.source_start + hunk.source_length - 3,
+                                          desc=f'\r\n{msg}')
 
 
 class DevicetreeBindingsCheck(ComplianceTest):
@@ -273,20 +351,21 @@ class KconfigCheck(ComplianceTest):
     doc = "See https://docs.zephyrproject.org/latest/build/kconfig/tips.html for more details."
     path_hint = "<zephyr-base>"
 
-    def run(self, full=True, no_modules=False):
+    def run(self, full=True, no_modules=False, filename="Kconfig", hwm=None):
         self.no_modules = no_modules
 
-        kconf = self.parse_kconfig()
+        kconf = self.parse_kconfig(filename=filename, hwm=hwm)
 
         self.check_top_menu_not_too_long(kconf)
         self.check_no_pointless_menuconfigs(kconf)
         self.check_no_undef_within_kconfig(kconf)
         self.check_no_redefined_in_defconfig(kconf)
         self.check_no_enable_in_boolean_prompt(kconf)
+        self.check_soc_name_sync(kconf)
         if full:
             self.check_no_undef_outside_kconfig(kconf)
 
-    def get_modules(self, modules_file):
+    def get_modules(self, modules_file, settings_file):
         """
         Get a list of modules and put them in a file that is parsed by
         Kconfig
@@ -304,7 +383,7 @@ class KconfigCheck(ComplianceTest):
         zephyr_module_path = os.path.join(ZEPHYR_BASE, "scripts",
                                           "zephyr_module.py")
         cmd = [sys.executable, zephyr_module_path,
-               '--kconfig-out', modules_file]
+               '--kconfig-out', modules_file, '--settings-out', settings_file]
         try:
             subprocess.run(cmd, check=True, stdout=subprocess.PIPE,
                            stderr=subprocess.STDOUT)
@@ -326,7 +405,28 @@ class KconfigCheck(ComplianceTest):
                 ))
             fp_module_file.write(content)
 
-    def get_kconfig_dts(self, kconfig_dts_file):
+    def get_module_setting_root(self, root, settings_file):
+        """
+        Parse the Zephyr module generated settings file given by 'settings_file'
+        and return all root settings defined by 'root'.
+        """
+        # Invoke the script directly using the Python executable since this is
+        # not a module nor a pip-installed Python utility
+        root_paths = []
+
+        if os.path.exists(settings_file):
+            with open(settings_file, 'r') as fp_setting_file:
+                content = fp_setting_file.read()
+
+            lines = content.strip().split('\n')
+            for line in lines:
+                root = root.upper()
+                if line.startswith(f'"{root}_ROOT":'):
+                    _, root_path = line.split(":", 1)
+                    root_paths.append(Path(root_path.strip('"')))
+        return root_paths
+
+    def get_kconfig_dts(self, kconfig_dts_file, settings_file):
         """
         Generate the Kconfig.dts using dts/bindings as the source.
 
@@ -337,17 +437,124 @@ class KconfigCheck(ComplianceTest):
         # not a module nor a pip-installed Python utility
         zephyr_drv_kconfig_path = os.path.join(ZEPHYR_BASE, "scripts", "dts",
                                                "gen_driver_kconfig_dts.py")
-        binding_path = os.path.join(ZEPHYR_BASE, "dts", "bindings")
+        binding_paths = []
+        binding_paths.append(os.path.join(ZEPHYR_BASE, "dts", "bindings"))
+
+        dts_root_paths = self.get_module_setting_root('dts', settings_file)
+        for p in dts_root_paths:
+            binding_paths.append(p / "dts" / "bindings")
+
         cmd = [sys.executable, zephyr_drv_kconfig_path,
-               '--kconfig-out', kconfig_dts_file, '--bindings-dirs', binding_path]
+               '--kconfig-out', kconfig_dts_file, '--bindings-dirs']
+        for binding_path in binding_paths:
+            cmd.append(binding_path)
         try:
             subprocess.run(cmd, check=True, stdout=subprocess.PIPE,
                            stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError as ex:
             self.error(ex.output.decode("utf-8"))
 
+    def get_v1_model_syms(self, kconfig_v1_file, kconfig_v1_syms_file):
+        """
+        Generate a symbol define Kconfig file.
+        This function creates a file with all Kconfig symbol definitions from
+        old boards model so that those symbols will not appear as undefined
+        symbols in hardware model v2.
 
-    def parse_kconfig(self):
+        This is needed to complete Kconfig compliance tests.
+        """
+        os.environ['HWM_SCHEME'] = 'v1'
+        # 'kconfiglib' is global
+        # pylint: disable=undefined-variable
+
+        try:
+            kconf_v1 = kconfiglib.Kconfig(filename=kconfig_v1_file, warn=False)
+        except kconfiglib.KconfigError as e:
+            self.failure(str(e))
+            raise EndTest
+
+        with open(kconfig_v1_syms_file, 'w') as fp_kconfig_v1_syms_file:
+            for s in kconf_v1.defined_syms:
+                if s.type != kconfiglib.UNKNOWN:
+                    fp_kconfig_v1_syms_file.write('config ' + s.name)
+                    fp_kconfig_v1_syms_file.write('\n\t' + kconfiglib.TYPE_TO_STR[s.type])
+                    fp_kconfig_v1_syms_file.write('\n\n')
+
+    def get_v2_model(self, kconfig_dir, settings_file):
+        """
+        Get lists of v2 boards and SoCs and put them in a file that is parsed by
+        Kconfig
+
+        This is needed to complete Kconfig sanity tests.
+        """
+        os.environ['HWM_SCHEME'] = 'v2'
+        kconfig_file = os.path.join(kconfig_dir, 'boards', 'Kconfig')
+        kconfig_boards_file = os.path.join(kconfig_dir, 'boards', 'Kconfig.boards')
+        kconfig_defconfig_file = os.path.join(kconfig_dir, 'boards', 'Kconfig.defconfig')
+
+        board_roots = self.get_module_setting_root('board', settings_file)
+        board_roots.insert(0, Path(ZEPHYR_BASE))
+        soc_roots = self.get_module_setting_root('soc', settings_file)
+        soc_roots.insert(0, Path(ZEPHYR_BASE))
+        root_args = argparse.Namespace(**{'board_roots': board_roots,
+                                          'soc_roots': soc_roots, 'board': None})
+        v2_boards = list_boards.find_v2_boards(root_args)
+
+        with open(kconfig_defconfig_file, 'w') as fp:
+            for board in v2_boards:
+                fp.write('osource "' + (Path(board.dir) / 'Kconfig.defconfig').as_posix() + '"\n')
+
+        with open(kconfig_boards_file, 'w') as fp:
+            for board in v2_boards:
+                board_str = 'BOARD_' + re.sub(r"[^a-zA-Z0-9_]", "_", board.name).upper()
+                fp.write('config  ' + board_str + '\n')
+                fp.write('\t bool\n')
+                for qualifier in list_boards.board_v2_qualifiers(board):
+                    board_str = ('BOARD_' + board.name + '_' +
+                                 re.sub(r"[^a-zA-Z0-9_]", "_", qualifier)).upper()
+                    fp.write('config  ' + board_str + '\n')
+                    fp.write('\t bool\n')
+                fp.write(
+                    'source "' + (Path(board.dir) / ('Kconfig.' + board.name)).as_posix() + '"\n\n'
+                )
+
+        with open(kconfig_file, 'w') as fp:
+            fp.write(
+                'osource "' + (Path(kconfig_dir) / 'boards' / 'Kconfig.syms.v1').as_posix() + '"\n'
+            )
+            for board in v2_boards:
+                fp.write('osource "' + (Path(board.dir) / 'Kconfig').as_posix() + '"\n')
+
+        kconfig_defconfig_file = os.path.join(kconfig_dir, 'soc', 'Kconfig.defconfig')
+        kconfig_soc_file = os.path.join(kconfig_dir, 'soc', 'Kconfig.soc')
+        kconfig_file = os.path.join(kconfig_dir, 'soc', 'Kconfig')
+
+        root_args = argparse.Namespace(**{'soc_roots': [Path(ZEPHYR_BASE)]})
+        v2_systems = list_hardware.find_v2_systems(root_args)
+
+        soc_folders = {soc.folder for soc in v2_systems.get_socs()}
+        with open(kconfig_defconfig_file, 'w') as fp:
+            for folder in soc_folders:
+                fp.write('osource "' + (Path(folder) / 'Kconfig.defconfig').as_posix() + '"\n')
+
+        with open(kconfig_soc_file, 'w') as fp:
+            for folder in soc_folders:
+                fp.write('source "' + (Path(folder) / 'Kconfig.soc').as_posix() + '"\n')
+
+        with open(kconfig_file, 'w') as fp:
+            for folder in soc_folders:
+                fp.write('source "' + (Path(folder) / 'Kconfig').as_posix() + '"\n')
+
+        kconfig_file = os.path.join(kconfig_dir, 'arch', 'Kconfig')
+
+        root_args = argparse.Namespace(**{'arch_roots': [Path(ZEPHYR_BASE)], 'arch': None})
+        v2_archs = list_hardware.find_v2_archs(root_args)
+
+        with open(kconfig_file, 'w') as fp:
+            for arch in v2_archs['archs']:
+                fp.write('source "' + (Path(arch['path']) / 'Kconfig').as_posix() + '"\n')
+
+    def parse_kconfig(self, filename="Kconfig", hwm=None):
         """
         Returns a kconfiglib.Kconfig object for the Kconfig files. We reuse
         this object for all tests to avoid having to reparse for each test.
@@ -372,7 +579,7 @@ class KconfigCheck(ComplianceTest):
         # Parse the entire Kconfig tree, to make sure we see all symbols
         os.environ["SOC_DIR"] = "soc/"
         os.environ["ARCH_DIR"] = "arch/"
-        os.environ["BOARD_DIR"] = "boards/*/*"
+        os.environ["BOARD"] = "boards"
         os.environ["ARCH"] = "*"
         os.environ["KCONFIG_BINARY_DIR"] = kconfiglib_dir
         os.environ['DEVICETREE_CONF'] = "dummy"
@@ -383,9 +590,20 @@ class KconfigCheck(ComplianceTest):
         os.environ["GENERATED_DTS_BOARD_CONF"] = "dummy"
 
         # For multi repo support
-        self.get_modules(os.path.join(kconfiglib_dir, "Kconfig.modules"))
+        self.get_modules(os.path.join(kconfiglib_dir, "Kconfig.modules"),
+                         os.path.join(kconfiglib_dir, "settings_file.txt"))
         # For Kconfig.dts support
-        self.get_kconfig_dts(os.path.join(kconfiglib_dir, "Kconfig.dts"))
+        self.get_kconfig_dts(os.path.join(kconfiglib_dir, "Kconfig.dts"),
+                             os.path.join(kconfiglib_dir, "settings_file.txt"))
+
+        # To make compliance work with old hw model and HWMv2 simultaneously.
+        kconfiglib_boards_dir = os.path.join(kconfiglib_dir, 'boards')
+        os.makedirs(kconfiglib_boards_dir, exist_ok=True)
+        os.makedirs(os.path.join(kconfiglib_dir, 'soc'), exist_ok=True)
+        os.makedirs(os.path.join(kconfiglib_dir, 'arch'), exist_ok=True)
+
+        os.environ["BOARD_DIR"] = kconfiglib_boards_dir
+        self.get_v2_model(kconfiglib_dir, os.path.join(kconfiglib_dir, "settings_file.txt"))
 
         # Tells Kconfiglib to generate warnings for all references to undefined
         # symbols within Kconfig files
@@ -396,13 +614,46 @@ class KconfigCheck(ComplianceTest):
             # them: so some warnings might get printed
             # twice. "warn_to_stderr=False" could unfortunately cause
             # some (other) warnings to never be printed.
-            return kconfiglib.Kconfig()
+            return kconfiglib.Kconfig(filename=filename)
         except kconfiglib.KconfigError as e:
             self.failure(str(e))
             raise EndTest
         finally:
             # Clean up the temporary directory
             shutil.rmtree(kconfiglib_dir)
+
+    def get_logging_syms(self, kconf):
+        # Returns a set() with the names of the Kconfig symbols generated with
+        # logging template in samples/tests folders. The Kconfig symbols doesn't
+        # include `CONFIG_` and for each module declared there is one symbol
+        # per suffix created.
+
+        suffixes = [
+            "_LOG_LEVEL",
+            "_LOG_LEVEL_DBG",
+            "_LOG_LEVEL_ERR",
+            "_LOG_LEVEL_INF",
+            "_LOG_LEVEL_WRN",
+            "_LOG_LEVEL_OFF",
+            "_LOG_LEVEL_INHERIT",
+            "_LOG_LEVEL_DEFAULT",
+        ]
+
+        # Warning: Needs to work with both --perl-regexp and the 're' module.
+        regex = r"^\s*(?:module\s*=\s*)([A-Z0-9_]+)\s*(?:#|$)"
+
+        # Grep samples/ and tests/ for symbol definitions
+        grep_stdout = git("grep", "-I", "-h", "--perl-regexp", regex, "--",
+                          ":samples", ":tests", cwd=ZEPHYR_BASE)
+
+        names = re.findall(regex, grep_stdout, re.MULTILINE)
+
+        kconf_syms = []
+        for name in names:
+            for suffix in suffixes:
+                kconf_syms.append(f"{name}{suffix}")
+
+        return set(kconf_syms)
 
     def get_defined_syms(self, kconf):
         # Returns a set() with the names of all defined Kconfig symbols (with no
@@ -425,9 +676,10 @@ class KconfigCheck(ComplianceTest):
 
         # Symbols from the main Kconfig tree + grepped definitions from samples
         # and tests
-        return set([sym.name for sym in kconf_syms]
-                   + re.findall(regex, grep_stdout, re.MULTILINE))
-
+        return set(
+            [sym.name for sym in kconf_syms]
+            + re.findall(regex, grep_stdout, re.MULTILINE)
+        ).union(self.get_logging_syms(kconf))
 
     def check_top_menu_not_too_long(self, kconf):
         """
@@ -529,6 +781,34 @@ https://docs.zephyrproject.org/latest/build/kconfig/tips.html#menuconfig-symbols
         if undef_ref_warnings:
             self.failure(f"Undefined Kconfig symbols:\n\n {undef_ref_warnings}")
 
+    def check_soc_name_sync(self, kconf):
+        root_args = argparse.Namespace(**{'soc_roots': [Path(ZEPHYR_BASE)]})
+        v2_systems = list_hardware.find_v2_systems(root_args)
+
+        soc_names = {soc.name for soc in v2_systems.get_socs()}
+
+        soc_kconfig_names = set()
+        for node in kconf.node_iter():
+            # 'kconfiglib' is global
+            # pylint: disable=undefined-variable
+            if isinstance(node.item, kconfiglib.Symbol) and node.item.name == "SOC":
+                n = node.item
+                for d in n.defaults:
+                    soc_kconfig_names.add(d[0].name)
+
+        soc_name_warnings = []
+        for name in soc_names:
+            if name not in soc_kconfig_names:
+                soc_name_warnings.append(f"soc name: {name} not found in CONFIG_SOC defaults.")
+
+        if soc_name_warnings:
+            soc_name_warning_str = '\n'.join(soc_name_warnings)
+            self.failure(f'''
+Missing SoC names or CONFIG_SOC vs soc.yml out of sync:
+
+{soc_name_warning_str}
+''')
+
     def check_no_undef_outside_kconfig(self, kconf):
         """
         Checks that there are no references to undefined Kconfig symbols
@@ -564,11 +844,13 @@ https://docs.zephyrproject.org/latest/build/kconfig/tips.html#menuconfig-symbols
         undef_to_locs = collections.defaultdict(list)
 
         # Warning: Needs to work with both --perl-regexp and the 're' module
-        regex = r"\bCONFIG_[A-Z0-9_]+\b(?!\s*##|[$@{*])"
+        regex = r"\bCONFIG_[A-Z0-9_]+\b(?!\s*##|[$@{(.*])"
 
-        # Skip doc/releases, which often references removed symbols
+        # Skip doc/releases and doc/security/vulnerabilities.rst, which often
+        # reference removed symbols
         grep_stdout = git("grep", "--line-number", "-I", "--null",
                           "--perl-regexp", regex, "--", ":!/doc/releases",
+                          ":!/doc/security/vulnerabilities.rst",
                           cwd=Path(GIT_TOP))
 
         # splitlines() supports various line terminators
@@ -580,7 +862,8 @@ https://docs.zephyrproject.org/latest/build/kconfig/tips.html#menuconfig-symbols
             for sym_name in re.findall(regex, line):
                 sym_name = sym_name[7:]  # Strip CONFIG_
                 if sym_name not in defined_syms and \
-                   sym_name not in self.UNDEF_KCONFIG_WHITELIST:
+                   sym_name not in self.UNDEF_KCONFIG_ALLOWLIST and \
+                   not (sym_name.endswith("_MODULE") and sym_name[:-7] in defined_syms):
 
                     undef_to_locs[sym_name].append(f"{path}:{lineno}")
 
@@ -598,29 +881,37 @@ https://docs.zephyrproject.org/latest/build/kconfig/tips.html#menuconfig-symbols
 
         self.failure(f"""
 Found references to undefined Kconfig symbols. If any of these are false
-positives, then add them to UNDEF_KCONFIG_WHITELIST in {__file__}.
+positives, then add them to UNDEF_KCONFIG_ALLOWLIST in {__file__}.
 
 If the reference is for a comment like /* CONFIG_FOO_* */ (or
 /* CONFIG_FOO_*_... */), then please use exactly that form (with the '*'). The
 CI check knows not to flag it.
 
-More generally, a reference followed by $, @, {{, *, or ## will never be
+More generally, a reference followed by $, @, {{, (, ., *, or ## will never be
 flagged.
 
 {undef_desc}""")
 
     # Many of these are symbols used as examples. Note that the list is sorted
     # alphabetically, and skips the CONFIG_ prefix.
-    UNDEF_KCONFIG_WHITELIST = {
+    UNDEF_KCONFIG_ALLOWLIST = {
         "ALSO_MISSING",
         "APP_LINK_WITH_",
         "APP_LOG_LEVEL", # Application log level is not detected correctly as
                          # the option is defined using a template, so it can't
                          # be grepped
+        "APP_LOG_LEVEL_DBG",
         "ARMCLANG_STD_LIBC",  # The ARMCLANG_STD_LIBC is defined in the
                               # toolchain Kconfig which is sourced based on
                               # Zephyr toolchain variant and therefore not
                               # visible to compliance.
+        "BOARD_", # Used as regex in scripts/utils/board_v1_to_v2.py
+        "BOOT_DIRECT_XIP", # Used in sysbuild for MCUboot configuration
+        "BOOT_DIRECT_XIP_REVERT", # Used in sysbuild for MCUboot configuration
+        "BOOT_FIRMWARE_LOADER", # Used in sysbuild for MCUboot configuration
+        "BOOT_RAM_LOAD", # Used in sysbuild for MCUboot configuration
+        "BOOT_SWAP_USING_MOVE", # Used in sysbuild for MCUboot configuration
+        "BOOT_SWAP_USING_SCRATCH", # Used in sysbuild for MCUboot configuration
         "BOOT_ENCRYPTION_KEY_FILE", # Used in sysbuild
         "BOOT_ENCRYPT_IMAGE", # Used in sysbuild
         "BINDESC_", # Used in documentation as a prefix
@@ -641,8 +932,6 @@ flagged.
         "BOOT_SIGNATURE_TYPE_RSA",        # MCUboot setting used by sysbuild
         "BOOT_VALIDATE_SLOT0",       # Used in (sysbuild-based) test
         "BOOT_WATCHDOG_FEED",        # Used in (sysbuild-based) test
-        "BTTESTER_LOG_LEVEL",  # Used in tests/bluetooth/tester
-        "BTTESTER_LOG_LEVEL_DBG",  # Used in tests/bluetooth/tester
         "CDC_ACM_PORT_NAME_",
         "CHRE",  # Optional module
         "CHRE_LOG_LEVEL_DBG",  # Optional module
@@ -651,10 +940,13 @@ flagged.
         "COMPILER_RT_RTLIB",
         "BT_6LOWPAN",  # Defined in Linux, mentioned in docs
         "CMD_CACHE",  # Defined in U-Boot, mentioned in docs
+<<<<<<< HEAD
         "CONFIG_CHRE",
         "CONFIG_CHRE_LOG_LEVEL_DBG",
         "CONFIG_RIMAGE_SIGNING_SCHEMA",
         "COUNTER_RTC_STM32_CLOCK_SRC",
+=======
+>>>>>>> upstream/main
         "CRC",  # Used in TI CC13x2 / CC26x2 SDK comment
         "DEEP_SLEEP",  # #defined by RV32M1 in ext/
         "DESCRIPTION",
@@ -683,26 +975,26 @@ flagged.
         "MCUBOOT_CLEANUP_ARM_CORE", # Used in (sysbuild-based) test
         "MCUBOOT_SERIAL",           # Used in (sysbuild-based) test/
                                     # documentation
-        "MCUMGR_GRP_EXAMPLE", # Used in documentation
-        "MCUMGR_GRP_EXAMPLE_LOG_LEVEL", # Used in documentation
         "MCUMGR_GRP_EXAMPLE_OTHER_HOOK", # Used in documentation
         "MISSING",
         "MODULES",
         "MYFEATURE",
         "MY_DRIVER_0",
         "NORMAL_SLEEP",  # #defined by RV32M1 in ext/
+        "NRF_WIFI_FW_BIN", # Directly passed from CMakeLists.txt
         "OPT",
         "OPT_0",
         "PEDO_THS_MIN",
+        "PSA_H", # This is used in config-psa.h as guard for the header file
         "REG1",
         "REG2",
         "RIMAGE_SIGNING_SCHEMA",  # Optional module
-        "SAMPLE_MODULE_LOG_LEVEL",  # Used as an example in samples/subsys/logging
-        "SAMPLE_MODULE_LOG_LEVEL_DBG",  # Used in tests/subsys/logging/log_api
         "LOG_BACKEND_MOCK_OUTPUT_DEFAULT", #Referenced in tests/subsys/logging/log_syst
         "LOG_BACKEND_MOCK_OUTPUT_SYST", #Referenced in testcase.yaml of log_syst test
         "SEL",
         "SHIFT",
+        "SINGLE_APPLICATION_SLOT", # Used in sysbuild for MCUboot configuration
+        "SOC_SERIES_", # Used as regex in scripts/utils/board_v1_to_v2.py
         "SOC_WATCH",  # Issue 13749
         "SOME_BOOL",
         "SOME_INT",
@@ -711,7 +1003,6 @@ flagged.
         "SRAM2",  # Referenced in a comment in samples/application_development
         "STACK_SIZE",  # Used as an example in the Kconfig docs
         "STD_CPP",  # Referenced in CMake comment
-        "TAGOIO_HTTP_POST_LOG_LEVEL",  # Used as in samples/net/cloud/tagoio
         "TEST1",
         "TOOLCHAIN_ARCMWDT_SUPPORTS_THREAD_LOCAL_STORAGE", # The symbol is defined in the toolchain
                                                     # Kconfig which is sourced based on Zephyr
@@ -728,6 +1019,9 @@ flagged.
         "ZEPHYR_TRY_MASS_ERASE", # MCUBoot setting described in sysbuild
                                  # documentation
         "ZTEST_FAIL_TEST_",  # regex in tests/ztest/fail/CMakeLists.txt
+        "SUIT_MPI_GENERATE", # Used by nRF runners to program provisioning data, based on build configuration
+        "SUIT_MPI_APP_AREA_PATH", # Used by nRF runners to program provisioning data, based on build configuration
+        "SUIT_MPI_RAD_AREA_PATH", # Used by nRF runners to program provisioning data, based on build configuration
     }
 
 
@@ -756,6 +1050,23 @@ class KconfigBasicNoModulesCheck(KconfigCheck):
     path_hint = "<zephyr-base>"
     def run(self):
         super().run(full=False, no_modules=True)
+
+
+class KconfigHWMv2Check(KconfigCheck, ComplianceTest):
+    """
+    This runs the Kconfig test for board and SoC v2 scheme.
+    This check ensures that all symbols inside the v2 scheme is also defined
+    within the same tree.
+    This ensures the board and SoC trees are fully self-contained and reusable.
+    """
+    name = "KconfigHWMv2"
+    doc = "See https://docs.zephyrproject.org/latest/guides/kconfig/index.html for more details."
+
+    def run(self):
+        # Use dedicated Kconfig board / soc v2 scheme file.
+        # This file sources only v2 scheme tree.
+        kconfig_file = os.path.join(os.path.dirname(__file__), "Kconfig.board.v2")
+        super().run(full=False, hwm="v2", filename=kconfig_file)
 
 
 class Nits(ComplianceTest):
@@ -938,7 +1249,7 @@ class PyLint(ComplianceTest):
         else:
             python_environment["PYTHONPATH"] = check_script_dir
 
-        pylintcmd = ["pylint", "--rcfile=" + pylintrc,
+        pylintcmd = ["pylint", "--output-format=json2", "--rcfile=" + pylintrc,
                      "--load-plugins=argparse-checker"] + py_files
         logger.info(cmd2str(pylintcmd))
         try:
@@ -950,21 +1261,19 @@ class PyLint(ComplianceTest):
                            env=python_environment)
         except subprocess.CalledProcessError as ex:
             output = ex.output.decode("utf-8")
-            regex = r'^\s*(\S+):(\d+):(\d+):\s*([A-Z]\d{4}):\s*(.*)$'
-
-            matches = re.findall(regex, output, re.MULTILINE)
-            for m in matches:
-                # https://pylint.pycqa.org/en/latest/user_guide/messages/messages_overview.html#
+            messages = json.loads(output)['messages']
+            for m in messages:
                 severity = 'unknown'
-                if m[3][0] in ('F', 'E'):
+                if m['messageId'][0] in ('F', 'E'):
                     severity = 'error'
-                elif m[3][0] in ('W','C', 'R', 'I'):
+                elif m['messageId'][0] in ('W','C', 'R', 'I'):
                     severity = 'warning'
-                self.fmtd_failure(severity, m[3], m[0], m[1], col=m[2],
-                        desc=m[4])
+                self.fmtd_failure(severity, m['messageId'], m['path'],
+                                  m['line'], col=str(m['column']), desc=m['message']
+                                  + f" ({m['symbol']})")
 
-            # If the regex has not matched add the whole output as a failure
-            if len(matches) == 0:
+            if len(messages) == 0:
+                # If there are no specific messages add the whole output as a failure
                 self.failure(output)
 
 
@@ -1207,6 +1516,8 @@ class KeepSorted(ComplianceTest):
 
         start_marker = f"{self.MARKER}-start"
         stop_marker = f"{self.MARKER}-stop"
+        start_line = None
+        stop_line = None
 
         for line_num, line in enumerate(fp.readlines(), start=1):
             if start_marker in line:
@@ -1216,15 +1527,18 @@ class KeepSorted(ComplianceTest):
                                      desc=desc)
                 in_block = True
                 block_data = ""
+                start_line = line_num + 1
             elif stop_marker in line:
                 if not in_block:
                     desc = f"{stop_marker} without {start_marker}"
                     self.fmtd_failure("error", "KeepSorted", file, line_num,
                                      desc=desc)
                 in_block = False
+                stop_line = line_num - 1
 
                 if not self.block_is_sorted(block_data):
-                    desc = f"sorted block is not sorted"
+                    desc = (f"sorted block is not sorted, sort by running: " +
+                            f"\"ex -s -c '{start_line},{stop_line} sort i|x' {file}\"")
                     self.fmtd_failure("error", "KeepSorted", file, line_num,
                                       desc=desc)
             elif not line.strip() or line.startswith("#"):
@@ -1275,10 +1589,11 @@ def annotate(res):
     """
     https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#about-workflow-commands
     """
+    msg = res.message.replace('%', '%25').replace('\n', '%0A').replace('\r', '%0D')
     notice = f'::{res.severity} file={res.file}' + \
              (f',line={res.line}' if res.line else '') + \
              (f',col={res.col}' if res.col else '') + \
-             f',title={res.title}::{res.message}'
+             f',title={res.title}::{msg}'
     print(notice)
 
 

@@ -7,14 +7,18 @@
 #ifndef ZEPHYR_ARCH_XTENSA_INCLUDE_XTENSA_ASM2_S_H
 #define ZEPHYR_ARCH_XTENSA_INCLUDE_XTENSA_ASM2_S_H
 
-#include <zsr.h>
+#include <zephyr/zsr.h>
 #include "xtensa_asm2_context.h"
 
-#include <offsets.h>
+#include <zephyr/offsets.h>
 
 /* Assembler header!  This file contains macros designed to be included
  * only by the assembler.
  */
+
+#if defined(CONFIG_XTENSA_HIFI_SHARING)
+.extern _xtensa_hifi_save
+#endif
 
 /*
  * SPILL_ALL_WINDOWS
@@ -160,20 +164,20 @@
  * Does not populate or modify the PS/PC save locations.
  */
 .macro ODD_REG_SAVE
-	rsr.SAR a0
+	rsr.sar a0
 	s32i a0, a1, ___xtensa_irq_bsa_t_sar_OFFSET
 #if XCHAL_HAVE_LOOPS
-	rsr.LBEG a0
+	rsr.lbeg a0
 	s32i a0, a1, ___xtensa_irq_bsa_t_lbeg_OFFSET
-	rsr.LEND a0
+	rsr.lend a0
 	s32i a0, a1, ___xtensa_irq_bsa_t_lend_OFFSET
-	rsr.LCOUNT a0
+	rsr.lcount a0
 	s32i a0, a1, ___xtensa_irq_bsa_t_lcount_OFFSET
 #endif
 	rsr.exccause a0
 	s32i a0, a1, ___xtensa_irq_bsa_t_exccause_OFFSET
 #if XCHAL_HAVE_S32C1I
-	rsr.SCOMPARE1 a0
+	rsr.scompare1 a0
 	s32i a0, a1, ___xtensa_irq_bsa_t_scompare1_OFFSET
 #endif
 #if XCHAL_HAVE_THREADPTR && \
@@ -184,6 +188,7 @@
 #if XCHAL_HAVE_FP && defined(CONFIG_CPU_HAS_FPU) && defined(CONFIG_FPU_SHARING)
 	FPU_REG_SAVE
 #endif
+
 .endm
 
 #ifdef CONFIG_XTENSA_MMU
@@ -371,7 +376,7 @@ _xstack_call0_\@:
 	entry a1, 16
 	mov a1, a2
 	rsr.ZSR_EPS a2
-	wsr.PS a2
+	wsr.ps a2
 	call4 _xstack_call1_\@
 	mov a2, a6		/* copy return value */
 	retw
@@ -405,6 +410,11 @@ _xstack_returned_\@:
 	s32i a2, a1, ___xtensa_irq_bsa_t_scratch_OFFSET
 
 	ODD_REG_SAVE
+
+#if defined(CONFIG_XTENSA_HIFI_SHARING)
+	call0 _xtensa_hifi_save    /* Save HiFi registers */
+#endif
+
 	call0 xtensa_save_high_regs
 
 	l32i a2, a1, 0
@@ -432,14 +442,14 @@ _xstack_returned_\@:
 	 * argument and expand two versions of this handler.  An
 	 * optimization FIXME, I guess.
 	 */
-	rsr.PS a0
+	rsr.ps a0
 	movi a3, PS_INTLEVEL_MASK
 	and a0, a0, a3
 	bnez a0, _not_l1
-	rsr.PS a0
+	rsr.ps a0
 	movi a3, PS_INTLEVEL(1)
 	or a0, a0, a3
-	wsr.PS a0
+	wsr.ps a0
 _not_l1:
 
 	/* Setting up the cross stack call below has states where the
@@ -459,7 +469,7 @@ _not_l1:
 	movi a3, ~(PS_EXCM_MASK) & ~(PS_RING_MASK)
 	and a0, a0, a3
 	wsr.ZSR_EPS a0
-	wsr.PS a0
+	wsr.ps a0
 	rsync
 
 	/* A1 already contains our saved stack, and A2 our handler.
@@ -490,7 +500,7 @@ _do_call_\@:
 	 * execution) while we muck with the windows and decrement the nested
 	 * count.  The restore will unmask them correctly.
 	 */
-	rsil a0, XCHAL_NMILEVEL
+	rsil a0, XCHAL_NUM_INTLEVELS
 
 	/* Decrement nest count */
 	rsr.ZSR_CPU a3
@@ -539,7 +549,12 @@ _do_call_\@:
 	rsr a6, ZSR_CPU
 	l32i a6, a6, ___cpu_t_current_OFFSET
 
+#ifdef CONFIG_XTENSA_MMU
 	call4 xtensa_swap_update_page_tables
+#endif
+#ifdef CONFIG_XTENSA_MPU
+	call4 xtensa_mpu_map_write
+#endif
 	l32i a1, a1, 0
 	l32i a0, a1, ___xtensa_irq_bsa_t_a0_OFFSET
 	addi a1, a1, ___xtensa_irq_bsa_t_SIZEOF
@@ -589,6 +604,59 @@ _Level\LVL\()VectorHelper :
 .global _Level\LVL\()Vector
 _Level\LVL\()Vector:
 #endif
+
+#ifdef CONFIG_XTENSA_MMU
+.if \LVL == 1
+	/* If there are any TLB misses during interrupt handling,
+	 * the user/kernel/double exception vector will be triggered
+	 * to handle these misses. This results in DEPC and EXCCAUSE
+	 * being overwritten, and then execution returned back to
+	 * this site of TLB misses. When it gets to the C handler,
+	 * it will not see the original cause. So stash
+	 * the EXCCAUSE here so C handler can see the original cause.
+	 *
+	 * For double exception, DEPC in saved in earlier vector
+	 * code.
+	 */
+	wsr a0, ZSR_EXCCAUSE_SAVE
+
+	esync
+
+	rsr a0, ZSR_DEPC_SAVE
+	beqz a0, _not_triple_fault
+
+	/* If stashed DEPC is not zero, we have started servicing
+	 * a double exception and yet we are here because there is
+	 * another exception (through user/kernel if PS.EXCM is
+	 * cleared, or through double if PS.EXCM is set). This can
+	 * be considered triple fault. Although there is no triple
+	 * faults on Xtensa. Once PS.EXCM is set, it keeps going
+	 * through double exception vector for any new exceptions.
+	 * However, our exception code needs to unmask PS.EXCM to
+	 * enable register window operations. So after that, any
+	 * new exceptions will go through the kernel or user vectors
+	 * depending on PS.UM. If there is continuous faults, it may
+	 * keep ping-ponging between double and kernel/user exception
+	 * vectors that may never get resolved. Since we stash DEPC
+	 * during double exception, and the stashed one is only cleared
+	 * once the double exception has been processed, we can use
+	 * the stashed DEPC value to detect if the next exception could
+	 * be considered a triple fault. If such a case exists, simply
+	 * jump to an infinite loop, or quit the simulator, or invoke
+	 * debugger.
+	 */
+	rsr a0, ZSR_EXCCAUSE_SAVE
+	j _TripleFault
+
+_not_triple_fault:
+	rsr.exccause a0
+
+	xsr a0, ZSR_EXCCAUSE_SAVE
+
+	esync
+.endif
+#endif
+
 	addi a1, a1, -___xtensa_irq_bsa_t_SIZEOF
 	s32i a0, a1, ___xtensa_irq_bsa_t_a0_OFFSET
 	s32i a2, a1, ___xtensa_irq_bsa_t_a2_OFFSET
@@ -600,7 +668,7 @@ _Level\LVL\()Vector:
 	 * turned on the EXCM bit and set INTLEVEL.
 	 */
 .if \LVL == 1
-	rsr.PS a0
+	rsr.ps a0
 #ifdef CONFIG_XTENSA_MMU
 	/* TLB misses also come through level 1 interrupts.
 	 * We do not want to unconditionally unmask interrupts.
@@ -616,11 +684,11 @@ _Level\LVL\()Vector:
 	and a0, a0, a2
 	s32i a0, a1, ___xtensa_irq_bsa_t_ps_OFFSET
 .else
-	rsr.EPS\LVL a0
+	rsr.eps\LVL a0
 	s32i a0, a1, ___xtensa_irq_bsa_t_ps_OFFSET
 .endif
 
-	rsr.EPC\LVL a0
+	rsr.epc\LVL a0
 	s32i a0, a1, ___xtensa_irq_bsa_t_pc_OFFSET
 
 	/* What's happening with this jump is that the L32R

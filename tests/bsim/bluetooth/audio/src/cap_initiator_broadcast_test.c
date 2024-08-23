@@ -3,17 +3,47 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include <errno.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
-#if defined(CONFIG_BT_CAP_INITIATOR) && defined(CONFIG_BT_BAP_BROADCAST_SOURCE)
-
-#include <zephyr/bluetooth/bluetooth.h>
-#include <zephyr/bluetooth/byteorder.h>
+#include <zephyr/autoconf.h>
+#include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/bap_lc3_preset.h>
 #include <zephyr/bluetooth/audio/cap.h>
 #include <zephyr/bluetooth/audio/bap.h>
 #include <zephyr/bluetooth/audio/lc3.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/byteorder.h>
+#include <zephyr/bluetooth/gap.h>
+#include <zephyr/bluetooth/iso.h>
+#include <zephyr/bluetooth/uuid.h>
+#include <zephyr/kernel.h>
+#include <zephyr/net/buf.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/toolchain.h>
+
 #include "bap_common.h"
+#include "bstests.h"
 #include "common.h"
+
+#if defined(CONFIG_BT_CAP_INITIATOR) && defined(CONFIG_BT_BAP_BROADCAST_SOURCE)
+/* Zephyr Controller works best while Extended Advertising interval to be a multiple
+ * of the ISO Interval minus 10 ms (max. advertising random delay). This is
+ * required to place the AUX_ADV_IND PDUs in a non-overlapping interval with the
+ * Broadcast ISO radio events.
+ */
+#define BT_LE_EXT_ADV_CUSTOM \
+		BT_LE_ADV_PARAM(BT_LE_ADV_OPT_EXT_ADV, \
+				0x0080, 0x0080, NULL)
+
+#define BT_LE_PER_ADV_CUSTOM \
+		BT_LE_PER_ADV_PARAM(0x0048, \
+				    0x0048, \
+				    BT_LE_PER_ADV_OPT_NONE)
 
 #define BROADCAST_STREMT_CNT    CONFIG_BT_BAP_BROADCAST_SRC_STREAM_COUNT
 #define BROADCAST_ENQUEUE_COUNT 2U
@@ -125,7 +155,7 @@ static void broadcast_sent_cb(struct bt_bap_stream *bap_stream)
 
 	net_buf_reserve(buf, BT_ISO_CHAN_SEND_RESERVE);
 	net_buf_add_mem(buf, mock_iso_data, test_stream->tx_sdu_size);
-	ret = bt_cap_stream_send(cap_stream, buf, test_stream->seq_num++, BT_ISO_TIMESTAMP_NONE);
+	ret = bt_cap_stream_send(cap_stream, buf, test_stream->seq_num++);
 	if (ret < 0) {
 		/* This will end broadcasting on this stream. */
 		net_buf_unref(buf);
@@ -170,15 +200,15 @@ static void setup_extended_adv(struct bt_le_ext_adv **adv)
 {
 	int err;
 
-	/* Create a non-connectable non-scannable advertising set */
-	err = bt_le_ext_adv_create(BT_LE_EXT_ADV_NCONN_NAME, NULL, adv);
+	/* Create a non-connectable advertising set */
+	err = bt_le_ext_adv_create(BT_LE_EXT_ADV_CUSTOM, NULL, adv);
 	if (err != 0) {
 		FAIL("Unable to create extended advertising set: %d\n", err);
 		return;
 	}
 
 	/* Set periodic advertising parameters */
-	err = bt_le_per_adv_set_param(*adv, BT_LE_PER_ADV_DEFAULT);
+	err = bt_le_per_adv_set_param(*adv, BT_LE_PER_ADV_CUSTOM);
 	if (err) {
 		FAIL("Failed to set periodic advertising parameters: %d\n", err);
 		return;
@@ -276,15 +306,16 @@ static void stop_and_delete_extended_adv(struct bt_le_ext_adv *adv)
 
 static void test_broadcast_audio_create_inval(void)
 {
-	uint8_t bis_codec_data[] = {3, BT_AUDIO_CODEC_CONFIG_LC3_FREQ,
-				    BT_BYTES_LIST_LE16(BT_AUDIO_CODEC_CONFIG_LC3_FREQ_16KHZ)};
+	uint8_t bis_codec_data[] = {3, BT_AUDIO_CODEC_CFG_FREQ,
+				    BT_BYTES_LIST_LE16(BT_AUDIO_CODEC_CFG_FREQ_16KHZ)};
 	struct bt_cap_initiator_broadcast_stream_param
 		stream_params[ARRAY_SIZE(broadcast_source_streams)];
 	struct bt_cap_initiator_broadcast_subgroup_param subgroup_param;
 	struct bt_cap_initiator_broadcast_create_param create_param;
 	struct bt_cap_broadcast_source *broadcast_source;
-	struct bt_audio_codec_cfg invalid_codec = BT_AUDIO_CODEC_LC3_CONFIG_16_2(
-		BT_AUDIO_LOCATION_FRONT_LEFT, BT_AUDIO_CONTEXT_TYPE_MEDIA);
+	struct bt_audio_codec_cfg invalid_codec = BT_AUDIO_CODEC_LC3_CONFIG(
+		BT_AUDIO_CODEC_CFG_FREQ_16KHZ, BT_AUDIO_CODEC_CFG_DURATION_10,
+		BT_AUDIO_LOCATION_FRONT_LEFT, 40U, 1, BT_AUDIO_CONTEXT_TYPE_MEDIA);
 	int err;
 
 	for (size_t i = 0U; i < ARRAY_SIZE(broadcast_streams); i++) {
@@ -335,8 +366,8 @@ static void test_broadcast_audio_create_inval(void)
 
 static void test_broadcast_audio_create(struct bt_cap_broadcast_source **broadcast_source)
 {
-	uint8_t bis_codec_data[] = {3, BT_AUDIO_CODEC_CONFIG_LC3_FREQ,
-				    BT_BYTES_LIST_LE16(BT_AUDIO_CODEC_CONFIG_LC3_FREQ_16KHZ)};
+	uint8_t bis_codec_data[] = {3, BT_AUDIO_CODEC_CFG_FREQ,
+				    BT_BYTES_LIST_LE16(BT_AUDIO_CODEC_CFG_FREQ_16KHZ)};
 	struct bt_cap_initiator_broadcast_stream_param
 		stream_params[ARRAY_SIZE(broadcast_source_streams)];
 	struct bt_cap_initiator_broadcast_subgroup_param subgroup_param;
@@ -662,11 +693,11 @@ static int test_cap_initiator_ac(const struct cap_initiator_ac_param *param)
 {
 	struct bt_cap_initiator_broadcast_stream_param stream_params[CAP_AC_MAX_STREAM] = {0};
 	uint8_t stereo_data[] = {
-		BT_AUDIO_CODEC_DATA(BT_AUDIO_CODEC_CONFIG_LC3_CHAN_ALLOC,
+		BT_AUDIO_CODEC_DATA(BT_AUDIO_CODEC_CFG_CHAN_ALLOC,
 				    BT_AUDIO_LOCATION_FRONT_RIGHT | BT_AUDIO_LOCATION_FRONT_LEFT)};
-	uint8_t right_data[] = {BT_AUDIO_CODEC_DATA(BT_AUDIO_CODEC_CONFIG_LC3_CHAN_ALLOC,
+	uint8_t right_data[] = {BT_AUDIO_CODEC_DATA(BT_AUDIO_CODEC_CFG_CHAN_ALLOC,
 						    BT_AUDIO_LOCATION_FRONT_RIGHT)};
-	uint8_t left_data[] = {BT_AUDIO_CODEC_DATA(BT_AUDIO_CODEC_CONFIG_LC3_CHAN_ALLOC,
+	uint8_t left_data[] = {BT_AUDIO_CODEC_DATA(BT_AUDIO_CODEC_CFG_CHAN_ALLOC,
 						   BT_AUDIO_LOCATION_FRONT_LEFT)};
 	struct bt_cap_initiator_broadcast_subgroup_param subgroup_param = {0};
 	struct bt_cap_initiator_broadcast_create_param create_param = {0};
@@ -826,13 +857,13 @@ static void test_args(int argc, char *argv[])
 static const struct bst_test_instance test_cap_initiator_broadcast[] = {
 	{
 		.test_id = "cap_initiator_broadcast",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_main_cap_initiator_broadcast,
 	},
 	{
 		.test_id = "cap_initiator_ac_12",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_cap_initiator_ac_12,
 		.test_args_f = test_args,
@@ -840,7 +871,7 @@ static const struct bst_test_instance test_cap_initiator_broadcast[] = {
 #if BROADCAST_STREMT_CNT >= CAP_AC_MAX_STREAM
 	{
 		.test_id = "cap_initiator_ac_13",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_cap_initiator_ac_13,
 		.test_args_f = test_args,
@@ -848,7 +879,7 @@ static const struct bst_test_instance test_cap_initiator_broadcast[] = {
 #endif /* BROADCAST_STREMT_CNT >= CAP_AC_MAX_STREAM */
 	{
 		.test_id = "cap_initiator_ac_14",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_cap_initiator_ac_14,
 		.test_args_f = test_args,

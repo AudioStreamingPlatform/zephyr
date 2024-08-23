@@ -99,7 +99,7 @@ static int empty_data_start_release(struct ll_conn *conn, struct node_tx *tx);
 
 #if defined(CONFIG_BT_CTLR_CONN_PARAM_REQ)
 /* Connection context pointer used as CPR mutex to serialize connection
- * parameter requests procedures across simulataneous connections so that
+ * parameter requests procedures across simultaneous connections so that
  * offsets exchanged to the peer do not get changed.
  */
 struct ll_conn *conn_upd_curr;
@@ -819,7 +819,7 @@ bool ull_conn_peer_connected(uint8_t const own_id_addr_type,
 }
 #endif /* CONFIG_BT_CTLR_CHECK_SAME_PEER_CONN */
 
-void ull_conn_setup(memq_link_t *rx_link, struct node_rx_hdr *rx)
+void ull_conn_setup(memq_link_t *rx_link, struct node_rx_pdu *rx)
 {
 	struct node_rx_ftr *ftr;
 	struct ull_hdr *hdr;
@@ -827,7 +827,7 @@ void ull_conn_setup(memq_link_t *rx_link, struct node_rx_hdr *rx)
 	/* Store the link in the node rx so that when done event is
 	 * processed it can be used to enqueue node rx towards LL context
 	 */
-	rx->link = rx_link;
+	rx->hdr.link = rx_link;
 
 	/* NOTE: LLL conn context SHALL be after lll_hdr in
 	 *       struct lll_adv and struct lll_scan.
@@ -1384,7 +1384,7 @@ void ull_conn_link_tx_release(void *link)
 
 uint8_t ull_conn_ack_last_idx_get(void)
 {
-	return mfifo_conn_ack.l;
+	return mfifo_fifo_conn_ack.l;
 }
 
 memq_link_t *ull_conn_ack_peek(uint8_t *ack_last, uint16_t *handle,
@@ -1397,7 +1397,7 @@ memq_link_t *ull_conn_ack_peek(uint8_t *ack_last, uint16_t *handle,
 		return NULL;
 	}
 
-	*ack_last = mfifo_conn_ack.l;
+	*ack_last = mfifo_fifo_conn_ack.l;
 
 	*handle = lll_tx->handle;
 	*tx = lll_tx->node;
@@ -1410,8 +1410,8 @@ memq_link_t *ull_conn_ack_by_last_peek(uint8_t last, uint16_t *handle,
 {
 	struct lll_tx *lll_tx;
 
-	lll_tx = mfifo_dequeue_get(mfifo_conn_ack.m, mfifo_conn_ack.s,
-				   mfifo_conn_ack.f, last);
+	lll_tx = mfifo_dequeue_get(mfifo_fifo_conn_ack.m, mfifo_conn_ack.s,
+				   mfifo_fifo_conn_ack.f, last);
 	if (!lll_tx) {
 		return NULL;
 	}
@@ -1683,7 +1683,7 @@ static void ticker_start_conn_op_cb(uint32_t status, void *param)
 static void conn_setup_adv_scan_disabled_cb(void *param)
 {
 	struct node_rx_ftr *ftr;
-	struct node_rx_hdr *rx;
+	struct node_rx_pdu *rx;
 	struct lll_conn *lll;
 
 	/* NOTE: LLL conn context SHALL be after lll_hdr in
@@ -1730,7 +1730,7 @@ static inline void disable(uint16_t handle)
 
 	err = ull_ticker_stop_with_mark(TICKER_ID_CONN_BASE + handle,
 					conn, &conn->lll);
-	LL_ASSERT(err == 0 || err == -EALREADY);
+	LL_ASSERT_INFO2(err == 0 || err == -EALREADY, handle, err);
 
 	conn->lll.handle = LLL_HANDLE_INVALID;
 	conn->lll.link_tx_free = NULL;
@@ -1809,7 +1809,7 @@ static void conn_cleanup(struct ll_conn *conn, uint8_t reason)
 	 * value and handle through the mayfly scheduling of the
 	 * tx_lll_flush.
 	 */
-	rx = (void *)&conn->llcp_terminate.node_rx;
+	rx = (void *)&conn->llcp_terminate.node_rx.rx;
 	rx->hdr.handle = conn->lll.handle;
 	rx->hdr.type = NODE_RX_TYPE_TERMINATE;
 	*((uint8_t *)rx->pdu) = reason;

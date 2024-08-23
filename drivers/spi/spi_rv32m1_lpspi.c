@@ -19,6 +19,8 @@
 #include <zephyr/irq.h>
 LOG_MODULE_REGISTER(spi_rv32m1_lpspi);
 
+#include <soc.h>
+
 #include "spi_context.h"
 
 #define CHIP_SELECT_COUNT	4
@@ -324,7 +326,7 @@ static const struct spi_driver_api spi_mcux_driver_api = {
 		SPI_CONTEXT_CS_GPIOS_INITIALIZE(DT_DRV_INST(n), ctx)	\
 	};								\
 									\
-	DEVICE_DT_INST_DEFINE(n, &spi_mcux_init, NULL,			\
+	DEVICE_DT_INST_DEFINE(n, spi_mcux_init, NULL,			\
 			    &spi_mcux_data_##n,				\
 			    &spi_mcux_config_##n,			\
 			    POST_KERNEL,				\

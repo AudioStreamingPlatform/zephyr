@@ -28,8 +28,13 @@ struct spi_stm32_config {
 #if DT_HAS_COMPAT_STATUS_OKAY(st_stm32_spi_subghz)
 	bool use_subghzspi_nss;
 #endif
+#if DT_HAS_COMPAT_STATUS_OKAY(st_stm32h7_spi)
+	int midi_clocks;
+	int mssi_clocks;
+#endif
 	size_t pclk_len;
 	const struct stm32_pclken *pclken;
+	bool fifo_enabled;
 };
 
 #ifdef CONFIG_SPI_STM32_DMA
@@ -63,6 +68,7 @@ struct spi_stm32_data {
 	struct stream dma_rx;
 	struct stream dma_tx;
 #endif /* CONFIG_SPI_STM32_DMA */
+	bool pm_policy_state_on;
 };
 
 #ifdef CONFIG_SPI_STM32_DMA

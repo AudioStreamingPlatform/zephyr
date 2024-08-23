@@ -99,19 +99,19 @@ static int sb_tsi_emul_init(const struct emul *target, const struct device *pare
 	return 0;
 }
 
-static int sb_tsi_emul_set_channel(const struct emul *target, enum sensor_channel chan,
-				   q31_t value, int8_t shift)
+static int sb_tsi_emul_set_channel(const struct emul *target, struct sensor_chan_spec ch,
+				   const q31_t *value, int8_t shift)
 {
 	struct sb_tsi_emul_data *data = target->data;
 	int64_t scaled_value;
 	int32_t millicelsius;
 	int32_t reg_value;
 
-	if (chan != SENSOR_CHAN_AMBIENT_TEMP) {
+	if (ch.chan_type != SENSOR_CHAN_AMBIENT_TEMP && ch.chan_idx != 0) {
 		return -ENOTSUP;
 	}
 
-	scaled_value = (int64_t)value << shift;
+	scaled_value = (int64_t)*value << shift;
 	millicelsius = scaled_value * 1000 / ((int64_t)INT32_MAX + 1);
 	reg_value = CLAMP(millicelsius / 125, 0, 0x7ff);
 
@@ -121,10 +121,10 @@ static int sb_tsi_emul_set_channel(const struct emul *target, enum sensor_channe
 	return 0;
 }
 
-static int sb_tsi_emul_get_sample_range(const struct emul *target, enum sensor_channel chan,
+static int sb_tsi_emul_get_sample_range(const struct emul *target, struct sensor_chan_spec ch,
 					q31_t *lower, q31_t *upper, q31_t *epsilon, int8_t *shift)
 {
-	if (chan != SENSOR_CHAN_AMBIENT_TEMP) {
+	if (ch.chan_type != SENSOR_CHAN_AMBIENT_TEMP || ch.chan_idx != 0) {
 		return -ENOTSUP;
 	}
 
@@ -140,7 +140,7 @@ static const struct i2c_emul_api sb_tsi_emul_api_i2c = {
 	.transfer = sb_tsi_emul_transfer_i2c,
 };
 
-static const struct emul_sensor_backend_api sb_tsi_emul_api_sensor = {
+static const struct emul_sensor_driver_api sb_tsi_emul_api_sensor = {
 	.set_channel = sb_tsi_emul_set_channel,
 	.get_sample_range = sb_tsi_emul_get_sample_range,
 };

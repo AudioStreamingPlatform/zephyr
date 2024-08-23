@@ -213,10 +213,10 @@ def test_hardwaremap_summary(capfd, mocked_hm):
     expected = """
 Hardware distribution summary:
 
-| Board   |   ID |   Counter |
-|---------|------|-----------|
-| p1      |    1 |         0 |
-| p7      |    7 |         0 |
+| Board   |   ID |   Counter |   Failures |
+|---------|------|-----------|------------|
+| p1      |    1 |         0 |          0 |
+| p7      |    7 |         0 |          0 |
 """
 
     out, err = capfd.readouterr()
@@ -383,6 +383,9 @@ def test_hardwaremap_scan(
             Path(path / 'basic-file2-link')
         ]
 
+    def mock_exists(path):
+        return True
+
     mocked_hm.manufacturer = ['dummy manufacturer', 'Texas Instruments']
     mocked_hm.runner_mapping = {
         'dummy runner': ['product[0-9]+',],
@@ -433,7 +436,9 @@ def test_hardwaremap_scan(
          mock.patch('twisterlib.hardwaremap.Path.resolve',
                     autospec=True, side_effect=mock_resolve), \
          mock.patch('twisterlib.hardwaremap.Path.iterdir',
-                    autospec=True, side_effect=mock_iterdir):
+                    autospec=True, side_effect=mock_iterdir), \
+         mock.patch('twisterlib.hardwaremap.Path.exists',
+                    autospec=True, side_effect=mock_exists):
         mocked_hm.scan(persistent)
 
     assert sorted([d.__repr__() for d in mocked_hm.detected]) == \

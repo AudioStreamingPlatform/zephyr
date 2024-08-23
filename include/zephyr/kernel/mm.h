@@ -11,7 +11,7 @@
 #include <zephyr/toolchain.h>
 #if defined(CONFIG_ARM_MMU) && defined(CONFIG_ARM64)
 #include <zephyr/arch/arm64/arm_mem.h>
-#endif
+#endif /* CONFIG_ARM_MMU && CONFIG_ARM64 */
 
 #include <zephyr/kernel/internal/mm.h>
 
@@ -168,7 +168,10 @@ size_t k_mem_free_get(void);
  *         space, insufficient physical memory to establish the mapping,
  *         or insufficient memory for paging structures.
  */
-void *k_mem_map(size_t size, uint32_t flags);
+static inline void *k_mem_map(size_t size, uint32_t flags)
+{
+	return k_mem_map_phys_guard((uintptr_t)NULL, size, flags, true);
+}
 
 /**
  * Un-map mapped memory
@@ -183,7 +186,10 @@ void *k_mem_map(size_t size, uint32_t flags);
  * @param addr Page-aligned memory region base virtual address
  * @param size Page-aligned memory region size
  */
-void k_mem_unmap(void *addr, size_t size);
+static inline void k_mem_unmap(void *addr, size_t size)
+{
+	k_mem_unmap_phys_guard(addr, size, true);
+}
 
 /**
  * Given an arbitrary region, provide a aligned region that covers it

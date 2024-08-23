@@ -15,6 +15,8 @@
 /**
  * @brief LED Interface
  * @defgroup led_interface LED Interface
+ * @since 1.12
+ * @version 1.0.0
  * @ingroup io_interfaces
  * @{
  */
@@ -36,9 +38,9 @@ extern "C" {
 struct led_info {
 	/** LED label */
 	const char *label;
-	/** Number of colors per LED */
-	uint32_t index;
 	/** Index of the LED on the controller */
+	uint32_t index;
+	/** Number of colors per LED */
 	uint8_t num_colors;
 	/** Mapping of the LED colors */
 	const uint8_t *color_mapping;
@@ -271,7 +273,7 @@ static inline int z_impl_led_set_channel(const struct device *dev,
  * @param led LED number
  * @param num_colors Number of colors in the array.
  * @param color Array of colors. It must be ordered following the color
- *        mapping of the LED controller. See the the color_mapping member
+ *        mapping of the LED controller. See the color_mapping member
  *        in struct led_info.
  * @return 0 on success, negative on error
  */
@@ -336,6 +338,6 @@ static inline int z_impl_led_off(const struct device *dev, uint32_t led)
 }
 #endif
 
-#include <syscalls/led.h>
+#include <zephyr/syscalls/led.h>
 
 #endif	/* ZEPHYR_INCLUDE_DRIVERS_LED_H_ */

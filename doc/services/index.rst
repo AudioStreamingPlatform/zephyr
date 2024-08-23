@@ -28,7 +28,9 @@ OS Services
    pm/index.rst
    portability/index.rst
    poweroff.rst
+   profiling/index.rst
    shell/index.rst
+   serialization/index.rst
    settings/index.rst
    smf/index.rst
    storage/index.rst

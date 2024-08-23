@@ -1,6 +1,6 @@
 .. zephyr:code-sample:: llext-shell-loader
    :name: Linkable loadable extensions shell module
-   :relevant-api: llext
+   :relevant-api: llext_apis
 
    Manage loadable extensions using shell commands.
 
@@ -20,7 +20,7 @@ Building
 
 .. zephyr-app-commands::
    :zephyr-app: samples/subsys/llext/shell_loader
-   :board: tdk_robokit1
+   :board: robokit1
    :goals: build
    :compact:
 

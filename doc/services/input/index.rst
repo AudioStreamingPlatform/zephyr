@@ -55,6 +55,14 @@ footprint, or in a complex application with an existing event model, where the
 callback is just a wrapper to pipe back the event in a more complex application
 specific event system.
 
+HID code mapping
+****************
+
+A common use case for input devices is to use them to generate HID reports. For
+this purpose, the :c:func:`input_to_hid_code` and
+:c:func:`input_to_hid_modifier` functions can be used to map input codes to HID
+codes and modifiers.
+
 Kscan Compatibility
 *******************
 
@@ -78,8 +86,30 @@ compatibility device node, for example:
         };
     };
 
-Driver Documentation
-********************
+General Purpose Drivers
+***********************
+
+- :dtcompatible:`adc-keys`: for buttons connected to a resistor ladder.
+- :dtcompatible:`analog-axis`: for absolute position devices connected to an
+  ADC input (thumbsticks, sliders...).
+- :dtcompatible:`gpio-kbd-matrix`: for GPIO-connected keyboard matrices.
+- :dtcompatible:`gpio-keys`: for switches directly connected to a GPIO,
+  implements button debouncing.
+- :dtcompatible:`gpio-qdec`: for GPIO-connected quadrature encoders.
+- :dtcompatible:`input-keymap`: maps row/col/touch events from a keyboard
+  matrix to key events.
+- :dtcompatible:`zephyr,input-longpress`: listens for key events, emits events
+  for short and long press.
+- :dtcompatible:`zephyr,input-double-tap`: listens for key events, emits events
+  for input double taps
+- :dtcompatible:`zephyr,lvgl-button-input`
+  :dtcompatible:`zephyr,lvgl-encoder-input`
+  :dtcompatible:`zephyr,lvgl-keypad-input`
+  :dtcompatible:`zephyr,lvgl-pointer-input`: listens for input events and
+  translates those to various types of LVGL input devices.
+
+Detailed Driver Documentation
+*****************************
 
 .. toctree::
    :maxdepth: 1

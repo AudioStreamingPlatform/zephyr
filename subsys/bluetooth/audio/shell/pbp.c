@@ -8,10 +8,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/kernel.h>
-#include <zephyr/shell/shell.h>
-#include <zephyr/sys/util.h>
+#include <errno.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/pbp.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/gap.h>
+#include <zephyr/kernel.h>
+#include <zephyr/net/buf.h>
+#include <zephyr/shell/shell.h>
+#include <zephyr/shell/shell_string_conv.h>
+#include <zephyr/sys/__assert.h>
+#include <zephyr/sys/util.h>
 
 #include "shell/bt.h"
 
@@ -47,6 +57,8 @@ static int cmd_pbp_set_features(const struct shell *sh, size_t argc, char **argv
 size_t pbp_ad_data_add(struct bt_data data[], size_t data_size)
 {
 	int err;
+
+	net_buf_simple_reset(&pbp_ad_buf);
 
 	err = bt_pbp_get_announcement(pba_metadata,
 				      ARRAY_SIZE(pba_metadata),

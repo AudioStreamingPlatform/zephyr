@@ -20,6 +20,18 @@ extern uint32_t _irq_vector_table[];
 #endif
 
 #if defined(CONFIG_RISCV)
+#if defined(CONFIG_NRFX_CLIC)
+#define ISR1_OFFSET	15
+#define ISR3_OFFSET	16
+#define ISR5_OFFSET	17
+#define TRIG_CHECK_SIZE	18
+#elif defined(CONFIG_RISCV_HAS_CLIC)
+#define ISR1_OFFSET	3
+#define ISR3_OFFSET	17
+#define ISR5_OFFSET	18
+#define TRIG_CHECK_SIZE	19
+#else
+
 /* RISC-V has very few IRQ lines which can be triggered from software */
 #define ISR3_OFFSET	1
 
@@ -31,10 +43,16 @@ extern uint32_t _irq_vector_table[];
 #else
 #define ISR5_OFFSET	5
 #endif
+#define TRIG_CHECK_SIZE	6
+#endif
 
 #define IRQ_LINE(offset)        offset
+#if defined(CONFIG_RISCV_RESERVED_IRQ_ISR_TABLES_OFFSET)
+#define TABLE_INDEX(offset)     offset + CONFIG_RISCV_RESERVED_IRQ_ISR_TABLES_OFFSET
+#else
 #define TABLE_INDEX(offset)     offset
-#define TRIG_CHECK_SIZE		6
+#endif
+
 #else
 #define ISR1_OFFSET	0
 #define ISR2_OFFSET	1
@@ -89,6 +107,12 @@ extern uint32_t _irq_vector_table[];
 #define ISR4_ARG	0xca55e77e
 #define ISR5_ARG	0xf0ccac1a
 #define ISR6_ARG	0xba5eba11
+
+#if defined(CONFIG_RISCV_HAS_CLIC)
+#define IRQ_FLAGS 1 /* rising edge */
+#else
+#define IRQ_FLAGS 0
+#endif
 
 static volatile int trigger_check[TRIG_CHECK_SIZE];
 
@@ -262,7 +286,7 @@ ZTEST(gen_isr_table, test_build_time_direct_interrupt)
 #else
 
 #ifdef ISR1_OFFSET
-	IRQ_DIRECT_CONNECT(IRQ_LINE(ISR1_OFFSET), 0, isr1, 0);
+	IRQ_DIRECT_CONNECT(IRQ_LINE(ISR1_OFFSET), 0, isr1, IRQ_FLAGS);
 	irq_enable(IRQ_LINE(ISR1_OFFSET));
 	TC_PRINT("isr1 isr=%p irq=%d\n", isr1, IRQ_LINE(ISR1_OFFSET));
 	zassert_ok(check_vector(isr1, ISR1_OFFSET),
@@ -270,7 +294,7 @@ ZTEST(gen_isr_table, test_build_time_direct_interrupt)
 #endif
 
 #ifdef ISR2_OFFSET
-	IRQ_DIRECT_CONNECT(IRQ_LINE(ISR2_OFFSET), 0, isr2, 0);
+	IRQ_DIRECT_CONNECT(IRQ_LINE(ISR2_OFFSET), 0, isr2, IRQ_FLAGS);
 	irq_enable(IRQ_LINE(ISR2_OFFSET));
 	TC_PRINT("isr2 isr=%p irq=%d\n", isr2, IRQ_LINE(ISR2_OFFSET));
 
@@ -305,7 +329,7 @@ ZTEST(gen_isr_table, test_build_time_interrupt)
 	TC_PRINT("_sw_isr_table at location %p\n", _sw_isr_table);
 
 #ifdef ISR3_OFFSET
-	IRQ_CONNECT(IRQ_LINE(ISR3_OFFSET), 1, isr3, ISR3_ARG, 0);
+	IRQ_CONNECT(IRQ_LINE(ISR3_OFFSET), 1, isr3, ISR3_ARG, IRQ_FLAGS);
 	irq_enable(IRQ_LINE(ISR3_OFFSET));
 	TC_PRINT("isr3 isr=%p irq=%d param=%p\n", isr3, IRQ_LINE(ISR3_OFFSET),
 		 (void *)ISR3_ARG);
@@ -315,7 +339,7 @@ ZTEST(gen_isr_table, test_build_time_interrupt)
 #endif
 
 #ifdef ISR4_OFFSET
-	IRQ_CONNECT(IRQ_LINE(ISR4_OFFSET), 1, isr4, ISR4_ARG, 0);
+	IRQ_CONNECT(IRQ_LINE(ISR4_OFFSET), 1, isr4, ISR4_ARG, IRQ_FLAGS);
 	irq_enable(IRQ_LINE(ISR4_OFFSET));
 	TC_PRINT("isr4 isr=%p irq=%d param=%p\n", isr4, IRQ_LINE(ISR4_OFFSET),
 		 (void *)ISR4_ARG);
@@ -351,7 +375,7 @@ ZTEST(gen_isr_table, test_run_time_interrupt)
 
 #ifdef ISR5_OFFSET
 	irq_connect_dynamic(IRQ_LINE(ISR5_OFFSET), 1, isr5,
-			    (const void *)ISR5_ARG, 0);
+			    (const void *)ISR5_ARG, IRQ_FLAGS);
 	irq_enable(IRQ_LINE(ISR5_OFFSET));
 	TC_PRINT("isr5 isr=%p irq=%d param=%p\n", isr5, IRQ_LINE(ISR5_OFFSET),
 		 (void *)ISR5_ARG);
@@ -361,7 +385,7 @@ ZTEST(gen_isr_table, test_run_time_interrupt)
 
 #ifdef ISR6_OFFSET
 	irq_connect_dynamic(IRQ_LINE(ISR6_OFFSET), 1, isr6,
-			    (const void *)ISR6_ARG, 0);
+			    (const void *)ISR6_ARG, IRQ_FLAGS);
 	irq_enable(IRQ_LINE(ISR6_OFFSET));
 	TC_PRINT("isr6 isr=%p irq=%d param=%p\n", isr6, IRQ_LINE(ISR6_OFFSET),
 		 (void *)ISR6_ARG);
@@ -393,20 +417,39 @@ static void test_multi_level_bit_masks_fn(uint32_t irq1, uint32_t irq2, uint32_t
 	const bool has_l3 = irq3 > 0;
 	const bool has_l2 = irq2 > 0;
 	const uint32_t level = has_l3 ? 3 : has_l2 ? 2 : 1;
-	const uint32_t irqn = (irq3 << l3_shift) | (irq2 << l2_shift) | irq1;
+	const uint32_t irqn_l1 = irq1;
+	const uint32_t irqn_l2 = (irq2 << l2_shift) | irqn_l1;
+	const uint32_t irqn = (irq3 << l3_shift) | irqn_l2;
 
 	zassert_equal(level, irq_get_level(irqn));
 
 	if (has_l2) {
 		zassert_equal(hwirq2, irq_from_level_2(irqn));
+		zassert_equal(hwirq2, irq_from_level(irqn, 2));
 		zassert_equal((hwirq2 + 1) << l2_shift, irq_to_level_2(hwirq2));
+		zassert_equal((hwirq2 + 1) << l2_shift, irq_to_level(hwirq2, 2));
 		zassert_equal(hwirq1, irq_parent_level_2(irqn));
+		zassert_equal(hwirq1, irq_parent_level(irqn, 2));
 	}
 
 	if (has_l3) {
 		zassert_equal(hwirq3, irq_from_level_3(irqn));
+		zassert_equal(hwirq3, irq_from_level(irqn, 3));
 		zassert_equal((hwirq3 + 1) << l3_shift, irq_to_level_3(hwirq3));
+		zassert_equal((hwirq3 + 1) << l3_shift, irq_to_level(hwirq3, 3));
 		zassert_equal(hwirq2 + 1, irq_parent_level_3(irqn));
+		zassert_equal(hwirq2 + 1, irq_parent_level(irqn, 3));
+	}
+
+	if (has_l3) {
+		zassert_equal(irqn_l2, irq_get_intc_irq(irqn));
+	} else if (has_l2) {
+		zassert_equal(irqn_l1, irq_get_intc_irq(irqn));
+	} else {
+		/* degenerate cases */
+		if (false) {
+			zassert_equal(irqn, irq_get_intc_irq(irqn));
+		}
 	}
 }
 

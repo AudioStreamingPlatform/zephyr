@@ -38,6 +38,9 @@
 #elif DT_NODE_HAS_STATUS(DT_ALIAS(pwm_3), okay)
 #define PWM_DEV_NODE DT_ALIAS(pwm_3)
 
+#elif DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_pwm)
+#define PWM_DEV_NODE DT_INST(0, nordic_nrf_pwm)
+
 #elif DT_HAS_COMPAT_STATUS_OKAY(st_stm32_pwm)
 #define PWM_DEV_NODE DT_INST(0, st_stm32_pwm)
 
@@ -54,7 +57,7 @@
 #error "Define a PWM device"
 #endif
 
-#if defined(CONFIG_BOARD_COLIBRI_IMX7D_M4) || defined(CONFIG_SOC_MK64F12) ||                       \
+#if defined(CONFIG_BOARD_COLIBRI_IMX7D_MCIMX7D_M4) || defined(CONFIG_SOC_MK64F12) ||               \
 	defined(CONFIG_SOC_MKW41Z4) || defined(CONFIG_SOC_SERIES_ESP32S2) ||                       \
 	defined(CONFIG_SOC_SERIES_ESP32S3) || defined(CONFIG_SOC_SERIES_ESP32C3)
 #define DEFAULT_PERIOD_CYCLE 1024
@@ -76,12 +79,14 @@
 #if defined CONFIG_BOARD_SAM_E70_XPLAINED
 #define DEFAULT_PWM_PORT 2 /* PWM on EXT2 connector, pin 8 */
 #elif defined CONFIG_PWM_NRFX
-#define DEFAULT_PWM_PORT DT_PROP(DT_ALIAS(pwm_0), ch0_pin)
+#define DEFAULT_PWM_PORT 0
+#define INVALID_PWM_PORT 9
 #elif defined CONFIG_BOARD_ADAFRUIT_ITSYBITSY_M4_EXPRESS
 #define DEFAULT_PWM_PORT 2 /* TCC1/WO[2] on PA18 (D7) */
 #elif defined CONFIG_BOARD_MIMXRT685_EVK
 #define DEFAULT_PWM_PORT 7 /* D3 on Arduino connector J27 */
-#elif defined CONFIG_BOARD_LPCXPRESSO55S69_CPU0
+#elif defined(CONFIG_BOARD_LPCXPRESSO55S69_LPC55S69_CPU0_NS) ||                                    \
+	defined(CONFIG_BOARD_LPCXPRESSO55S69_LPC55S69_CPU0)
 #define DEFAULT_PWM_PORT 2 /* D2 on Arduino connector P18 */
 #elif DT_HAS_COMPAT_STATUS_OKAY(st_stm32_pwm)
 /* Default port should be adapted per board to fit the channel
@@ -170,3 +175,20 @@ ZTEST_USER(pwm_basic, test_pwm_cycle)
 				0, UNIT_CYCLES) == TC_PASS, NULL);
 	k_sleep(K_MSEC(1000));
 }
+
+#if defined INVALID_PWM_PORT
+ZTEST_USER(pwm_basic, test_pwm_invalid_port)
+{
+	const struct device *pwm_dev = get_pwm_device();
+
+	TC_PRINT("[PWM]: %" PRIu8 ", [period]: %" PRIu32 ", [pulse]: %" PRIu32 "\n",
+		INVALID_PWM_PORT, DEFAULT_PERIOD_CYCLE, DEFAULT_PULSE_CYCLE);
+
+	zassert_true(device_is_ready(pwm_dev), "PWM device is not ready");
+
+	zassert_equal(pwm_set_cycles(pwm_dev, INVALID_PWM_PORT, DEFAULT_PERIOD_CYCLE,
+				     DEFAULT_PULSE_CYCLE, 0),
+		      -EINVAL, "Invalid PWM port\n");
+
+}
+#endif

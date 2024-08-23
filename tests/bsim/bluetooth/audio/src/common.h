@@ -10,25 +10,27 @@
 #ifndef ZEPHYR_TEST_BSIM_BT_AUDIO_TEST_
 #define ZEPHYR_TEST_BSIM_BT_AUDIO_TEST_
 
-#include <zephyr/kernel.h>
-
-#include "bstests.h"
-#include "bs_types.h"
-#include "bs_tracing.h"
-#include "time_machine.h"
-
-#include <zephyr/types.h>
+#include <stdbool.h>
 #include <stddef.h>
-#include <errno.h>
-#include <zephyr/sys_clock.h>
+#include <stdint.h>
 
+#include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/bap.h>
 #include <zephyr/bluetooth/audio/cap.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/hci.h>
 #include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/iso.h>
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/bluetooth/gatt.h>
+#include <zephyr/kernel.h>
+#include <zephyr/sys/atomic_types.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/sys_clock.h>
+#include <zephyr/types.h>
+
+#include "bs_types.h"
+#include "bs_tracing.h"
 
 static const uint8_t mock_iso_data[] = {
 	0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
@@ -68,7 +70,7 @@ static const uint8_t mock_iso_data[] = {
 };
 
 #define MIN_SEND_COUNT 100
-#define WAIT_SECONDS 60 /* seconds */
+#define WAIT_SECONDS   100                           /* seconds */
 #define WAIT_TIME (WAIT_SECONDS * USEC_PER_SEC) /* microseconds*/
 
 #define WAIT_FOR_COND(cond) while (!(cond)) { k_sleep(K_MSEC(1)); }
@@ -102,7 +104,7 @@ static const uint8_t mock_iso_data[] = {
 #define AD_SIZE 1
 
 #define INVALID_BROADCAST_ID (BT_AUDIO_BROADCAST_ID_MAX + 1)
-#define SYNC_RETRY_COUNT     6 /* similar to retries for connections */
+#define PA_SYNC_INTERVAL_TO_TIMEOUT_RATIO 20 /* Set the timeout relative to interval */
 #define PA_SYNC_SKIP         5
 
 #define PBP_STREAMS_TO_SEND  2
@@ -119,6 +121,7 @@ void disconnected(struct bt_conn *conn, uint8_t reason);
 void test_tick(bs_time_t HW_device_time);
 void test_init(void);
 uint16_t get_dev_cnt(void);
+uint16_t interval_to_sync_timeout(uint16_t pa_interval);
 void backchannel_sync_send(uint dev);
 void backchannel_sync_send_all(void);
 void backchannel_sync_wait(uint dev);
@@ -139,6 +142,16 @@ struct audio_test_stream {
 	size_t rx_cnt;
 };
 
+static inline struct bt_cap_stream *cap_stream_from_bap_stream(struct bt_bap_stream *bap_stream)
+{
+	return CONTAINER_OF(bap_stream, struct bt_cap_stream, bap_stream);
+}
+
+static inline struct bt_bap_stream *bap_stream_from_cap_stream(struct bt_cap_stream *cap_stream)
+{
+	return &cap_stream->bap_stream;
+}
+
 static inline struct audio_test_stream *
 audio_test_stream_from_cap_stream(struct bt_cap_stream *cap_stream)
 {
@@ -148,10 +161,7 @@ audio_test_stream_from_cap_stream(struct bt_cap_stream *cap_stream)
 static inline struct audio_test_stream *
 audio_test_stream_from_bap_stream(struct bt_bap_stream *bap_stream)
 {
-	struct bt_cap_stream *cap_stream =
-		CONTAINER_OF(bap_stream, struct bt_cap_stream, bap_stream);
-
-	return audio_test_stream_from_cap_stream(cap_stream);
+	return audio_test_stream_from_cap_stream(cap_stream_from_bap_stream(bap_stream));
 }
 
 static inline struct bt_cap_stream *
@@ -163,7 +173,7 @@ cap_stream_from_audio_test_stream(struct audio_test_stream *test_stream)
 static inline struct bt_bap_stream *
 bap_stream_from_audio_test_stream(struct audio_test_stream *test_stream)
 {
-	return &cap_stream_from_audio_test_stream(test_stream)->bap_stream;
+	return bap_stream_from_cap_stream(cap_stream_from_audio_test_stream(test_stream));
 }
 
 #endif /* ZEPHYR_TEST_BSIM_BT_AUDIO_TEST_ */

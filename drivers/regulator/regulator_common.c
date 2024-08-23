@@ -1,5 +1,6 @@
 /*
  * Copyright 2022 Nordic Semiconductor ASA
+ * Copyright 2023 Meta Platforms
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,11 +10,7 @@
 static void regulator_delay(uint32_t delay_us)
 {
 	if (delay_us > 0U) {
-#ifdef CONFIG_MULTITHREADING
 		k_sleep(K_USEC(delay_us));
-#else
-		k_busy_wait(delay_us);
-#endif
 	}
 }
 
@@ -37,6 +34,15 @@ int regulator_common_init(const struct device *dev, bool is_enabled)
 
 	if (config->initial_mode != REGULATOR_INITIAL_MODE_UNKNOWN) {
 		ret = regulator_set_mode(dev, config->initial_mode);
+		if (ret < 0) {
+			return ret;
+		}
+	}
+
+	if (REGULATOR_ACTIVE_DISCHARGE_GET_BITS(config->flags) !=
+	    REGULATOR_ACTIVE_DISCHARGE_DEFAULT) {
+		ret = regulator_set_active_discharge(dev,
+		    (bool)REGULATOR_ACTIVE_DISCHARGE_GET_BITS(config->flags));
 		if (ret < 0) {
 			return ret;
 		}
@@ -80,6 +86,9 @@ int regulator_common_init(const struct device *dev, bool is_enabled)
 
 	if (is_enabled) {
 		data->refcnt++;
+		if ((config->flags & REGULATOR_BOOT_OFF) != 0U) {
+			return regulator_disable(dev);
+		}
 	} else if ((config->flags & REGULATOR_INIT_ENABLED) != 0U) {
 		ret = api->enable(dev);
 		if (ret < 0) {
@@ -174,12 +183,14 @@ int regulator_disable(const struct device *dev)
 	(void)k_mutex_lock(&data->lock, K_FOREVER);
 #endif
 
-	data->refcnt--;
+	if (data->refcnt > 0) {
+		data->refcnt--;
 
-	if (data->refcnt == 0) {
-		ret = api->disable(dev);
-		if (ret < 0) {
-			data->refcnt++;
+		if (data->refcnt == 0) {
+			ret = api->disable(dev);
+			if (ret < 0) {
+				data->refcnt++;
+			}
 		}
 	}
 

@@ -3,16 +3,37 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include <errno.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
-#if defined(CONFIG_BT_BAP_UNICAST_CLIENT)
-
-#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/autoconf.h>
+#include <zephyr/bluetooth/addr.h>
 #include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/bap.h>
 #include <zephyr/bluetooth/audio/bap_lc3_preset.h>
 #include <zephyr/bluetooth/audio/pacs.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/gap.h>
+#include <zephyr/bluetooth/gatt.h>
+#include <zephyr/bluetooth/hci_types.h>
+#include <zephyr/bluetooth/iso.h>
+#include <zephyr/bluetooth/uuid.h>
+#include <zephyr/kernel.h>
+#include <zephyr/net/buf.h>
+#include <zephyr/sys/atomic.h>
+#include <zephyr/sys/atomic_types.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/sys/util.h>
+
+#include "bstests.h"
 #include "common.h"
 #include "bap_common.h"
+
+#if defined(CONFIG_BT_BAP_UNICAST_CLIENT)
 
 #define BAP_STREAM_RETRY_WAIT K_MSEC(100)
 
@@ -31,7 +52,7 @@ static struct bt_bap_ep *g_sources[CONFIG_BT_BAP_UNICAST_CLIENT_ASE_SRC_COUNT];
 static struct bt_bap_unicast_group_stream_pair_param pair_params[ARRAY_SIZE(test_streams)];
 static struct bt_bap_unicast_group_stream_param stream_params[ARRAY_SIZE(test_streams)];
 
-/* Mandatory support preset by both client and server */
+/*Mandatory support preset by both client and server */
 static struct bt_bap_lc3_preset preset_16_2_1 = BT_BAP_LC3_UNICAST_PRESET_16_2_1(
 	BT_AUDIO_LOCATION_FRONT_LEFT, BT_AUDIO_CONTEXT_TYPE_UNSPECIFIED);
 
@@ -45,7 +66,10 @@ static atomic_t flag_stream_qos_configured;
 CREATE_FLAG(flag_stream_enabled);
 CREATE_FLAG(flag_stream_metadata);
 CREATE_FLAG(flag_stream_started);
+CREATE_FLAG(flag_stream_connected);
+CREATE_FLAG(flag_stream_disconnected);
 CREATE_FLAG(flag_stream_disabled);
+CREATE_FLAG(flag_stream_stopped);
 CREATE_FLAG(flag_stream_released);
 CREATE_FLAG(flag_operation_success);
 
@@ -86,6 +110,20 @@ static void stream_started(struct bt_bap_stream *stream)
 	SET_FLAG(flag_stream_started);
 }
 
+static void stream_connected(struct bt_bap_stream *stream)
+{
+	printk("Connected stream %p\n", stream);
+
+	SET_FLAG(flag_stream_connected);
+}
+
+static void stream_disconnected(struct bt_bap_stream *stream, uint8_t reason)
+{
+	printk("Disconnected stream %p with reason %u\n", stream, reason);
+
+	SET_FLAG(flag_stream_disconnected);
+}
+
 static void stream_metadata_updated(struct bt_bap_stream *stream)
 {
 	printk("Metadata updated stream %p\n", stream);
@@ -107,6 +145,8 @@ static void stream_disabled(struct bt_bap_stream *stream)
 static void stream_stopped(struct bt_bap_stream *stream, uint8_t reason)
 {
 	printk("Stopped stream %p with reason 0x%02X\n", stream, reason);
+
+	SET_FLAG(flag_stream_stopped);
 }
 
 static void stream_released(struct bt_bap_stream *stream)
@@ -171,7 +211,7 @@ static void stream_sent_cb(struct bt_bap_stream *stream)
 
 	net_buf_reserve(buf, BT_ISO_CHAN_SEND_RESERVE);
 	net_buf_add_mem(buf, mock_iso_data, test_stream->tx_sdu_size);
-	ret = bt_bap_stream_send(stream, buf, test_stream->seq_num++, BT_ISO_TIMESTAMP_NONE);
+	ret = bt_bap_stream_send(stream, buf, test_stream->seq_num++);
 	if (ret < 0) {
 		/* This will end broadcasting on this stream. */
 		net_buf_unref(buf);
@@ -198,6 +238,8 @@ static struct bt_bap_stream_ops stream_ops = {
 	.released = stream_released,
 	.recv = stream_recv_cb,
 	.sent = stream_sent_cb,
+	.connected = stream_connected,
+	.disconnected = stream_disconnected,
 };
 
 static void unicast_client_location_cb(struct bt_conn *conn,
@@ -585,7 +627,8 @@ static void discover_sources(void)
 	WAIT_FOR_FLAG(flag_source_discovered);
 }
 
-static int codec_configure_stream(struct bt_bap_stream *stream, struct bt_bap_ep *ep)
+static int codec_configure_stream(struct bt_bap_stream *stream, struct bt_bap_ep *ep,
+				  struct bt_audio_codec_cfg *codec_cfg)
 {
 	int err;
 
@@ -594,7 +637,7 @@ static int codec_configure_stream(struct bt_bap_stream *stream, struct bt_bap_ep
 
 	do {
 
-		err = bt_bap_stream_config(default_conn, stream, ep, &preset_16_2_1.codec_cfg);
+		err = bt_bap_stream_config(default_conn, stream, ep, codec_cfg);
 		if (err == -EBUSY) {
 			k_sleep(BAP_STREAM_RETRY_WAIT);
 		} else if (err != 0) {
@@ -614,7 +657,8 @@ static void codec_configure_streams(size_t stream_cnt)
 	for (size_t i = 0U; i < ARRAY_SIZE(pair_params); i++) {
 		if (pair_params[i].rx_param != NULL && g_sources[i] != NULL) {
 			struct bt_bap_stream *stream = pair_params[i].rx_param->stream;
-			const int err = codec_configure_stream(stream, g_sources[i]);
+			const int err = codec_configure_stream(stream, g_sources[i],
+							       &preset_16_2_1.codec_cfg);
 
 			if (err != 0) {
 				FAIL("Unable to configure source stream[%zu]: %d", i, err);
@@ -624,7 +668,8 @@ static void codec_configure_streams(size_t stream_cnt)
 
 		if (pair_params[i].tx_param != NULL && g_sinks[i] != NULL) {
 			struct bt_bap_stream *stream = pair_params[i].tx_param->stream;
-			const int err = codec_configure_stream(stream, g_sinks[i]);
+			const int err = codec_configure_stream(stream, g_sinks[i],
+							       &preset_16_2_1.codec_cfg);
 
 			if (err != 0) {
 				FAIL("Unable to configure sink stream[%zu]: %d", i, err);
@@ -731,6 +776,64 @@ static void metadata_update_streams(size_t stream_cnt)
 	}
 }
 
+static int connect_stream(struct bt_bap_stream *stream)
+{
+	int err;
+
+	UNSET_FLAG(flag_stream_started);
+
+	do {
+		err = bt_bap_stream_connect(stream);
+		if (err == -EALREADY) {
+			SET_FLAG(flag_stream_started);
+		} else if (err != 0) {
+			FAIL("Could not start stream %p: %d\n", stream, err);
+			return err;
+		}
+	} while (err == -EBUSY);
+
+	WAIT_FOR_FLAG(flag_stream_started);
+
+	return 0;
+}
+
+static void connect_streams(void)
+{
+	struct bt_bap_stream *source_stream;
+	struct bt_bap_stream *sink_stream;
+
+	/* We only support a single CIS so far, so only start one. We can use the group pair
+	 * params to start both a sink and source stream that use the same CIS
+	 */
+
+	source_stream = pair_params[0].rx_param == NULL ? NULL : pair_params[0].rx_param->stream;
+	sink_stream = pair_params[0].tx_param == NULL ? NULL : pair_params[0].tx_param->stream;
+
+	UNSET_FLAG(flag_stream_connected);
+
+	if (sink_stream != NULL) {
+		const int err = connect_stream(sink_stream);
+
+		if (err != 0) {
+			FAIL("Unable to connect sink: %d", err);
+
+			return;
+		}
+	}
+
+	if (source_stream != NULL) {
+		const int err = connect_stream(source_stream);
+
+		if (err != 0) {
+			FAIL("Unable to connect source stream: %d", err);
+
+			return;
+		}
+	}
+
+	WAIT_FOR_FLAG(flag_stream_connected);
+}
+
 static int start_stream(struct bt_bap_stream *stream)
 {
 	int err;
@@ -755,24 +858,8 @@ static int start_stream(struct bt_bap_stream *stream)
 static void start_streams(void)
 {
 	struct bt_bap_stream *source_stream;
-	struct bt_bap_stream *sink_stream;
-
-	/* We only support a single CIS so far, so only start one. We can use the group pair
-	 * params to start both a sink and source stream that use the same CIS
-	 */
 
 	source_stream = pair_params[0].rx_param == NULL ? NULL : pair_params[0].rx_param->stream;
-	sink_stream = pair_params[0].tx_param == NULL ? NULL : pair_params[0].tx_param->stream;
-
-	if (sink_stream != NULL) {
-		const int err = start_stream(sink_stream);
-
-		if (err != 0) {
-			FAIL("Unable to start sink: %d", err);
-
-			return;
-		}
-	}
 
 	if (source_stream != NULL) {
 		const int err = start_stream(source_stream);
@@ -841,6 +928,42 @@ static void disable_streams(size_t stream_cnt)
 		WAIT_FOR_FLAG(flag_operation_success);
 		WAIT_FOR_FLAG(flag_stream_disabled);
 	}
+}
+
+static void stop_streams(size_t stream_cnt)
+{
+	UNSET_FLAG(flag_stream_disconnected);
+
+	for (size_t i = 0; i < stream_cnt; i++) {
+		struct bt_bap_stream *source_stream;
+		int err;
+
+		/* We can only stop source streams */
+		source_stream =
+			pair_params[i].rx_param == NULL ? NULL : pair_params[i].rx_param->stream;
+
+		if (source_stream == NULL) {
+			continue;
+		}
+
+		UNSET_FLAG(flag_operation_success);
+		UNSET_FLAG(flag_stream_stopped);
+
+		do {
+			err = bt_bap_stream_stop(source_stream);
+			if (err == -EBUSY) {
+				k_sleep(BAP_STREAM_RETRY_WAIT);
+			} else if (err != 0) {
+				FAIL("Could not stop stream: %d\n", err);
+				return;
+			}
+		} while (err == -EBUSY);
+
+		WAIT_FOR_FLAG(flag_operation_success);
+		WAIT_FOR_FLAG(flag_stream_stopped);
+	}
+
+	WAIT_FOR_FLAG(flag_stream_disconnected);
 }
 
 static void release_streams(size_t stream_cnt)
@@ -961,8 +1084,10 @@ static void test_main(void)
 	exchange_mtu();
 
 	discover_sinks();
+	discover_sinks(); /* test that we can discover twice */
 
 	discover_sources();
+	discover_sources(); /* test that we can discover twice */
 
 	/* Run the stream setup multiple time to ensure states are properly
 	 * set and reset
@@ -988,14 +1113,20 @@ static void test_main(void)
 		printk("Metadata update streams\n");
 		metadata_update_streams(stream_cnt);
 
+		printk("Connecting streams\n");
+		connect_streams();
+
 		printk("Starting streams\n");
 		start_streams();
 
 		printk("Starting transceiving\n");
 		transceive_streams();
 
-		printk("Stopping streams\n");
+		printk("Disabling streams\n");
 		disable_streams(stream_cnt);
+
+		printk("Stopping streams\n");
+		stop_streams(stream_cnt);
 
 		printk("Releasing streams\n");
 		release_streams(stream_cnt);
@@ -1043,6 +1174,9 @@ static void test_main_acl_disconnect(void)
 	printk("Metadata update streams\n");
 	metadata_update_streams(stream_cnt);
 
+	printk("Connecting streams\n");
+	connect_streams();
+
 	printk("Starting streams\n");
 	start_streams();
 
@@ -1060,18 +1194,66 @@ static void test_main_acl_disconnect(void)
 	PASS("Unicast client ACL disconnect passed\n");
 }
 
+static void test_main_async_group(void)
+{
+	struct bt_bap_stream rx_stream = {0};
+	struct bt_bap_stream tx_stream = {0};
+	struct bt_audio_codec_qos rx_qos = BT_AUDIO_CODEC_QOS_UNFRAMED(7500U, 30U, 2U, 75U, 40000U);
+	struct bt_audio_codec_qos tx_qos =
+		BT_AUDIO_CODEC_QOS_UNFRAMED(10000U, 40U, 2U, 100U, 40000U);
+	struct bt_bap_unicast_group_stream_param rx_param = {
+		.qos = &rx_qos,
+		.stream = &rx_stream,
+	};
+	struct bt_bap_unicast_group_stream_param tx_param = {
+		.qos = &tx_qos,
+		.stream = &tx_stream,
+	};
+	struct bt_bap_unicast_group_stream_pair_param pair_param = {
+		.rx_param = &rx_param,
+		.tx_param = &tx_param,
+	};
+	struct bt_bap_unicast_group_param param = {
+		.params = &pair_param,
+		.params_count = 1U,
+		.packing = BT_ISO_PACKING_SEQUENTIAL,
+	};
+	struct bt_bap_unicast_group *unicast_group;
+	int err;
+
+	init();
+
+	err = bt_bap_unicast_group_create(&param, &unicast_group);
+	if (err != 0) {
+		FAIL("Unable to create unicast group: %d", err);
+
+		return;
+	}
+
+	PASS("Unicast client async group parameters passed\n");
+}
+
 static const struct bst_test_instance test_unicast_client[] = {
 	{
 		.test_id = "unicast_client",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_main,
 	},
 	{
 		.test_id = "unicast_client_acl_disconnect",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_main_acl_disconnect,
+	},
+	{
+		.test_id = "unicast_client_async_group",
+		.test_pre_init_f = test_init,
+		.test_tick_f = test_tick,
+		.test_main_f = test_main_async_group,
+		.test_descr = "Tests that a unicast group (CIG) can be created with different "
+			      "values in each direction, such as 10000us SDU interval in C to P "
+			      "and 7500us for P to C",
 	},
 	BSTEST_END_MARKER,
 };

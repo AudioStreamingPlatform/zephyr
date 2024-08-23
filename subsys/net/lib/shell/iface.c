@@ -6,6 +6,8 @@
  */
 
 #include <zephyr/logging/log.h>
+#include <zephyr/random/random.h>
+#include <strings.h>
 LOG_MODULE_DECLARE(net_shell);
 
 #if defined(CONFIG_NET_L2_ETHERNET)
@@ -17,8 +19,14 @@ LOG_MODULE_DECLARE(net_shell);
 #if defined(CONFIG_NET_L2_VIRTUAL)
 #include <zephyr/net/virtual.h>
 #endif
+#if defined(CONFIG_ETH_PHY_DRIVER)
+#include <zephyr/net/phy.h>
+#endif
 
 #include "net_shell_private.h"
+
+#define UNICAST_MASK GENMASK(7, 1)
+#define LOCAL_BIT BIT(1)
 
 #if defined(CONFIG_NET_L2_ETHERNET) && defined(CONFIG_NET_NATIVE)
 struct ethernet_capabilities {
@@ -54,15 +62,34 @@ static void print_supported_ethernet_capabilities(
 	const struct shell *sh, struct net_if *iface)
 {
 	enum ethernet_hw_caps caps = net_eth_get_hw_capabilities(iface);
-	int i;
 
-	for (i = 0; i < ARRAY_SIZE(eth_hw_caps); i++) {
+	ARRAY_FOR_EACH(eth_hw_caps, i) {
 		if (caps & eth_hw_caps[i].capability) {
 			PR("\t%s\n", eth_hw_caps[i].description);
 		}
 	}
 }
 #endif /* CONFIG_NET_L2_ETHERNET */
+
+#ifdef CONFIG_ETH_PHY_DRIVER
+static void print_phy_link_state(const struct shell *sh, const struct device *phy_dev)
+{
+	struct phy_link_state link;
+	int ret;
+
+	ret = phy_get_link_state(phy_dev, &link);
+	if (ret < 0) {
+		PR_ERROR("Failed to get link state (%d)\n", ret);
+		return;
+	}
+
+	PR("Ethernet link speed: %s ", PHY_LINK_IS_SPEED_1000M(link.speed)  ? "1 Gbits"
+				       : PHY_LINK_IS_SPEED_100M(link.speed) ? "100 Mbits"
+									    : "10 Mbits");
+
+	PR("%s-duplex\n", PHY_LINK_IS_FULL_DUPLEX(link.speed) ? "full" : "half");
+}
+#endif
 
 #if defined(CONFIG_NET_NATIVE)
 static const char *iface_flags2str(struct net_if *iface)
@@ -137,9 +164,6 @@ static void iface_cb(struct net_if *iface, void *user_data)
 #if defined(CONFIG_NET_IPV4)
 	struct net_if_ipv4 *ipv4;
 #endif
-#if defined(CONFIG_NET_VLAN)
-	struct ethernet_context *eth_ctx;
-#endif
 #if defined(CONFIG_NET_IP)
 	struct net_if_addr *unicast;
 	struct net_if_mcast_addr *mcast;
@@ -149,8 +173,8 @@ static void iface_cb(struct net_if *iface, void *user_data)
 	int ret;
 #endif
 	const char *extra;
-#if defined(CONFIG_NET_IP)
-	int i, count;
+#if defined(CONFIG_NET_IP) || defined(CONFIG_NET_L2_ETHERNET_MGMT)
+	int count;
 #endif
 
 	if (data->user_data && data->user_data != iface) {
@@ -218,7 +242,7 @@ static void iface_cb(struct net_if *iface, void *user_data)
 			name = "<unknown>";
 		}
 
-		PR("Name      : %s\n", name);
+		PR("Virtual name : %s\n", name);
 
 		orig_iface = net_virtual_get_iface(iface);
 		if (orig_iface == NULL) {
@@ -257,7 +281,7 @@ static void iface_cb(struct net_if *iface, void *user_data)
 		if (!ret && params.priority_queues_num) {
 			count = params.priority_queues_num;
 			PR("Priority queues:\n");
-			for (i = 0; i < count; ++i) {
+			for (int i = 0; i < count; ++i) {
 				params.qav_param.queue_id = i;
 				params.qav_param.type =
 					ETHERNET_QAV_PARAM_TYPE_STATUS;
@@ -286,23 +310,16 @@ static void iface_cb(struct net_if *iface, void *user_data)
 #endif
 
 #if defined(CONFIG_NET_VLAN)
-	if (net_if_l2(iface) == &NET_L2_GET_NAME(ETHERNET)) {
-		eth_ctx = net_if_l2_data(iface);
+	if (net_if_l2(iface) == &NET_L2_GET_NAME(VIRTUAL)) {
+		if (net_virtual_get_iface_capabilities(iface) & VIRTUAL_INTERFACE_VLAN) {
+			uint16_t tag;
 
-		if (eth_ctx->vlan_enabled) {
-			for (i = 0; i < CONFIG_NET_VLAN_COUNT; i++) {
-				if (eth_ctx->vlan[i].iface != iface ||
-				    eth_ctx->vlan[i].tag ==
-							NET_VLAN_TAG_UNSPEC) {
-					continue;
-				}
-
-				PR("VLAN tag  : %d (0x%x)\n",
-				   eth_ctx->vlan[i].tag,
-				   eth_ctx->vlan[i].tag);
+			tag = net_eth_get_vlan_tag(iface);
+			if (tag == NET_VLAN_TAG_UNSPEC) {
+				PR("VLAN not configured\n");
+			} else {
+				PR("VLAN tag  : %d (0x%03x)\n", tag, tag);
 			}
-		} else {
-			PR("VLAN not enabled\n");
 		}
 	}
 #endif
@@ -311,34 +328,44 @@ static void iface_cb(struct net_if *iface, void *user_data)
 	if (net_if_l2(iface) == &NET_L2_GET_NAME(ETHERNET)) {
 		PR("Ethernet capabilities supported:\n");
 		print_supported_ethernet_capabilities(sh, iface);
+
+#ifdef CONFIG_ETH_PHY_DRIVER
+		const struct device *phy_dev = net_eth_get_phy(iface);
+
+		PR("Ethernet PHY device: %s (%p)\n", (phy_dev != NULL) ? phy_dev->name : "<none>",
+		   phy_dev);
+		if (phy_dev != NULL) {
+			print_phy_link_state(sh, phy_dev);
+		}
+#endif /* CONFIG_ETH_PHY_DRIVER */
 	}
 #endif /* CONFIG_NET_L2_ETHERNET */
 
 #if defined(CONFIG_NET_IPV6)
 	count = 0;
+	ipv6 = iface->config.ip.ipv6;
 
-	if (!net_if_flag_is_set(iface, NET_IF_IPV6)) {
+	if (!net_if_flag_is_set(iface, NET_IF_IPV6) || ipv6 == NULL) {
 		PR("%s not %s for this interface.\n", "IPv6", "enabled");
 		ipv6 = NULL;
 		goto skip_ipv6;
 	}
 
-	ipv6 = iface->config.ip.ipv6;
-
 	PR("IPv6 unicast addresses (max %d):\n", NET_IF_MAX_IPV6_ADDR);
-	for (i = 0; ipv6 && i < NET_IF_MAX_IPV6_ADDR; i++) {
+	ARRAY_FOR_EACH(ipv6->unicast, i) {
 		unicast = &ipv6->unicast[i];
 
 		if (!unicast->is_used) {
 			continue;
 		}
 
-		PR("\t%s %s %s%s%s\n",
+		PR("\t%s %s %s%s%s%s\n",
 		   net_sprint_ipv6_addr(&unicast->address.in6_addr),
 		   addrtype2str(unicast->addr_type),
 		   addrstate2str(unicast->addr_state),
 		   unicast->is_infinite ? " infinite" : "",
-		   unicast->is_mesh_local ? " meshlocal" : "");
+		   unicast->is_mesh_local ? " meshlocal" : "",
+		   unicast->is_temporary ? " temporary" : "");
 		count++;
 	}
 
@@ -349,14 +376,15 @@ static void iface_cb(struct net_if *iface, void *user_data)
 	count = 0;
 
 	PR("IPv6 multicast addresses (max %d):\n", NET_IF_MAX_IPV6_MADDR);
-	for (i = 0; ipv6 && i < NET_IF_MAX_IPV6_MADDR; i++) {
+	ARRAY_FOR_EACH(ipv6->mcast, i) {
 		mcast = &ipv6->mcast[i];
 
 		if (!mcast->is_used) {
 			continue;
 		}
 
-		PR("\t%s\n", net_sprint_ipv6_addr(&mcast->address.in6_addr));
+		PR("\t%s%s\n", net_sprint_ipv6_addr(&mcast->address.in6_addr),
+		   net_if_ipv6_maddr_is_joined(mcast) ? "" : "  <not joined>");
 
 		count++;
 	}
@@ -368,7 +396,7 @@ static void iface_cb(struct net_if *iface, void *user_data)
 	count = 0;
 
 	PR("IPv6 prefixes (max %d):\n", NET_IF_MAX_IPV6_PREFIX);
-	for (i = 0; ipv6 && i < NET_IF_MAX_IPV6_PREFIX; i++) {
+	ARRAY_FOR_EACH(ipv6->prefix, i) {
 		prefix = &ipv6->prefix[i];
 
 		if (!prefix->is_used) {
@@ -396,6 +424,12 @@ static void iface_cb(struct net_if *iface, void *user_data)
 
 skip_ipv6:
 
+#if defined(CONFIG_NET_IPV6_PE)
+	PR("IPv6 privacy extension   : %s (preferring %s addresses)\n",
+	   iface->pe_enabled ? "enabled" : "disabled",
+	   iface->pe_prefer_public ? "public" : "temporary");
+#endif
+
 	if (ipv6) {
 		PR("IPv6 hop limit           : %d\n",
 		   ipv6->hop_limit);
@@ -416,9 +450,6 @@ skip_ipv6:
 #if defined(CONFIG_NET_L2_IEEE802154)
 		(net_if_l2(iface) == &NET_L2_GET_NAME(IEEE802154)) ||
 #endif
-#if defined(CONFIG_NET_L2_BT)
-		 (net_if_l2(iface) == &NET_L2_GET_NAME(BLUETOOTH)) ||
-#endif
 		 0) {
 		PR_WARNING("%s not %s for this interface.\n", "IPv4",
 			   "supported");
@@ -426,25 +457,26 @@ skip_ipv6:
 	}
 
 	count = 0;
+	ipv4 = iface->config.ip.ipv4;
 
-	if (!net_if_flag_is_set(iface, NET_IF_IPV4)) {
+	if (!net_if_flag_is_set(iface, NET_IF_IPV4) || ipv4 == NULL) {
 		PR("%s not %s for this interface.\n", "IPv4", "enabled");
 		ipv4 = NULL;
 		goto skip_ipv4;
 	}
 
-	ipv4 = iface->config.ip.ipv4;
-
 	PR("IPv4 unicast addresses (max %d):\n", NET_IF_MAX_IPV4_ADDR);
-	for (i = 0; ipv4 && i < NET_IF_MAX_IPV4_ADDR; i++) {
-		unicast = &ipv4->unicast[i];
+	ARRAY_FOR_EACH(ipv4->unicast, i) {
+		unicast = &ipv4->unicast[i].ipv4;
 
 		if (!unicast->is_used) {
 			continue;
 		}
 
-		PR("\t%s %s %s%s\n",
+		PR("\t%s/%s %s %s%s\n",
 		   net_sprint_ipv4_addr(&unicast->address.in_addr),
+		   net_sprint_ipv4_addr(&ipv4->unicast[i].netmask),
+
 		   addrtype2str(unicast->addr_type),
 		   addrstate2str(unicast->addr_state),
 		   unicast->is_infinite ? " infinite" : "");
@@ -459,14 +491,15 @@ skip_ipv6:
 	count = 0;
 
 	PR("IPv4 multicast addresses (max %d):\n", NET_IF_MAX_IPV4_MADDR);
-	for (i = 0; ipv4 && i < NET_IF_MAX_IPV4_MADDR; i++) {
+	ARRAY_FOR_EACH(ipv4->mcast, i) {
 		mcast = &ipv4->mcast[i];
 
 		if (!mcast->is_used) {
 			continue;
 		}
 
-		PR("\t%s\n", net_sprint_ipv4_addr(&mcast->address.in_addr));
+		PR("\t%s%s\n", net_sprint_ipv4_addr(&mcast->address.in_addr),
+		   net_if_ipv4_maddr_is_joined(mcast) ? "" : "  <not joined>");
 
 		count++;
 	}
@@ -480,24 +513,24 @@ skip_ipv4:
 	if (ipv4) {
 		PR("IPv4 gateway : %s\n",
 		   net_sprint_ipv4_addr(&ipv4->gw));
-		PR("IPv4 netmask : %s\n",
-		   net_sprint_ipv4_addr(&ipv4->netmask));
 	}
 #endif /* CONFIG_NET_IPV4 */
 
 #if defined(CONFIG_NET_DHCPV4)
-	PR("DHCPv4 lease time : %u\n",
-	   iface->config.dhcpv4.lease_time);
-	PR("DHCPv4 renew time : %u\n",
-	   iface->config.dhcpv4.renewal_time);
-	PR("DHCPv4 server     : %s\n",
-	   net_sprint_ipv4_addr(&iface->config.dhcpv4.server_id));
-	PR("DHCPv4 requested  : %s\n",
-	   net_sprint_ipv4_addr(&iface->config.dhcpv4.requested_ip));
-	PR("DHCPv4 state      : %s\n",
-	   net_dhcpv4_state_name(iface->config.dhcpv4.state));
-	PR("DHCPv4 attempts   : %d\n",
-	   iface->config.dhcpv4.attempts);
+	if (net_if_flag_is_set(iface, NET_IF_IPV4)) {
+		PR("DHCPv4 lease time : %u\n",
+		   iface->config.dhcpv4.lease_time);
+		PR("DHCPv4 renew time : %u\n",
+		   iface->config.dhcpv4.renewal_time);
+		PR("DHCPv4 server     : %s\n",
+		   net_sprint_ipv4_addr(&iface->config.dhcpv4.server_id));
+		PR("DHCPv4 requested  : %s\n",
+		   net_sprint_ipv4_addr(&iface->config.dhcpv4.requested_ip));
+		PR("DHCPv4 state      : %s\n",
+		   net_dhcpv4_state_name(iface->config.dhcpv4.state));
+		PR("DHCPv4 attempts   : %d\n",
+		   iface->config.dhcpv4.attempts);
+	}
 #endif /* CONFIG_NET_DHCPV4 */
 
 #else
@@ -541,10 +574,15 @@ static int cmd_net_set_mac(const struct shell *sh, size_t argc, char *argv[])
 		goto err;
 	}
 
-	if ((net_bytes_from_str(mac_addr, sizeof(params.mac_address), argv[2]) < 0) ||
-	    !net_eth_is_addr_valid(&params.mac_address)) {
-		PR_WARNING("Invalid MAC address: %s\n", argv[2]);
-		goto err;
+	if (!strncasecmp(argv[2], "random", 6)) {
+		sys_rand_get(mac_addr, NET_ETH_ADDR_LEN);
+		mac_addr[0] = (mac_addr[0] & UNICAST_MASK) | LOCAL_BIT;
+	} else {
+		if ((net_bytes_from_str(mac_addr, sizeof(params.mac_address), argv[2]) < 0) ||
+		    !net_eth_is_addr_valid(&params.mac_address)) {
+			PR_WARNING("Invalid MAC address: %s\n", argv[2]);
+			goto err;
+		}
 	}
 
 	ret = net_mgmt(NET_REQUEST_ETHERNET_SET_MAC_ADDRESS, iface, &params, sizeof(params));

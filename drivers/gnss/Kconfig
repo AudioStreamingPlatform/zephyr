@@ -60,11 +60,29 @@ config GNSS_INIT_PRIORITY
 	help
 	  Driver initialization priority for GNSS drivers.
 
+config GNSS_U_BLOX_PROTOCOL
+	bool "GNSS U-BLOX protocol"
+	select MODEM_UBX
+	help
+	  Enable gnss u-blox protocol.
+
+choice GNSS_REFERENCE_FRAME
+	bool "GNSS reference frame datum"
+	default GNSS_REFERENCE_FRAME_WGS84
+
+config GNSS_REFERENCE_FRAME_WGS84
+	bool "Use the WGS84 ellipsoid as reference frame datum"
+
+endchoice
+
 module = GNSS
 module-str = gnss
 source "subsys/logging/Kconfig.template.log_config"
 
+rsource "Kconfig.emul"
 rsource "Kconfig.generic"
 rsource "Kconfig.quectel_lcx6g"
+rsource "Kconfig.u_blox_m10"
+rsource "Kconfig.luatos_air530z"
 
 endif

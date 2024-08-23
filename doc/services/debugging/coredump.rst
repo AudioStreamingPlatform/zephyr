@@ -30,6 +30,13 @@ Here are the choices regarding memory dump:
   walking the stack in the debugger. Use this only if absolute minimum of data
   dump is desired.
 
+* ``DEBUG_COREDUMP_MEMORY_DUMP_THREADS``: Dumps the thread struct and stack of all
+  threads and all data required to debug threads.
+
+* ``DEBUG_COREDUMP_MEMORY_DUMP_LINKER_RAM``: Dumps the memory region between
+  _image_ram_start[] and _image_ram_end[]. This includes at least data, noinit,
+  and BSS sections. This is the default.
+
 Additional memory can be included in a dump (even with the "DEBUG_COREDUMP_MEMORY_DUMP_MIN"
 config selected) through one or more :ref:`coredump devices <coredump_device_api>`
 
@@ -55,7 +62,8 @@ This usually involves the following steps:
 
 3. Start the custom GDB server using the script
    :zephyr_file:`scripts/coredump/coredump_gdbserver.py` with the core dump
-   binary log file, and the Zephyr ELF file as parameters.
+   binary log file, and the Zephyr ELF file as parameters. The GDB server
+   can also be started from within GDB, see below.
 
 4. Start the debugger corresponding to the target architecture.
 
@@ -220,11 +228,31 @@ in :file:`coredump.log`:
       #2  0x00100492 in func_1 (addr=0x0) at zephyr/rtos/zephyr/samples/hello_world/src/main.c:28
       #3  0x001004c8 in main () at zephyr/rtos/zephyr/samples/hello_world/src/main.c:42
 
+Starting the GDB server from within GDB
+---------------------------------------
+
+You can use ``target remote |`` to start the custom GDB server from inside
+GDB, instead of in a separate shell.
+
+1. Start GDB:
+
+   .. code-block:: console
+
+      <path to SDK>/x86_64-zephyr-elf/bin/x86_64-zephyr-elf-gdb build/zephyr/zephyr.elf
+
+2. Inside GDB, start the GDB server using the ``--pipe`` option:
+
+   .. code-block:: console
+
+      (gdb) target remote | ./scripts/coredump/coredump_gdbserver.py --pipe build/zephyr/zephyr.elf coredump.bin
+
+
 File Format
 ***********
 
 The core dump binary file consists of one file header, one
-architecture-specific block, and multiple memory blocks. All numbers in
+architecture-specific block, zero or one threads metadata block(s),
+and multiple memory blocks. All numbers in
 the headers below are little endian.
 
 File Header
@@ -294,6 +322,36 @@ to the target architecture (e.g. CPU registers)
    * - Register byte stream
      - ``uint8_t[]``
      - Contains target architecture specific data.
+
+Threads Metadata Block
+---------------------------
+
+The threads metadata block contains the byte stream of data necessary
+for debugging threads.
+
+.. list-table:: Threads Metadata Block
+   :widths: 2 1 7
+   :header-rows: 1
+
+   * - Field
+     - Data Type
+     - Description
+   * - ID
+     - ``char``
+     - ``T`` to indicate this is a threads metadata block.
+   * - Header version
+     - ``uint16_t``
+     - Identify the version of the header. This needs to be incremented
+       whenever the header struct is modified. This allows parser to
+       reject older header versions so it will not incorrectly parse
+       the header.
+   * - Number of bytes
+     - ``uint16_t``
+     - Number of bytes following the header which contains the byte stream
+       for target data.
+   * - Byte stream
+     - ``uint8_t[]``
+     - Contains data necessary for debugging threads.
 
 Memory Block
 ------------

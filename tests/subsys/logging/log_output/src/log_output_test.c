@@ -57,7 +57,7 @@ ZTEST(test_log_output, test_no_flags)
 	log_output_process(&log_output, 0, NULL, SNAME, NULL, LOG_LEVEL_INF, package, NULL, 0, 0);
 
 	mock_buffer[mock_len] = '\0';
-	zassert_equal(strcmp(exp_str, mock_buffer), 0);
+	zassert_str_equal(exp_str, mock_buffer);
 }
 
 ZTEST(test_log_output, test_raw)
@@ -73,7 +73,7 @@ ZTEST(test_log_output, test_raw)
 			   package, NULL, 0, 0);
 
 	mock_buffer[mock_len] = '\0';
-	zassert_equal(strcmp(exp_str, mock_buffer), 0);
+	zassert_str_equal(exp_str, mock_buffer);
 }
 
 ZTEST(test_log_output, test_no_flags_dname)
@@ -88,7 +88,7 @@ ZTEST(test_log_output, test_no_flags_dname)
 	log_output_process(&log_output, 0, DNAME, SNAME, NULL, LOG_LEVEL_INF, package, NULL, 0, 0);
 
 	mock_buffer[mock_len] = '\0';
-	zassert_equal(strcmp(exp_str, mock_buffer), 0);
+	zassert_str_equal(exp_str, mock_buffer);
 }
 
 ZTEST(test_log_output, test_level_flag)
@@ -105,7 +105,7 @@ ZTEST(test_log_output, test_level_flag)
 			   package, NULL, 0, flags);
 
 	mock_buffer[mock_len] = '\0';
-	zassert_equal(strcmp(exp_str, mock_buffer), 0);
+	zassert_str_equal(exp_str, mock_buffer);
 }
 
 ZTEST(test_log_output, test_ts_flag)
@@ -124,7 +124,7 @@ ZTEST(test_log_output, test_ts_flag)
 			   package, NULL, 0, flags);
 
 	mock_buffer[mock_len] = '\0';
-	zassert_equal(strcmp(exp_str, mock_buffer), 0);
+	zassert_str_equal(exp_str, mock_buffer);
 }
 
 ZTEST(test_log_output, test_format_ts)
@@ -145,7 +145,7 @@ ZTEST(test_log_output, test_format_ts)
 
 	mock_buffer[mock_len] = '\0';
 	printk("%s", mock_buffer);
-	zassert_equal(strcmp(exp_str, mock_buffer), 0);
+	zassert_str_equal(exp_str, mock_buffer);
 }
 
 ZTEST(test_log_output, test_ts_to_us)
@@ -182,7 +182,7 @@ ZTEST(test_log_output, test_levels)
 				   package, NULL, 0, flags);
 
 		mock_buffer[mock_len] = '\0';
-		zassert_equal(strcmp(exp_strs[i], mock_buffer), 0);
+		zassert_str_equal(exp_strs[i], mock_buffer);
 	}
 }
 
@@ -192,13 +192,14 @@ ZTEST(test_log_output, test_colors)
 #define LOG_COLOR_CODE_RED     "\x1B[1;31m"
 #define LOG_COLOR_CODE_GREEN   "\x1B[1;32m"
 #define LOG_COLOR_CODE_YELLOW  "\x1B[1;33m"
+#define LOG_COLOR_CODE_BLUE    "\x1B[1;34m"
 
 	char package[256];
 	static const char *const exp_strs[] = {
 		LOG_COLOR_CODE_RED "<err> " SNAME ": " TEST_STR LOG_COLOR_CODE_DEFAULT "\r\n",
 		LOG_COLOR_CODE_YELLOW "<wrn> " SNAME ": " TEST_STR LOG_COLOR_CODE_DEFAULT "\r\n",
 		LOG_COLOR_CODE_DEFAULT "<inf> " SNAME ": " TEST_STR LOG_COLOR_CODE_DEFAULT "\r\n",
-		LOG_COLOR_CODE_DEFAULT "<dbg> " SNAME ": " TEST_STR LOG_COLOR_CODE_DEFAULT "\r\n"
+		LOG_COLOR_CODE_BLUE "<dbg> " SNAME ": " TEST_STR LOG_COLOR_CODE_DEFAULT "\r\n"
 	};
 	uint8_t levels[] = {LOG_LEVEL_ERR, LOG_LEVEL_WRN, LOG_LEVEL_INF, LOG_LEVEL_DBG};
 	uint32_t flags = LOG_OUTPUT_FLAG_LEVEL | LOG_OUTPUT_FLAG_COLORS;
@@ -214,7 +215,7 @@ ZTEST(test_log_output, test_colors)
 				   package, NULL, 0, flags);
 
 		mock_buffer[mock_len] = '\0';
-		zassert_equal(strcmp(exp_strs[i], mock_buffer), 0);
+		zassert_str_equal(exp_strs[i], mock_buffer);
 	}
 }
 
@@ -244,7 +245,25 @@ ZTEST(test_log_output, test_thread_id)
 
 	mock_buffer[mock_len] = '\0';
 	printk("%s", mock_buffer);
-	zassert_equal(strcmp(exp_str, mock_buffer), 0);
+	zassert_str_equal(exp_str, mock_buffer);
+}
+
+ZTEST(test_log_output, test_skip_src)
+{
+	char package[256];
+	const char exp_str[] = TEST_STR "\r\n";
+	uint32_t flags = LOG_OUTPUT_FLAG_SKIP_SOURCE;
+	int err;
+
+	err = cbprintf_package(package, sizeof(package), 0, TEST_STR);
+	zassert_true(err > 0);
+
+	reset_mock_buffer();
+	log_output_process(&log_output, 0, NULL, SNAME, NULL, LOG_LEVEL_INF,
+			   package, NULL, 0, flags);
+
+	mock_buffer[mock_len] = '\0';
+	zassert_str_equal(exp_str, mock_buffer);
 }
 
 static void before(void *notused)

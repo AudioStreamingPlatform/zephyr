@@ -30,13 +30,19 @@ LOG_MODULE_REGISTER(main);
 FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(storage);
 #endif
 
+#if !defined(CONFIG_DISK_DRIVER_FLASH) && \
+	!defined(CONFIG_DISK_DRIVER_RAM) && \
+	!defined(CONFIG_DISK_DRIVER_SDMMC)
+#error No supported disk driver enabled
+#endif
+
 #define STORAGE_PARTITION		storage_partition
 #define STORAGE_PARTITION_ID		FIXED_PARTITION_ID(STORAGE_PARTITION)
 
 static struct fs_mount_t fs_mnt;
 
 #if defined(CONFIG_USB_DEVICE_STACK_NEXT)
-static struct usbd_contex *sample_usbd;
+static struct usbd_context *sample_usbd;
 
 #if CONFIG_DISK_DRIVER_RAM
 USBD_DEFINE_MSC_LUN(RAM, "Zephyr", "RAMDisk", "0.00");
@@ -54,7 +60,7 @@ static int enable_usb_device_next(void)
 {
 	int err;
 
-	sample_usbd = sample_usbd_init_device();
+	sample_usbd = sample_usbd_init_device(NULL);
 	if (sample_usbd == NULL) {
 		LOG_ERR("Failed to initialize USB device");
 		return -ENODEV;
@@ -70,7 +76,7 @@ static int enable_usb_device_next(void)
 
 	return 0;
 }
-#endif /* IS_ENABLED(CONFIG_USB_DEVICE_STACK_NEXT) */
+#endif /* defined(CONFIG_USB_DEVICE_STACK_NEXT) */
 
 static int setup_flash(struct fs_mount_t *mnt)
 {
@@ -89,7 +95,7 @@ static int setup_flash(struct fs_mount_t *mnt)
 
 	if (rc < 0 && IS_ENABLED(CONFIG_APP_WIPE_STORAGE)) {
 		printk("Erasing flash area ... ");
-		rc = flash_area_erase(pfa, 0, pfa->fa_size);
+		rc = flash_area_flatten(pfa, 0, pfa->fa_size);
 		printk("%d\n", rc);
 	}
 

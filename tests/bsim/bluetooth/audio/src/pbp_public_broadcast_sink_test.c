@@ -3,24 +3,35 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#if defined(CONFIG_BT_PBP)
-
-#include <zephyr/sys/byteorder.h>
-
-#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/autoconf.h>
 #include <zephyr/bluetooth/audio/audio.h>
 #include <zephyr/bluetooth/audio/bap.h>
 #include <zephyr/bluetooth/audio/cap.h>
 #include <zephyr/bluetooth/audio/bap_lc3_preset.h>
 #include <zephyr/bluetooth/audio/pacs.h>
 #include <zephyr/bluetooth/audio/pbp.h>
+#include <zephyr/bluetooth/addr.h>
+#include <zephyr/bluetooth/audio/lc3.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/gap.h>
+#include <zephyr/bluetooth/iso.h>
+#include <zephyr/bluetooth/uuid.h>
+#include <zephyr/kernel.h>
+#include <zephyr/net/buf.h>
+#include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/printk.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/sys/util_macro.h>
 
+#include "bstests.h"
 #include "common.h"
 
-#define SEM_TIMEOUT K_SECONDS(1.5)
-#define PA_SYNC_SKIP         5
-#define SYNC_RETRY_COUNT     6 /* similar to retries for connections */
+#if defined(CONFIG_BT_PBP)
+#define SEM_TIMEOUT K_SECONDS(30)
 
 extern enum bst_result_t bst_result;
 
@@ -38,13 +49,11 @@ static struct bt_le_per_adv_sync *bcast_pa_sync;
 static struct bt_bap_stream streams[CONFIG_BT_BAP_BROADCAST_SNK_STREAM_COUNT];
 static struct bt_bap_stream *streams_p[ARRAY_SIZE(streams)];
 
-static const struct bt_audio_codec_cap codec =
-	BT_AUDIO_CODEC_CAP_LC3(BT_AUDIO_CODEC_LC3_FREQ_16KHZ | BT_AUDIO_CODEC_LC3_FREQ_24KHZ
-				| BT_AUDIO_CODEC_LC3_FREQ_48KHZ,
-				BT_AUDIO_CODEC_LC3_DURATION_10,
-				BT_AUDIO_CODEC_LC3_CHAN_COUNT_SUPPORT(1), 40u, 155u, 1u,
-				BT_AUDIO_CONTEXT_TYPE_MEDIA
-);
+static const struct bt_audio_codec_cap codec = BT_AUDIO_CODEC_CAP_LC3(
+	BT_AUDIO_CODEC_CAP_FREQ_16KHZ | BT_AUDIO_CODEC_CAP_FREQ_24KHZ |
+		BT_AUDIO_CODEC_CAP_FREQ_48KHZ,
+	BT_AUDIO_CODEC_CAP_DURATION_10, BT_AUDIO_CODEC_CAP_CHAN_COUNT_SUPPORT(1), 40u, 155u, 1u,
+	BT_AUDIO_CONTEXT_TYPE_MEDIA);
 
 /* Create a mask for the maximum BIS we can sync to using the number of streams
  * we have. We add an additional 1 since the bis indexes start from 1 and not
@@ -52,7 +61,7 @@ static const struct bt_audio_codec_cap codec =
  */
 static const uint32_t bis_index_mask = BIT_MASK(ARRAY_SIZE(streams) + 1U);
 static uint32_t bis_index_bitfield;
-static uint32_t broadcast_id = INVALID_BROADCAST_ID;
+static uint32_t broadcast_id;
 
 static struct bt_pacs_cap cap = {
 	.codec_cap = &codec,
@@ -71,8 +80,9 @@ static void base_recv_cb(struct bt_bap_broadcast_sink *sink, const struct bt_bap
 	k_sem_give(&sem_base_received);
 }
 
-static void syncable_cb(struct bt_bap_broadcast_sink *sink, bool encrypted)
+static void syncable_cb(struct bt_bap_broadcast_sink *sink, const struct bt_iso_biginfo *biginfo)
 {
+	printk("Broadcast sink %p is now syncable\n", sink);
 	k_sem_give(&sem_syncable);
 }
 
@@ -102,25 +112,6 @@ static void recv_cb(struct bt_bap_stream *stream,
 		k_sem_give(&sem_data_received);
 	}
 	printk("Receiving ISO packets\n");
-}
-
-static uint16_t interval_to_sync_timeout(uint16_t interval)
-{
-	uint32_t interval_ms;
-	uint16_t timeout;
-
-	/* Ensure that the following calculation does not overflow silently */
-	__ASSERT(SYNC_RETRY_COUNT < 10, "SYNC_RETRY_COUNT shall be less than 10");
-
-	/* Add retries and convert to unit in 10's of ms */
-	interval_ms = BT_GAP_PER_ADV_INTERVAL_TO_MS(interval);
-	timeout = (interval_ms * SYNC_RETRY_COUNT) / 10;
-
-	/* Enforce restraints */
-	timeout = CLAMP(timeout, BT_GAP_PER_ADV_MIN_TIMEOUT,
-			BT_GAP_PER_ADV_MAX_TIMEOUT);
-
-	return timeout;
 }
 
 static bool pa_decode_base(struct bt_data *data, void *user_data)
@@ -155,6 +146,7 @@ static void broadcast_pa_recv(struct bt_le_per_adv_sync *sync,
 static void broadcast_pa_synced(struct bt_le_per_adv_sync *sync,
 			struct bt_le_per_adv_sync_synced_info *info)
 {
+	printk("PA synced\n");
 	k_sem_give(&sem_pa_synced);
 }
 
@@ -189,6 +181,11 @@ static int reset(void)
 	k_sem_reset(&sem_base_received);
 	k_sem_reset(&sem_syncable);
 	k_sem_reset(&sem_pa_sync_lost);
+	k_sem_reset(&sem_data_received);
+
+	broadcast_id = INVALID_BROADCAST_ID;
+	bis_index_bitfield = 0U;
+	pbs_found = false;
 
 	if (broadcast_sink != NULL) {
 		err = bt_bap_broadcast_sink_delete(broadcast_sink);
@@ -247,7 +244,7 @@ static void sync_broadcast_pa(const struct bt_le_scan_recv_info *info)
 	bt_le_scan_cb_unregister(&broadcast_scan_cb);
 	err = bt_le_scan_stop();
 	if (err != 0) {
-		printk("Could not stop scan: %d", err);
+		printk("Could not stop scan: %d\n", err);
 	}
 
 	bt_addr_le_copy(&param.addr, info->addr);
@@ -257,16 +254,16 @@ static void sync_broadcast_pa(const struct bt_le_scan_recv_info *info)
 	param.timeout = interval_to_sync_timeout(info->interval);
 	err = bt_le_per_adv_sync_create(&param, &bcast_pa_sync);
 	if (err != 0) {
-		printk("Could not sync to PA: %d", err);
-
+		printk("Could not sync to PA: %d\n", err);
 	}
 }
 
 static bool scan_check_and_sync_broadcast(struct bt_data *data, void *user_data)
 {
+	enum bt_pbp_announcement_feature source_features;
 	struct bt_uuid_16 adv_uuid;
-	uint8_t source_features = 0U;
-	uint8_t meta[50];
+	uint8_t *tmp_meta;
+	int ret;
 
 	if (data->type != BT_DATA_SVC_DATA16) {
 		return true;
@@ -288,17 +285,10 @@ static bool scan_check_and_sync_broadcast(struct bt_data *data, void *user_data)
 		}
 	}
 
-	if (!bt_uuid_cmp(&adv_uuid.uuid, BT_UUID_PBA)) {
-		bt_pbp_parse_announcement(data, &source_features, meta);
-		if (!(source_features & BT_PBP_ANNOUNCEMENT_FEATURE_HIGH_QUALITY)) {
-			/* This is a Standard Quality Public Broadcast Audio stream - do not sync */
-			printk("This is a Standard Quality Public Broadcast Audio stream\n");
-			pbs_found = false;
-
-			return true;
-		}
-
-		printk("Found Suitable Public Broadcast Announcement\n");
+	ret = bt_pbp_parse_announcement(data, &source_features, &tmp_meta);
+	if (ret >= 0) {
+		printk("Found Suitable Public Broadcast Announcement with %d octets of metadata\n",
+		       ret);
 		pbs_found = true;
 
 		/* Continue parsing if Broadcast Audio Announcement Service was not found */
@@ -339,6 +329,7 @@ static void test_main(void)
 	init();
 
 	while (count < PBP_STREAMS_TO_SEND) {
+		printk("Resetting for iteration %d\n", count);
 		err = reset();
 		if (err != 0) {
 			printk("Resetting failed: %d\n", err);
@@ -349,6 +340,7 @@ static void test_main(void)
 		bt_le_scan_cb_register(&broadcast_scan_cb);
 
 		/* Start scanning */
+		printk("Starting scan\n");
 		err = bt_le_scan_start(BT_LE_SCAN_PASSIVE, NULL);
 		if (err) {
 			printk("Scan start failed (err %d)\n", err);
@@ -356,6 +348,7 @@ static void test_main(void)
 		}
 
 		/* Wait for PA sync */
+		printk("Waiting for PA Sync\n");
 		err = k_sem_take(&sem_pa_synced, SEM_TIMEOUT);
 		if (err != 0) {
 			printk("sem_pa_synced timed out\n");
@@ -363,6 +356,7 @@ static void test_main(void)
 		}
 
 		/* Wait for BASE decode */
+		printk("Waiting for BASE\n");
 		err = k_sem_take(&sem_base_received, SEM_TIMEOUT);
 		if (err != 0) {
 			printk("sem_base_received timed out\n");
@@ -370,19 +364,22 @@ static void test_main(void)
 		}
 
 		/* Create broadcast sink */
+		printk("Creating broadcast sink\n");
 		err = bt_bap_broadcast_sink_create(bcast_pa_sync, broadcast_id, &broadcast_sink);
 		if (err != 0) {
 			printk("Sink not created!\n");
 			break;
 		}
 
-		k_sem_take(&sem_syncable, SEM_TIMEOUT);
+		printk("Waiting for syncable\n");
+		err = k_sem_take(&sem_syncable, SEM_TIMEOUT);
 		if (err != 0) {
 			printk("sem_syncable timed out\n");
 			break;
 		}
 
 		/* Sync to broadcast source */
+		printk("Syncing broadcast sink\n");
 		err = bt_bap_broadcast_sink_sync(broadcast_sink, bis_index_bitfield,
 						 streams_p, NULL);
 		if (err != 0) {
@@ -391,26 +388,31 @@ static void test_main(void)
 		}
 
 		/* Wait for data */
+		printk("Waiting for data\n");
 		k_sem_take(&sem_data_received, SEM_TIMEOUT);
 
+		printk("Sending signal to broadcaster to stop\n");
+		backchannel_sync_send_all(); /* let the broadcast source know it can stop */
+
 		/* Wait for the stream to end */
+		printk("Waiting for sync lost\n");
 		k_sem_take(&sem_pa_sync_lost, SEM_TIMEOUT);
 
 		count++;
 	}
 
-	if (count == PBP_STREAMS_TO_SEND - 1) {
+	if (count == PBP_STREAMS_TO_SEND) {
 		/* Pass if we synced only with the high quality broadcast */
 		PASS("Public Broadcast sink passed\n");
 	} else {
-		FAIL("Public Broadcast sink failed\n");
+		FAIL("Public Broadcast sink failed (%d/%d)\n", count, PBP_STREAMS_TO_SEND);
 	}
 }
 
 static const struct bst_test_instance test_public_broadcast_sink[] = {
 	{
 		.test_id = "public_broadcast_sink",
-		.test_post_init_f = test_init,
+		.test_pre_init_f = test_init,
 		.test_tick_f = test_tick,
 		.test_main_f = test_main
 	},

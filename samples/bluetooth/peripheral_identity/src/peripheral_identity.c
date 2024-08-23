@@ -12,6 +12,7 @@
 
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/hci.h>
 
 static struct k_work work_adv_start;
 static uint8_t volatile conn_count;
@@ -22,6 +23,10 @@ static const struct bt_data ad[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
 };
 
+static const struct bt_data sd[] = {
+	BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof(CONFIG_BT_DEVICE_NAME) - 1),
+};
+
 static void adv_start(struct k_work *work)
 {
 	struct bt_le_adv_param adv_param = {
@@ -29,7 +34,6 @@ static void adv_start(struct k_work *work)
 		.sid = 0,
 		.secondary_max_skip = 0,
 		.options = (BT_LE_ADV_OPT_CONNECTABLE |
-			    BT_LE_ADV_OPT_USE_NAME |
 			    BT_LE_ADV_OPT_ONE_TIME),
 		.interval_min = 0x0020, /* 20 ms */
 		.interval_max = 0x0020, /* 20 ms */
@@ -57,7 +61,7 @@ static void adv_start(struct k_work *work)
 	printk("Using current id: %u\n", id_current);
 	adv_param.id = id_current;
 
-	err = bt_le_adv_start(&adv_param, ad, ARRAY_SIZE(ad), NULL, 0);
+	err = bt_le_adv_start(&adv_param, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
 	if (err) {
 		printk("Advertising failed to start (err %d)\n", err);
 		return;
@@ -76,7 +80,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	char addr[BT_ADDR_LE_STR_LEN];
 
 	if (err) {
-		printk("Connection failed (err 0x%02x)\n", err);
+		printk("Connection failed, err 0x%02x %s\n", err, bt_hci_err_to_str(err));
 		return;
 	}
 
@@ -96,7 +100,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
-	printk("Disconnected %s (reason 0x%02x)\n", addr, reason);
+	printk("Disconnected %s, reason %s(0x%02x)\n", addr, bt_hci_err_to_str(reason), reason);
 
 	if ((conn_count == 1U) && is_disconnecting) {
 		is_disconnecting = false;
@@ -167,8 +171,8 @@ static void security_changed(struct bt_conn *conn, bt_security_t level,
 	if (!err) {
 		printk("Security changed: %s level %u\n", addr, level);
 	} else {
-		printk("Security failed: %s level %u err %d\n", addr, level,
-		       err);
+		printk("Security failed: %s level %u err %s(%d)\n", addr, level,
+		       bt_security_err_to_str(err), err);
 	}
 }
 

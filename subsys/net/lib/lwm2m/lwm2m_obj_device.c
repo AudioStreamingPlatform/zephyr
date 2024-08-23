@@ -176,7 +176,7 @@ static int reset_error_list_cb(uint16_t obj_inst_id,
 static void *current_time_read_cb(uint16_t obj_inst_id, uint16_t res_id,
 				  uint16_t res_inst_id, size_t *data_len)
 {
-	time_temp = time_offset + (k_uptime_get() / 1000);
+	time_temp = time_offset + k_uptime_seconds();
 	*data_len = sizeof(time_temp);
 
 	return &time_temp;
@@ -190,15 +190,15 @@ static void *current_time_pre_write_cb(uint16_t obj_inst_id, uint16_t res_id,
 }
 
 static int current_time_post_write_cb(uint16_t obj_inst_id, uint16_t res_id,
-				      uint16_t res_inst_id,
-				      uint8_t *data, uint16_t data_len,
-				      bool last_block, size_t total_size)
+				      uint16_t res_inst_id, uint8_t *data,
+				      uint16_t data_len, bool last_block,
+				      size_t total_size, size_t offset)
 {
 	if (data_len == 4U) {
-		time_offset = *(uint32_t *)data - (uint32_t)(k_uptime_get() / 1000);
+		time_offset = *(uint32_t *)data - k_uptime_seconds();
 		return 0;
 	} else if (data_len == 8U) {
-		time_offset = *(time_t *)data - (time_t)(k_uptime_get() / 1000);
+		time_offset = *(time_t *)data - (time_t)k_uptime_seconds();
 		return 0;
 	}
 
@@ -259,32 +259,35 @@ static int lwm2m_obj_device_settings_set(const char *name, size_t len,
 	int rc;
 	int i;
 
-	if (settings_name_steq(name, ERROR_LIST_KEY, &next) && !next) {
-		if (len > sizeof(error_code_list)) {
-			LOG_ERR("Error code list too large: %zu", len);
-			return -EINVAL;
-		}
-
-		rc = read_cb(cb_arg, error_code_list, sizeof(error_code_list));
-		if (rc == 0) {
-			reset_error_list();
-			return 0;
-		} else if (rc > 0) {
-			for (i = 0; i < ARRAY_SIZE(error_code_list); i++) {
-				if (i < rc) {
-					error_code_ri[i].res_inst_id = i;
-				} else {
-					/* Reset remaining error code instances */
-					error_code_list[i] = LWM2M_DEVICE_ERROR_NONE;
-					error_code_ri[i].res_inst_id = RES_INSTANCE_NOT_CREATED;
-				}
+	if (IS_ENABLED(CONFIG_LWM2M_DEVICE_ERROR_CODE_SETTINGS)) {
+		if (settings_name_steq(name, ERROR_LIST_KEY, &next) && !next) {
+			if (len > sizeof(error_code_list)) {
+				LOG_ERR("Error code list too large: %zu", len);
+				return -EINVAL;
 			}
-			return 0;
+
+			rc = read_cb(cb_arg, error_code_list, sizeof(error_code_list));
+			if (rc == 0) {
+				reset_error_list();
+				return 0;
+			} else if (rc > 0) {
+				for (i = 0; i < ARRAY_SIZE(error_code_list); i++) {
+					if (i < rc) {
+						error_code_ri[i].res_inst_id = i;
+					} else {
+						/* Reset remaining error code instances */
+						error_code_list[i] = LWM2M_DEVICE_ERROR_NONE;
+						error_code_ri[i].res_inst_id =
+							RES_INSTANCE_NOT_CREATED;
+					}
+				}
+				return 0;
+			}
+
+			LOG_ERR("Error code list read failure: %d", rc);
+
+			return rc;
 		}
-
-		LOG_ERR("Error code list read failure: %d", rc);
-
-		return rc;
 	}
 
 	return -ENOENT;
@@ -393,4 +396,4 @@ static int lwm2m_device_init(void)
 	return ret;
 }
 
-SYS_INIT(lwm2m_device_init, APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
+LWM2M_CORE_INIT(lwm2m_device_init);

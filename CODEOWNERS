@@ -19,20 +19,13 @@
 # entries that are not covered by the MAINTAINERS file.
 
 /soc/arm/aspeed/                          @aspeeddylan
-/soc/arm/atmel_sam/common/*_sam4l_*.c     @nandojve
-/soc/arm/atmel_sam/sam3x/                 @ioannisg
-/soc/arm/atmel_sam/sam4e/                 @nandojve
-/soc/arm/atmel_sam/sam4l/                 @nandojve
-/soc/arm/atmel_sam/sam4s/                 @fallrisk
-/soc/arm/atmel_sam/same70/                @nandojve
-/soc/arm/atmel_sam/samv71/                @nandojve
+/soc/atmel/                               @nandojve
 /soc/arm/bcm*/                            @sbranden
+/soc/arm/ene/                             @ene-steven
 /soc/arm/infineon_cat1/                   @ifyall @npal-cy
 /soc/arm/infineon_xmc/                    @parthitce
 /soc/arm/silabs_exx32/efm32pg1b/          @rdmeneze
 /soc/arm/silabs_exx32/efr32mg21/          @l-alfred
-/soc/arm/st_stm32/                        @erwango
-/soc/arm/st_stm32/*/power.c               @FRASTM
 /soc/arm/st_stm32/stm32mp1/               @arnopo
 /soc/arm/st_stm32/stm32h7/*stm32h735*     @benediktibk
 /soc/arm/st_stm32/stm32l4/*stm32l451*     @benediktibk
@@ -46,7 +39,10 @@
 /soc/riscv/riscv-privileged/andes_v5/      @cwshu @kevinwang821020 @jimmyzhe
 /soc/riscv/riscv-privileged/neorv32/       @henrikbrixandersen
 /soc/riscv/riscv-privileged/gd32vf103/     @soburi
+/soc/starfive/jh71xx/ 			  @pfarwsi
 /soc/riscv/riscv-privileged/niosv/         @sweeaun
+/boards/adafruit/feather_nrf52840/        @jacobw
+/boards/ene/                              @ene-steven
 /boards/arm/96b_argonkey/                 @avisconti
 /boards/arm/96b_avenger96/                @Mani-Sadhasivam
 /boards/arm/96b_carbon/                   @idlethread
@@ -58,8 +54,6 @@
 /boards/arm/acn52832/                     @sven-hm
 /boards/arm/arduino_mkrzero/              @soburi
 /boards/arm/bbc_microbit_v2/              @LingaoM
-/boards/arm/bl5340_dvk/                   @lairdjm
-/boards/arm/bl65*/                        @lairdjm
 /boards/arm/blackpill_f401ce/             @coderkalyan
 /boards/arm/blackpill_f411ce/             @coderkalyan
 /boards/arm/bt*10/                        @greg-leach
@@ -70,7 +64,6 @@
 /boards/arm/cy8ckit_062s4/                @DaWei8823
 /boards/arm/cy8ckit_062_wifi_bt/          @ifyall @npal-cy
 /boards/arm/cy8cproto_062_4343w/          @ifyall @npal-cy
-/boards/arm/disco_l475_iot1/              @erwango
 /boards/arm/efm32pg_stk3401a/             @rdmeneze
 /boards/arm/faze/                         @mbittan @simonguinot
 /boards/arm/frdm*/                        @mmahadevan108 @dleach02
@@ -80,7 +73,6 @@
 /boards/arm/ip_k66f/                      @parthitce @lmajewski
 /boards/arm/legend/                       @mbittan @simonguinot
 /boards/arm/lpcxpresso*/                  @mmahadevan108 @dleach02
-/boards/arm/mg100/                        @rerickson1
 /boards/arm/mimx8mm_evk/                  @Mani-Sadhasivam
 /boards/arm/mimx8mm_phyboard_polis        @pefech
 /boards/arm/mimxrt*/                      @mmahadevan108 @dleach02
@@ -88,10 +80,8 @@
 /boards/arm/msp_exp432p401r_launchxl/     @Mani-Sadhasivam
 /boards/arm/npcx7m6fb_evb/                @MulinChao @ChiHuaL
 /boards/arm/nrf*/                         @carlescufi @lemrey
-/boards/arm/nucleo*/                      @erwango @ABOSTM @FRASTM
 /boards/arm/nucleo_f401re/                @idlethread
 /boards/arm/nuvoton_pfm_m487/             @ssekar15
-/boards/arm/pinnacle_100_dvk/             @rerickson1
 /boards/arm/qemu_cortex_a9/               @ibirnbaum
 /boards/arm/qemu_cortex_r*/               @stephanosio
 /boards/arm/qemu_cortex_m*/               @ioannisg @stephanosio
@@ -101,11 +91,7 @@
 /boards/arm/rpi_pico/                     @yonsch
 /boards/arm/ronoth_lodev/                 @NorthernDean
 /boards/arm/xmc45_relax_kit/              @parthitce
-/boards/arm/sam4e_xpro/                   @nandojve
-/boards/arm/sam4l_ek/                     @nandojve
-/boards/arm/sam4s_xplained/               @fallrisk
-/boards/arm/sam_e70_xplained/             @nandojve
-/boards/arm/sam_v71_xult/                 @nandojve
+/boards/atmel/                            @nandojve
 /boards/arm/scobc_module1/                @yashi
 /boards/arm/v2m_beetle/                   @fvincenzo
 /boards/arm/olimexino_stm32/              @ydamigos
@@ -113,14 +99,13 @@
 /boards/arm/sensortile_box/               @avisconti
 /boards/arm/steval_fcu001v1/              @Navin-Sankar
 /boards/arm/stm32l1_disco/                @karlp
-/boards/arm/stm32*_disco/                 @erwango @ABOSTM @FRASTM
 /boards/arm/stm32h735g_disco/             @benediktibk
 /boards/arm/stm32f3_disco/                @ydamigos
-/boards/arm/stm32*_eval/                  @erwango @ABOSTM @FRASTM
 /boards/arm/rcar_*/                       @aaillet
 /boards/arm/ubx_bmd345eval_nrf52840/      @Navin-Sankar @brec-u-blox
 /boards/arm/nrf5340_audio_dk_nrf5340      @koffes @alexsven @erikrobstad @rick1082 @gWacey
 /boards/arm/stm32_min_dev/                @sidcha
+/boards/ezurio/*                          @rerickson1
 /boards/riscv/rv32m1_vega/                @dleach02
 /boards/riscv/adp_xc7k_ae350/             @cwshu @kevinwang821020 @jimmyzhe
 /boards/riscv/longan_nano/                @soburi
@@ -128,6 +113,7 @@
 /boards/riscv/niosv*/                     @sweeaun
 /boards/riscv/sparkfun_red_v_things_plus/ @soburi
 /boards/riscv/stamp_c3/                   @soburi
+/boards/starfive/visionfive2/	 	  @kanakshilledar @pfarwsi
 /boards/shields/atmel_rf2xx/              @nandojve
 /boards/shields/esp_8266/                 @nandojve
 /boards/shields/inventek_eswifi/          @nandojve
@@ -157,9 +143,7 @@
 /drivers/*/*sam4l*                        @nandojve
 /drivers/*/*cc13xx_cc26xx*                @bwitherspoon
 /drivers/*/*gd32*                         @nandojve
-/drivers/*/*litex*                        @mateusz-holenko @kgugala @pgielda
 /drivers/*/*mcux*                         @mmahadevan108 @dleach02
-/drivers/*/*stm32*                        @erwango @ABOSTM @FRASTM
 /drivers/*/*native_posix*                 @aescolar @daor-oti
 /drivers/*/*lpc11u6x*                     @mbittan @simonguinot
 /drivers/*/*npcx*                         @MulinChao @ChiHuaL
@@ -172,7 +156,8 @@
 /drivers/adc/adc_rpi_pico.c               @soburi
 /drivers/adc/*ads114s0x*                  @benediktibk
 /drivers/adc/*max11102_17*                @benediktibk
-/drivers/adc/adc_ad5592.c                 @bbilas
+/drivers/adc/*kb1200*                     @ene-steven
+/drivers/adc/adc_ad559x.c                 @bbilas
 /drivers/audio/*nrfx*                     @anangl
 /drivers/auxdisplay/*pt6314*              @xingrz
 /drivers/auxdisplay/*                      @thedjnK
@@ -197,12 +182,13 @@
 /drivers/display/*rm68200*                @mmahadevan108
 /drivers/display/display_ili9342c.*       @extremegtx
 /drivers/dac/*ad56xx*                     @benediktibk
-/drivers/dac/dac_ad5592.c                 @bbilas
+/drivers/dac/dac_ad559x.c                 @bbilas
 /drivers/dai/                             @kv2019i @marcinszkudlinski @abonislawski
 /drivers/dai/intel/                       @kv2019i @marcinszkudlinski @abonislawski
 /drivers/dai/intel/ssp/                   @kv2019i @marcinszkudlinski @abonislawski
 /drivers/dai/intel/dmic/                  @marcinszkudlinski @abonislawski
 /drivers/dai/intel/alh/                   @abonislawski
+/drivers/dma/dma_dw_axi.c                 @pbalsundar
 /drivers/dma/*dw*                         @tbursztyka
 /drivers/dma/*dw_common*                  @abonislawski
 /drivers/dma/*sam0*                       @Sizurka
@@ -216,7 +202,6 @@
 /drivers/entropy/*b91*                    @andy-liu-telink
 /drivers/entropy/*bt_hci*                 @JordanYates
 /drivers/entropy/*rv32m1*                 @dleach02
-/drivers/entropy/*litex*                  @mateusz-holenko @kgugala @pgielda
 /drivers/ethernet/*dwmac*                 @npitre
 /drivers/ethernet/*stm32*                 @Nukersson @lochej
 /drivers/ethernet/*w5500*                 @parthitce
@@ -234,10 +219,10 @@
 /drivers/flash/*cc13xx_cc26xx*            @pepe2k
 /drivers/flash/*nrf*                      @de-nordic
 /drivers/flash/*esp32*                    @sylvioalves
+/drivers/flash/flash_cadence_nand*        @nbalabak
 /drivers/gpio/*b91*                       @andy-liu-telink
 /drivers/gpio/*lmp90xxx*                  @henrikbrixandersen
 /drivers/gpio/*nct38xx*                   @MulinChao @ChiHuaL
-/drivers/gpio/*stm32*                     @erwango
 /drivers/gpio/*eos_s3*                    @fkokosinski @kgugala
 /drivers/gpio/*rcar*                      @aaillet
 /drivers/gpio/*esp32*                     @sylvioalves
@@ -246,8 +231,9 @@
 /drivers/gpio/*ads114s0x*                 @benediktibk
 /drivers/gpio/*bd8lb600fs*                @benediktibk
 /drivers/gpio/*pcal64xxa*                 @benediktibk
+/drivers/gpio/*kb1200*                    @ene-steven
 /drivers/gpio/gpio_altera_pio.c           @shilinte
-/drivers/gpio/gpio_ad5592.c               @bbilas
+/drivers/gpio/gpio_ad559x.c               @bbilas
 /drivers/i2c/i2c_common.c                 @sjg20
 /drivers/i2c/i2c_emul.c                   @sjg20
 /drivers/i2c/i2c_ite_enhance.c            @GTLin08
@@ -259,13 +245,13 @@
 /drivers/i2c/Kconfig.test                 @mbolivar-ampere
 /drivers/i2c/i2c_test.c                   @mbolivar-ampere
 /drivers/i2c/*rcar*                       @aaillet
-/drivers/i2s/*litex*                      @mateusz-holenko @kgugala @pgielda
+/drivers/i2c/*kb1200*                     @ene-steven
 /drivers/i2s/i2s_ll_stm32*                @avisconti
 /drivers/i2s/*nrfx*                       @anangl
 /drivers/i3c/i3c_cdns.c                   @XenuIsWatching
 /drivers/ieee802154/                      @rlubos @tbursztyka @jukkar @fgrandel
 /drivers/ieee802154/*b91*                 @andy-liu-telink
-/drivers/ieee802154/ieee802154_nrf5*      @jciupis
+/drivers/ieee802154/ieee802154_nrf5*      @ankuns
 /drivers/ieee802154/ieee802154_rf2xx*     @tbursztyka @nandojve
 /drivers/ieee802154/ieee802154_cc13xx*    @bwitherspoon @cfriedt @vaishnavachath
 /drivers/interrupt_controller/            @dcpleung @nashif
@@ -286,7 +272,7 @@
 /drivers/kscan/*ft5336*                   @MaureenHelm
 /drivers/kscan/*ht16k33*                  @henrikbrixandersen
 /drivers/led_strip/                       @mbolivar-ampere
-/drivers/mfd/mfd_ad5592.c                 @bbilas
+/drivers/mfd/mfd_ad559x.c                 @bbilas
 /drivers/mfd/mfd_max20335.c               @bbilas
 /drivers/misc/ft8xx/                      @hubertmis
 /drivers/modem/hl7800.c                   @rerickson1
@@ -296,6 +282,7 @@
 /drivers/modem/Kconfig.simcom-sim7080     @lgehreke
 /drivers/pinctrl/*esp32*                  @sylvioalves
 /drivers/pinctrl/*it8xxx2*                @ite
+/drivers/pinctrl/*kb1200*                 @ene-steven
 /drivers/pm_cpu_ops/psci_shell.c          @nbalabak @gdengi
 /drivers/power_domain/                    @ceolin
 /drivers/ps2/*xec*                        @franciscomunoz @sjvasanth1
@@ -314,6 +301,7 @@
 /drivers/pwm/*esp32*                      @LucasTambor
 /drivers/pwm/*rcar*                       @aaillet
 /drivers/pwm/*max31790*                   @benediktibk
+/drivers/pwm/*kb1200*                     @ene-steven
 /drivers/regulator/*                      @gmarull
 /drivers/regulator/regulator_max20335.c   @bbilas
 /drivers/regulator/regulator_pca9420.c    @danieldegrasse
@@ -333,12 +321,13 @@
 /drivers/sensor/qdec_stm32/               @valeriosetti
 /drivers/sensor/rpi_pico_temp/            @soburi
 /drivers/sensor/st*/                      @avisconti
+/drivers/sensor/veaa_x_3/                 @jeppenodgaard @MaureenHelm
+/drivers/sensor/ene_tack_kb1200/          @ene-steven
 /drivers/serial/*b91*                     @andy-liu-telink
 /drivers/serial/uart_altera_jtag.c        @nashif @gohshunjing
 /drivers/serial/uart_altera.c             @gohshunjing
 /drivers/serial/*ns16550*                 @dcpleung @nashif @gdengi
 /drivers/serial/*nrfx*                    @anangl
-/drivers/serial/uart_liteuart.c           @mateusz-holenko @kgugala @pgielda
 /drivers/serial/Kconfig.mcux_iuart        @Mani-Sadhasivam
 /drivers/serial/uart_mcux_iuart.c         @Mani-Sadhasivam
 /drivers/serial/Kconfig.rtt               @carlescufi @pkral78
@@ -357,7 +346,7 @@
 /drivers/serial/Kconfig.it8xxx2           @GTLin08
 /drivers/serial/uart_ite_it8xxx2.c        @GTLin08
 /drivers/serial/*intel_lw*                @shilinte
-/drivers/disk/sdmmc_sdhc.h                @JunYangNXP
+/drivers/serial/*kb1200*                  @ene-steven
 /drivers/disk/sdmmc_stm32.c               @anthonybrandon
 /drivers/ptp_clock/                       @tbursztyka @jukkar
 /drivers/spi/*b91*                        @andy-liu-telink
@@ -365,7 +354,7 @@
 /drivers/spi/*esp32*                      @sylvioalves
 /drivers/spi/*pl022*                      @soburi
 /drivers/sdhc/                            @danieldegrasse
-/drivers/sdhc/sdhc_cdns*                  @roymurlidhar
+/drivers/sdhc/sdhc_cdns*                  @roymurlidhar @tanmaykathpalia
 /drivers/timer/*arm_arch*                 @carlocaione
 /drivers/timer/*cortex_m_systick*         @anangl
 /drivers/timer/*altera_avalon*            @nashif
@@ -374,13 +363,11 @@
 /drivers/timer/*xlnx_psttc*               @wjliang @stephanosio
 /drivers/timer/*cc13xx_cc26xx_rtc*        @vanti
 /drivers/timer/*cavs*                     @dcpleung
-/drivers/timer/*stm32_lptim*              @FRASTM
 /drivers/timer/*leon_gptimer*             @julius-barendt
 /drivers/timer/*mips_cp0*                 @frantony
 /drivers/timer/*rcar_cmt*                 @aaillet
-/drivers/timer/*esp32c3_sys*              @uLipe
+/drivers/timer/*esp32_sys*                @uLipe
 /drivers/timer/*sam0_rtc*                 @bendiscz
-/drivers/timer/*arcv2*                    @ruuddw
 /drivers/timer/*xtensa*                   @dcpleung
 /drivers/timer/*rv32m1_lptmr*             @mbolivar
 /drivers/timer/*nrf_rtc*                  @anangl
@@ -403,22 +390,17 @@
 /drivers/watchdog/*rpi_pico*              @thedjnK
 /drivers/watchdog/*dw*                    @softwarecki @pbalsundar
 /drivers/watchdog/*ifx*                   @sreeramIfx
+/drivers/watchdog/*kb1200*                @ene-steven
 /drivers/wifi/esp_at/                     @mniestroj
 /drivers/wifi/eswifi/                     @loicpoulain @nandojve
 /drivers/wifi/winc1500/                   @kludentwo
 /drivers/virtualization/		  @tbursztyka
-/dts/arc/                                 @abrodkin @ruuddw @iriszzw @evgeniy-paltsev
 /dts/arm/acsip/                           @NorthernDean
 /dts/arm/aspeed/                          @aspeeddylan
-/dts/arm/atmel/sam4e*                     @nandojve
-/dts/arm/atmel/sam4l*                     @nandojve
-/dts/arm/atmel/samr21.dtsi                @benpicco
-/dts/arm/atmel/sam*5*.dtsi                @benpicco
-/dts/arm/atmel/same70*                    @nandojve
-/dts/arm/atmel/samv71*                    @nandojve
-/dts/arm/atmel/                           @galak
+/dts/arm/atmel/                           @galak @nandojve
 /dts/arm/broadcom/                        @sbranden
 /dts/arm/cypress/                         @ifyall @npal-cy
+/dts/arm/ene/kb1200                       @ene-steven
 /dts/arm/gd/                              @nandojve
 /dts/arm/infineon/xmc4*                   @parthitce @ifyall @npal-cy
 /dts/arm/infineon/psoc6/                  @ifyall @npal-cy
@@ -427,8 +409,7 @@
 /dts/arm64/nxp/                           @JiafeiPan
 /dts/arm64/renesas/                       @lorc @xakep-amatop
 /dts/arm/quicklogic/                      @fkokosinski @kgugala
-/dts/arm/seeed/                           @str4t0m
-/dts/arm/st/                              @erwango
+/dts/arm/seeed_studio/                    @str4t0m
 /dts/arm/st/h7/*stm32h735*                @benediktibk
 /dts/arm/st/l4/*stm32l451*                @benediktibk
 /dts/arm/ti/cc13?2*                       @bwitherspoon
@@ -451,8 +432,7 @@
 /dts/riscv/ite/                           @ite
 /dts/riscv/microchip/microchip-miv.dtsi   @galak
 /dts/riscv/openisa/rv32m1*                @dleach02
-/dts/riscv/riscv32-litex-vexriscv.dtsi    @mateusz-holenko @kgugala @pgielda
-/dts/riscv/starfive/                      @rajnesh-kanwal
+/dts/riscv/starfive/                      @rajnesh-kanwal @pfarwsi
 /dts/riscv/andes/andes_v5*                @cwshu @kevinwang821020 @jimmyzhe
 /dts/riscv/niosv/                         @sweeaun
 /dts/arm/armv*m.dtsi                      @galak @ioannisg
@@ -474,6 +454,7 @@
 /dts/bindings/counter/snps,dw-timers.yaml @pbalsundar
 /dts/bindings/wifi/*esp-at.yaml           @mniestroj
 /dts/bindings/*/*gd32*                    @nandojve
+/dts/bindings/*/*sam*                     @nandojve
 /dts/bindings/*/*npcx*                    @MulinChao @ChiHuaL
 /dts/bindings/*/*psoc6*                   @ifyall @npal-cy
 /dts/bindings/*/*infineon*cat1*           @ifyall @npal-cy
@@ -482,11 +463,8 @@
 /dts/bindings/*/nxp*s32*                  @manuargue
 /dts/bindings/*/openisa*                  @dleach02
 /dts/bindings/*/raspberrypi*pico*         @yonsch
-/dts/bindings/*/st*                       @erwango
 /dts/bindings/sensor/ams*                 @alexanderwachter
 /dts/bindings/*/sifive*                   @mateusz-holenko @kgugala @pgielda
-/dts/bindings/*/litex*                    @mateusz-holenko @kgugala @pgielda
-/dts/bindings/*/vexriscv*                 @mateusz-holenko @kgugala @pgielda
 /dts/bindings/*/andes*                    @cwshu @kevinwang821020 @jimmyzhe
 /dts/bindings/*/neorv32*                  @henrikbrixandersen
 /dts/bindings/*/*lan91c111*               @sgrrzhf

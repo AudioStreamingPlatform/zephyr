@@ -82,9 +82,9 @@
  * static_assert() is not available)
  */
 #elif !defined(__cplusplus) && \
-	((__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)) ||	\
+	(((__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 6))) ||	\
 	 (__STDC_VERSION__) >= 201100)
-#define BUILD_ASSERT(EXPR, MSG...) _Static_assert(EXPR, "" MSG)
+#define BUILD_ASSERT(EXPR, MSG...) _Static_assert((EXPR), "" MSG)
 #else
 #define BUILD_ASSERT(EXPR, MSG...)
 #endif
@@ -103,7 +103,7 @@
 #define FUNC_ALIAS(real_func, new_alias, return_type) \
 	return_type new_alias() ALIAS_OF(real_func)
 
-#if defined(CONFIG_ARCH_POSIX)
+#if defined(CONFIG_ARCH_POSIX) && !defined(_ASMLANGUAGE)
 #include <zephyr/arch/posix/posix_trace.h>
 
 /*let's not segfault if this were to happen for some reason*/
@@ -138,7 +138,7 @@ __extension__ ({							\
 })
 
 
-#if __GNUC__ >= 7 && (defined(CONFIG_ARM) || defined(CONFIG_ARM64))
+#if (__GNUC__ >= 7) && (defined(CONFIG_ARM) || defined(CONFIG_ARM64))
 
 /* Version of UNALIGNED_PUT() which issues a compiler_barrier() after
  * the store. It is required to workaround an apparent optimization
@@ -250,6 +250,9 @@ do {                                                                    \
 
 #ifndef __deprecated
 #define __deprecated	__attribute__((deprecated))
+/* When adding this, remember to follow the instructions in
+ * https://docs.zephyrproject.org/latest/develop/api/api_lifecycle.html#deprecated
+ */
 #endif
 
 #ifndef __attribute_const__
@@ -312,6 +315,9 @@ do {                                                                    \
 /* Generic message */
 #ifndef __DEPRECATED_MACRO
 #define __DEPRECATED_MACRO __WARN("Macro is deprecated")
+/* When adding this, remember to follow the instructions in
+ * https://docs.zephyrproject.org/latest/develop/api/api_lifecycle.html#deprecated
+ */
 #endif
 
 /* These macros allow having ARM asm functions callable from thumb */
@@ -590,7 +596,7 @@ do {                                                                    \
 		/* random suffix to avoid naming conflict */ \
 		__typeof__(a) _value_a_ = (a); \
 		__typeof__(b) _value_b_ = (b); \
-		_value_a_ > _value_b_ ? _value_a_ : _value_b_; \
+		(_value_a_ > _value_b_) ? _value_a_ : _value_b_; \
 	})
 
 /** @brief Return smaller value of two provided expressions.
@@ -602,7 +608,7 @@ do {                                                                    \
 		/* random suffix to avoid naming conflict */ \
 		__typeof__(a) _value_a_ = (a); \
 		__typeof__(b) _value_b_ = (b); \
-		_value_a_ < _value_b_ ? _value_a_ : _value_b_; \
+		(_value_a_ < _value_b_) ? _value_a_ : _value_b_; \
 	})
 
 /** @brief Return a value clamped to a given range.
@@ -641,6 +647,12 @@ do {                                                                    \
 #define __noasan __attribute__((no_sanitize("address")))
 #else
 #define __noasan /**/
+#endif
+
+#if defined(CONFIG_UBSAN)
+#define __noubsan __attribute__((no_sanitize("undefined")))
+#else
+#define __noubsan
 #endif
 
 /**

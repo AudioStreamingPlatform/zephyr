@@ -27,6 +27,8 @@ extern "C" {
 /**
  * @brief Network Packet Filter API
  * @defgroup net_pkt_filter Network Packet Filter API
+ * @since 3.0
+ * @version 0.8.0
  * @ingroup networking
  * @{
  */
@@ -46,7 +48,7 @@ struct npf_test {
 
 /** @brief filter rule structure */
 struct npf_rule {
-	sys_snode_t node;
+	sys_snode_t node;               /**< Slist rule list node */
 	enum net_verdict result;	/**< result if all tests pass */
 	uint32_t nb_tests;		/**< number of tests for this rule */
 	struct npf_test *tests[];	/**< pointers to @ref npf_test instances */
@@ -59,8 +61,8 @@ extern struct npf_rule npf_default_drop;
 
 /** @brief rule set for a given test location */
 struct npf_rule_list {
-	sys_slist_t rule_head;
-	struct k_spinlock lock;
+	sys_slist_t rule_head;   /**< List head */
+	struct k_spinlock lock;  /**< Lock protecting the list access */
 };
 
 /** @brief  rule list applied to outgoing packets */
@@ -107,6 +109,8 @@ bool npf_remove_rule(struct npf_rule_list *rules, struct npf_rule *rule);
  */
 bool npf_remove_all_rules(struct npf_rule_list *rules);
 
+/** @cond INTERNAL_HIDDEN */
+
 /* convenience shortcuts */
 #define npf_insert_send_rule(rule) npf_insert_rule(&npf_send_rules, rule)
 #define npf_insert_recv_rule(rule) npf_insert_rule(&npf_recv_rules, rule)
@@ -137,6 +141,8 @@ bool npf_remove_all_rules(struct npf_rule_list *rules);
 #define npf_remove_ipv6_recv_rule(rule) npf_remove_rule(&npf_ipv6_recv_rules, rule)
 #define npf_remove_all_ipv6_recv_rules() npf_remove_all_rules(&npf_ipv6_recv_rules)
 #endif /* CONFIG_NET_PKT_FILTER_IPV6_HOOK */
+
+/** @endcond */
 
 /**
  * @brief Statically define one packet filter rule
@@ -205,6 +211,8 @@ bool npf_remove_all_rules(struct npf_rule_list *rules);
 
 /**
  * @defgroup npf_basic_cond Basic Filter Conditions
+ * @since 3.0
+ * @version 0.8.0
  * @ingroup net_pkt_filter
  * @{
  */
@@ -382,6 +390,8 @@ extern npf_test_fn_t npf_ip_src_addr_unmatch;
 /**
  * @defgroup npf_eth_cond Ethernet Filter Conditions
  * @ingroup net_pkt_filter
+ * @since 3.0
+ * @version 0.8.0
  * @{
  */
 

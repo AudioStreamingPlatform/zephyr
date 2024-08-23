@@ -75,8 +75,8 @@ static inline void z_vrfy_k_queue_init(struct k_queue *queue)
 	K_OOPS(K_SYSCALL_OBJ_NEVER_INIT(queue, K_OBJ_QUEUE));
 	z_impl_k_queue_init(queue);
 }
-#include <syscalls/k_queue_init_mrsh.c>
-#endif
+#include <zephyr/syscalls/k_queue_init_mrsh.c>
+#endif /* CONFIG_USERSPACE */
 
 static void prepare_thread_to_run(struct k_thread *thread, void *data)
 {
@@ -91,7 +91,7 @@ static inline void handle_poll_events(struct k_queue *queue, uint32_t state)
 #else
 	ARG_UNUSED(queue);
 	ARG_UNUSED(state);
-#endif
+#endif /* CONFIG_POLL */
 }
 
 void z_impl_k_queue_cancel_wait(struct k_queue *queue)
@@ -117,8 +117,8 @@ static inline void z_vrfy_k_queue_cancel_wait(struct k_queue *queue)
 	K_OOPS(K_SYSCALL_OBJ(queue, K_OBJ_QUEUE));
 	z_impl_k_queue_cancel_wait(queue);
 }
-#include <syscalls/k_queue_cancel_wait_mrsh.c>
-#endif
+#include <zephyr/syscalls/k_queue_cancel_wait_mrsh.c>
+#endif /* CONFIG_USERSPACE */
 
 static int32_t queue_insert(struct k_queue *queue, void *prev, void *data,
 			    bool alloc, bool is_append)
@@ -220,8 +220,8 @@ static inline int32_t z_vrfy_k_queue_alloc_append(struct k_queue *queue,
 	K_OOPS(K_SYSCALL_OBJ(queue, K_OBJ_QUEUE));
 	return z_impl_k_queue_alloc_append(queue, data);
 }
-#include <syscalls/k_queue_alloc_append_mrsh.c>
-#endif
+#include <zephyr/syscalls/k_queue_alloc_append_mrsh.c>
+#endif /* CONFIG_USERSPACE */
 
 int32_t z_impl_k_queue_alloc_prepend(struct k_queue *queue, void *data)
 {
@@ -241,15 +241,15 @@ static inline int32_t z_vrfy_k_queue_alloc_prepend(struct k_queue *queue,
 	K_OOPS(K_SYSCALL_OBJ(queue, K_OBJ_QUEUE));
 	return z_impl_k_queue_alloc_prepend(queue, data);
 }
-#include <syscalls/k_queue_alloc_prepend_mrsh.c>
-#endif
+#include <zephyr/syscalls/k_queue_alloc_prepend_mrsh.c>
+#endif /* CONFIG_USERSPACE */
 
 int k_queue_append_list(struct k_queue *queue, void *head, void *tail)
 {
 	SYS_PORT_TRACING_OBJ_FUNC_ENTER(k_queue, append_list, queue);
 
 	/* invalid head or tail of list */
-	CHECKIF(head == NULL || tail == NULL) {
+	CHECKIF((head == NULL) || (tail == NULL)) {
 		SYS_PORT_TRACING_OBJ_FUNC_EXIT(k_queue, append_list, queue, -EINVAL);
 
 		return -EINVAL;
@@ -408,28 +408,28 @@ static inline void *z_vrfy_k_queue_get(struct k_queue *queue,
 	K_OOPS(K_SYSCALL_OBJ(queue, K_OBJ_QUEUE));
 	return z_impl_k_queue_get(queue, timeout);
 }
-#include <syscalls/k_queue_get_mrsh.c>
+#include <zephyr/syscalls/k_queue_get_mrsh.c>
 
 static inline int z_vrfy_k_queue_is_empty(struct k_queue *queue)
 {
 	K_OOPS(K_SYSCALL_OBJ(queue, K_OBJ_QUEUE));
 	return z_impl_k_queue_is_empty(queue);
 }
-#include <syscalls/k_queue_is_empty_mrsh.c>
+#include <zephyr/syscalls/k_queue_is_empty_mrsh.c>
 
 static inline void *z_vrfy_k_queue_peek_head(struct k_queue *queue)
 {
 	K_OOPS(K_SYSCALL_OBJ(queue, K_OBJ_QUEUE));
 	return z_impl_k_queue_peek_head(queue);
 }
-#include <syscalls/k_queue_peek_head_mrsh.c>
+#include <zephyr/syscalls/k_queue_peek_head_mrsh.c>
 
 static inline void *z_vrfy_k_queue_peek_tail(struct k_queue *queue)
 {
 	K_OOPS(K_SYSCALL_OBJ(queue, K_OBJ_QUEUE));
 	return z_impl_k_queue_peek_tail(queue);
 }
-#include <syscalls/k_queue_peek_tail_mrsh.c>
+#include <zephyr/syscalls/k_queue_peek_tail_mrsh.c>
 
 #endif /* CONFIG_USERSPACE */
 
@@ -454,7 +454,7 @@ static int init_fifo_obj_core_list(void)
 
 SYS_INIT(init_fifo_obj_core_list, PRE_KERNEL_1,
 	 CONFIG_KERNEL_INIT_PRIORITY_OBJECTS);
-#endif
+#endif /* CONFIG_OBJ_CORE_FIFO */
 
 #ifdef CONFIG_OBJ_CORE_LIFO
 struct k_obj_type _obj_type_lifo;
@@ -477,4 +477,4 @@ static int init_lifo_obj_core_list(void)
 
 SYS_INIT(init_lifo_obj_core_list, PRE_KERNEL_1,
 	 CONFIG_KERNEL_INIT_PRIORITY_OBJECTS);
-#endif
+#endif /* CONFIG_OBJ_CORE_LIFO */

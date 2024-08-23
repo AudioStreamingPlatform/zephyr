@@ -62,7 +62,7 @@ static void gpio_keys_poll_pin(const struct device *dev, int key_index)
 	struct gpio_keys_pin_data *pin_data = &cfg->pin_data[key_index];
 	int new_pressed;
 
-	new_pressed = gpio_pin_get(pin_cfg->spec.port, pin_cfg->spec.pin);
+	new_pressed = gpio_pin_get_dt(&pin_cfg->spec);
 
 	LOG_DBG("%s: pin_state=%d, new_pressed=%d, key_index=%d", dev->name,
 		pin_data->cb_data.pin_state, new_pressed, key_index);
@@ -106,6 +106,14 @@ static __maybe_unused void gpio_keys_change_deferred(struct k_work *work)
 	const struct gpio_keys_config *cfg = dev->config;
 	int key_index = pin_data - (struct gpio_keys_pin_data *)cfg->pin_data;
 
+#ifdef CONFIG_PM_DEVICE
+	struct gpio_keys_data *data = dev->data;
+
+	if (atomic_get(&data->suspended) == 1) {
+		return;
+	}
+#endif
+
 	gpio_keys_poll_pin(dev, key_index);
 }
 
@@ -137,7 +145,7 @@ static int gpio_keys_interrupt_configure(const struct gpio_dt_spec *gpio_spec,
 		return ret;
 	}
 
-	cb->pin_state = -1;
+	cb->pin_state = gpio_pin_get_dt(gpio_spec);
 
 	LOG_DBG("port=%s, pin=%d", gpio_spec->port->name, gpio_spec->pin);
 
@@ -207,51 +215,59 @@ static int gpio_keys_pm_action(const struct device *dev,
 	const struct gpio_keys_config *cfg = dev->config;
 	struct gpio_keys_data *data = dev->data;
 	struct gpio_keys_pin_data *pin_data = cfg->pin_data;
-	gpio_flags_t gpio_flags;
-	gpio_flags_t int_flags;
 	int ret;
 
 	switch (action) {
 	case PM_DEVICE_ACTION_SUSPEND:
-		gpio_flags = GPIO_DISCONNECTED;
-		int_flags = GPIO_INT_DISABLE;
 		atomic_set(&data->suspended, 1);
-		break;
+
+		for (int i = 0; i < cfg->num_keys; i++) {
+			const struct gpio_dt_spec *gpio = &cfg->pin_cfg[i].spec;
+
+			if (!cfg->polling_mode) {
+				ret = gpio_pin_interrupt_configure_dt(gpio, GPIO_INT_DISABLE);
+				if (ret < 0) {
+					LOG_ERR("interrupt configuration failed: %d", ret);
+					return ret;
+				}
+			}
+
+			ret = gpio_pin_configure_dt(gpio, GPIO_DISCONNECTED);
+			if (ret != 0) {
+				LOG_ERR("Pin %d configuration failed: %d", i, ret);
+				return ret;
+			}
+		}
+
+		return 0;
 	case PM_DEVICE_ACTION_RESUME:
-		gpio_flags = GPIO_INPUT;
-		int_flags = GPIO_INT_EDGE_BOTH;
 		atomic_set(&data->suspended, 0);
-		break;
+
+		for (int i = 0; i < cfg->num_keys; i++) {
+			const struct gpio_dt_spec *gpio = &cfg->pin_cfg[i].spec;
+
+			ret = gpio_pin_configure_dt(gpio, GPIO_INPUT);
+			if (ret != 0) {
+				LOG_ERR("Pin %d configuration failed: %d", i, ret);
+				return ret;
+			}
+
+			if (cfg->polling_mode) {
+				k_work_reschedule(&pin_data[0].work,
+						  K_MSEC(cfg->debounce_interval_ms));
+			} else {
+				ret = gpio_pin_interrupt_configure_dt(gpio, GPIO_INT_EDGE_BOTH);
+				if (ret < 0) {
+					LOG_ERR("interrupt configuration failed: %d", ret);
+					return ret;
+				}
+			}
+		}
+
+		return 0;
 	default:
 		return -ENOTSUP;
 	}
-
-	for (int i = 0; i < cfg->num_keys; i++) {
-		const struct gpio_dt_spec *gpio = &cfg->pin_cfg[i].spec;
-
-		ret = gpio_pin_configure_dt(gpio, gpio_flags);
-		if (ret != 0) {
-			LOG_ERR("Pin %d configuration failed: %d", i, ret);
-			return ret;
-		}
-
-		if (cfg->polling_mode) {
-			continue;
-		}
-
-		ret = gpio_pin_interrupt_configure_dt(gpio, int_flags);
-		if (ret < 0) {
-			LOG_ERR("interrupt configuration failed: %d", ret);
-			return ret;
-		}
-	}
-
-	if (action == PM_DEVICE_ACTION_RESUME && cfg->polling_mode) {
-		k_work_reschedule(&pin_data[0].work,
-				  K_MSEC(cfg->debounce_interval_ms));
-	}
-
-	return 0;
 }
 #endif
 

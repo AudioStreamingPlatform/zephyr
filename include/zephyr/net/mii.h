@@ -15,6 +15,8 @@
 /**
  * @brief Ethernet MII (media independent interface) functions
  * @defgroup ethernet_mii Ethernet MII Support Functions
+ * @since 1.7
+ * @version 0.8.0
  * @ingroup ethernet
  * @{
  */
@@ -131,8 +133,9 @@
 #define MII_ADVERTISE_10_FULL      (1 << 6)
 /** try for 10 Mb/s half duplex support */
 #define MII_ADVERTISE_10_HALF      (1 << 5)
-/** Selector Field */
+/** Selector Field Mask */
 #define MII_ADVERTISE_SEL_MASK     (0x1F << 0)
+/** Selector Field */
 #define MII_ADVERTISE_SEL_IEEE_802_3   0x01
 
 /* 1000BASE-T Control Register bit definitions */
@@ -141,6 +144,7 @@
 /** try for 1000BASE-T half duplex support */
 #define MII_ADVERTISE_1000_HALF    (1 << 8)
 
+/** Advertise all speeds */
 #define MII_ADVERTISE_ALL (MII_ADVERTISE_10_HALF | MII_ADVERTISE_10_FULL |\
 			   MII_ADVERTISE_100_HALF | MII_ADVERTISE_100_FULL |\
 			   MII_ADVERTISE_SEL_IEEE_802_3)
@@ -154,6 +158,15 @@
 #define MII_ESTAT_1000BASE_T_FULL  (1 << 13)
 /** 1000BASE-T half-duplex capable */
 #define MII_ESTAT_1000BASE_T_HALF  (1 << 12)
+
+/* MMD Access Control Register (MII_MMD_ACR) Register bit definitions */
+/** DEVAD Mask */
+#define MII_MMD_ACR_DEVAD_MASK      (0x1F << 0)
+/** Address Data bits */
+#define MII_MMD_ACR_ADDR            (0x00 << 14)
+#define MII_MMD_ACR_DATA_NO_POS_INC (0x01 << 14)
+#define MII_MMD_ACR_DATA_RW_POS_INC (0x10 << 14)
+#define MII_MMD_ACR_DATA_W_POS_INC  (0x11 << 14)
 
 /**
  * @}

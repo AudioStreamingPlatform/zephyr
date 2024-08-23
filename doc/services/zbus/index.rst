@@ -98,18 +98,17 @@ notifications from channels ``C3`` and ``C5`` to ``Subscriber 1``.
 
 
 Suppose a usual sensor-based solution is in the figure below for illustration purposes. When
-triggered, the timer pushes an action to a work queue that publishes to the ``Trigger`` channel. As
-the sensor thread subscribed to the ``Trigger`` channel, it receives the sensor data. Notice the
-VDED executes the ``Blink`` because it also listens to the ``Trigger`` channel. When the sensor data
-is ready, the sensor thread publishes it to the ``Sensor data`` channel. The core thread receives
-the message as a ``Sensor data`` channel message subscriber, processes the sensor data, and stores
-it in an internal sample buffer. It repeats until the sample buffer is full; when it happens, the
-core thread aggregates the sample buffer information, prepares a package, and publishes that to the
-``Payload`` channel. The Lora thread receives that because it is a ``Payload`` channel message
-subscriber and sends the payload to the cloud. When it completes the transmission, the Lora thread
-publishes to the ``Transmission done`` channel. The VDED executes the ``Blink`` again since it
-listens to the ``Transmission done`` channel.
-
+triggered, the timer publishes to the ``Trigger`` channel. As the sensor thread subscribed to the
+``Trigger`` channel, it receives the sensor data. Notice the VDED executes the ``Blink`` because it
+also listens to the ``Trigger`` channel. When the sensor data is ready, the sensor thread publishes
+it to the ``Sensor data`` channel. The core thread receives the message as a ``Sensor data`` channel
+message subscriber, processes the sensor data, and stores it in an internal sample buffer. It
+repeats until the sample buffer is full; when it happens, the core thread aggregates the sample
+buffer information, prepares a package, and publishes that to the ``Payload`` channel. The Lora
+thread receives that because it is a ``Payload`` channel message subscriber and sends the payload to
+the cloud. When it completes the transmission, the Lora thread publishes to the ``Transmission
+done`` channel. The VDED executes the ``Blink`` again since it listens to the ``Transmission done``
+channel.
 
 .. figure:: images/zbus_operations.svg
     :alt: ZBus sensor-based application
@@ -392,24 +391,26 @@ message reading depends on the subscriber's implementation. It is possible to in
 rate by following design tips:
 
 * Keep the listeners quick-as-possible (deal with them as ISRs). If some processing is needed,
-  consider submitting a work to a work-queue;
+  consider submitting a work item to a work-queue;
 * Try to give producers a high priority to avoid losses;
 * Leave spare CPU for observers to consume data produced;
 * Consider using message queues or pipes for intensive byte transfers.
 
 .. warning::
    ZBus uses :zephyr_file:`include/zephyr/net/buf.h` (network buffers) to exchange data with message
-   subscribers. So, chose carefully the configurations
+   subscribers. Thus, choose carefully the configurations
    :kconfig:option:`CONFIG_ZBUS_MSG_SUBSCRIBER_NET_BUF_POOL_SIZE` and
    :kconfig:option:`CONFIG_HEAP_MEM_POOL_SIZE`. They are crucial to a proper VDED execution
-   (delivery garantee) considering message subscribers.
+   (delivery guarantee) considering message subscribers. If you want to keep an isolated pool for a
+   specific set of channels, you can use
+   :kconfig:option:`CONFIG_ZBUS_MSG_SUBSCRIBER_NET_BUF_POOL_ISOLATION` with a dedicated pool. Look
+   at the :zephyr:code-sample:`zbus-msg-subscriber` to see the isolation in action.
 
 .. warning::
    Subscribers will receive only the reference of the changing channel. A data loss may be perceived
    if the channel is published twice before the subscriber reads it. The second publication
    overwrites the value from the first. Thus, the subscriber will receive two notifications, but
    only the last data is there.
-
 
 
 .. _zbus delivery sequence:
@@ -899,6 +900,8 @@ Related configuration options:
   buffers;
 * :kconfig:option:`CONFIG_ZBUS_MSG_SUBSCRIBER_NET_BUF_POOL_SIZE` the available number of message
   buffers to be used simultaneously;
+* :kconfig:option:`CONFIG_ZBUS_MSG_SUBSCRIBER_NET_BUF_POOL_ISOLATION` enables the developer to isolate
+  a pool for the message subscriber for a set of channels;
 * :kconfig:option:`CONFIG_ZBUS_MSG_SUBSCRIBER_NET_BUF_STATIC_DATA_SIZE` the biggest message of zbus
   channels to be transported into a message buffer;
 * :kconfig:option:`CONFIG_ZBUS_RUNTIME_OBSERVERS` enables the runtime observer registration.

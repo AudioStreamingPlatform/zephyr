@@ -186,6 +186,16 @@ static int spi_numaker_txrx(const struct device *dev)
 		}
 
 		LOG_DBG("%s --> TX [0x%x] done", __func__, tx_frame);
+	} else {
+		/* Write dummy data to TX register */
+		SPI_WRITE_TX(dev_cfg->spi, 0x00U);
+		time_out_cnt = SystemCoreClock; /* 1 second time-out */
+		while (SPI_IS_BUSY(dev_cfg->spi)) {
+			if (--time_out_cnt == 0) {
+				LOG_ERR("Wait for SPI time-out");
+				return -EIO;
+			}
+		}
 	}
 
 	/* Read received data */
@@ -346,7 +356,7 @@ done:
 		.clk_dev = DEVICE_DT_GET(DT_PARENT(DT_INST_CLOCKS_CTLR(inst))),                    \
 		.pincfg = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),                                    \
 	};                                                                                         \
-	DEVICE_DT_INST_DEFINE(inst, &spi_numaker_init, NULL, &spi_numaker_data_##inst,             \
+	DEVICE_DT_INST_DEFINE(inst, spi_numaker_init, NULL, &spi_numaker_data_##inst,              \
 			      &spi_numaker_config_##inst, POST_KERNEL, CONFIG_SPI_INIT_PRIORITY,   \
 			      &spi_numaker_driver_api);
 

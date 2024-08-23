@@ -116,32 +116,29 @@ static inline bool isr_rx_ci_adva_check(uint8_t tx_addr, uint8_t *addr,
  */
 #define PDU_MEM_COUNT_MIN  (((BT_CTLR_ADV_SET) * 3) + \
 			    ((BT_CTLR_ADV_AUX_SET) * \
-			     PAYLOAD_BASED_FRAG_COUNT) + \
-			    ((BT_CTLR_ADV_SYNC_SET) * \
-			     PAYLOAD_FRAG_COUNT))
+			     PAYLOAD_BASED_FRAG_COUNT))
 
 /* Maximum advertising PDU buffers to allocate, which is the sum of minimum
  * plus configured additional count in CONFIG_BT_CTLR_ADV_DATA_BUF_MAX.
  */
 #if defined(CONFIG_BT_CTLR_ADV_EXT)
 #if defined(CONFIG_BT_CTLR_ADV_PERIODIC)
-/* NOTE: When Periodic Advertising is supported then one additional PDU buffer
- *       plus the additional CONFIG_BT_CTLR_ADV_DATA_BUF_MAX amount of buffers
- *       is allocated.
+/* NOTE: When Periodic Advertising is supported then one chain of PDU buffers
+ *       plus the additional CONFIG_BT_CTLR_ADV_DATA_BUF_MAX amount of chain
+ *       buffers is allocated.
  *       Set CONFIG_BT_CTLR_ADV_DATA_BUF_MAX to (BT_CTLR_ADV_AUX_SET +
- *       BT_CTLR_ADV_SYNC_SET) if
- *       PDU data is updated more frequently compare to the advertising
- *       interval with random delay included.
+ *       BT_CTLR_ADV_SYNC_SET) if PDU data is updated more frequently compare to
+ *       the advertising interval with random delay included.
  */
 #define PDU_MEM_COUNT_MAX ((PDU_MEM_COUNT_MIN) + \
 			   ((BT_CTLR_ADV_SYNC_SET) * \
 			    PAYLOAD_FRAG_COUNT) + \
 			   (CONFIG_BT_CTLR_ADV_DATA_BUF_MAX * \
-			    PAYLOAD_BASED_FRAG_COUNT))
+			    PAYLOAD_FRAG_COUNT))
 #else /* !CONFIG_BT_CTLR_ADV_PERIODIC */
 /* NOTE: When Extended Advertising is supported but no Periodic Advertising
- *       then additional CONFIG_BT_CTLR_ADV_DATA_BUF_MAX amount of buffers is
- *       allocated.
+ *       then additional CONFIG_BT_CTLR_ADV_DATA_BUF_MAX amount of chain buffers
+ *       is allocated.
  *       Set CONFIG_BT_CTLR_ADV_DATA_BUF_MAX to BT_CTLR_ADV_AUX_SET if
  *       PDU data is updated more frequently compare to the advertising
  *       interval with random delay included.
@@ -361,7 +358,7 @@ struct pdu_adv *lll_adv_pdu_alloc(struct lll_adv_pdu *pdu, uint8_t *idx)
 	void *p;
 
 	/* TODO: Make this unique mechanism to update last element in double
-	 *       buffer a re-usable utility function.
+	 *       buffer a reusable utility function.
 	 */
 	first = pdu->first;
 	last = pdu->last;
@@ -590,7 +587,7 @@ struct pdu_adv *lll_adv_pdu_and_extra_data_alloc(struct lll_adv_pdu *pdu,
 			/* There is no release of memory allocated by
 			 * adv_pdu_allocate because there is no memory leak.
 			 * If caller can recover from this error and subsequent
-			 * call to this function occures, no new memory will be
+			 * call to this function occurs, no new memory will be
 			 * allocated. adv_pdu_allocate will return already
 			 * allocated memory.
 			 */
@@ -648,7 +645,7 @@ struct pdu_adv *lll_adv_pdu_and_extra_data_latest_get(struct lll_adv_pdu *pdu,
 		if (ed && (!MFIFO_ENQUEUE_IDX_GET(extra_data_free,
 						  &ed_free_idx))) {
 			/* No pdu_free_idx clean up is required, sobsequent
-			 * calls to MFIFO_ENQUEUE_IDX_GET return ther same
+			 * calls to MFIFO_ENQUEUE_IDX_GET return the same
 			 * index to memory that is in limbo state.
 			 */
 			return NULL;
@@ -725,10 +722,10 @@ int lll_adv_scan_req_report(struct lll_adv *lll, struct pdu_adv *pdu_adv_rx,
 	node_rx->hdr.type = NODE_RX_TYPE_SCAN_REQ;
 	node_rx->hdr.handle = ull_adv_lll_handle_get(lll);
 
-	node_rx->hdr.rx_ftr.rssi = (rssi_ready) ? radio_rssi_get() :
+	node_rx->rx_ftr.rssi = (rssi_ready) ? radio_rssi_get() :
 						  BT_HCI_LE_RSSI_NOT_AVAILABLE;
 #if defined(CONFIG_BT_CTLR_PRIVACY)
-	node_rx->hdr.rx_ftr.rl_idx = rl_idx;
+	node_rx->rx_ftr.rl_idx = rl_idx;
 #endif
 
 	ull_rx_put_sched(node_rx->hdr.link, node_rx);
@@ -1196,8 +1193,10 @@ static void isr_tx(void *param)
 	}
 #endif /* CONFIG_BT_CTLR_PRIVACY */
 
-	/* +/- 2us active clock jitter, +1 us hcto compensation */
-	hcto = radio_tmr_tifs_base_get() + EVENT_IFS_US + 4 + 1;
+	/* +/- 2us active clock jitter, +1 us PPI to timer start compensation */
+	hcto = radio_tmr_tifs_base_get() + EVENT_IFS_US +
+	       (EVENT_CLOCK_JITTER_US << 1) + RANGE_DELAY_US +
+	       HAL_RADIO_TMR_START_DELAY_US;
 	hcto += radio_rx_chain_delay_get(phy_p, 0);
 	hcto += addr_us_get(phy_p);
 	hcto -= radio_tx_chain_delay_get(phy_p, 0);
@@ -1288,6 +1287,11 @@ static void isr_rx(void *param)
 
 			return;
 		}
+	}
+
+	if (IS_ENABLED(CONFIG_BT_CTLR_PROFILE_ISR)) {
+		lll_prof_cputime_capture();
+		lll_prof_send();
 	}
 
 isr_rx_do_close:
@@ -1385,15 +1389,15 @@ static void isr_done(void *param)
 	}
 
 #if defined(CONFIG_BT_CTLR_ADV_INDICATION)
-	struct node_rx_hdr *node_rx = ull_pdu_rx_alloc_peek(3);
+	struct node_rx_pdu *node_rx = ull_pdu_rx_alloc_peek(3);
 
 	if (node_rx) {
 		ull_pdu_rx_alloc();
 
 		/* TODO: add other info by defining a payload struct */
-		node_rx->type = NODE_RX_TYPE_ADV_INDICATION;
+		node_rx->hdr.type = NODE_RX_TYPE_ADV_INDICATION;
 
-		ull_rx_put_sched(node_rx->link, node_rx);
+		ull_rx_put_sched(node_rx->hdr.link, node_rx);
 	}
 #endif /* CONFIG_BT_CTLR_ADV_INDICATION */
 
@@ -1639,7 +1643,7 @@ static inline int isr_rx_pdu(struct lll_adv *lll,
 		rx->hdr.type = NODE_RX_TYPE_CONNECTION;
 		rx->hdr.handle = 0xffff;
 
-		ftr = &(rx->hdr.rx_ftr);
+		ftr = &(rx->rx_ftr);
 		ftr->param = lll;
 		ftr->ticks_anchor = radio_tmr_start_get();
 		ftr->radio_end_us = radio_tmr_end_get() -

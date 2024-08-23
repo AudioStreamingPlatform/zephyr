@@ -38,12 +38,12 @@ Pins Assignments
 Programming
 ***********
 
-Set ``-DSHIELD=m5stack_core2_ext`` when you invoke ``west build``.
+Set ``--shield m5stack_core2_ext`` when you invoke ``west build``.
 For example:
 
 .. zephyr-app-commands::
    :zephyr-app: samples/sensor/mpu6050
-   :board: m5stack_core2
+   :board: m5stack_core2/esp32/procpu
    :shield: m5stack_core2_ext
    :goals: build
 

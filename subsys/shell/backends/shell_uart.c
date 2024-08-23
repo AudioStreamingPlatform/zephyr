@@ -346,7 +346,8 @@ static int enable(const struct shell_transport *transport, bool blocking_tx)
 {
 	struct shell_uart_common *sh_uart = (struct shell_uart_common *)transport->ctx;
 
-	sh_uart->blocking_tx = blocking_tx;
+	sh_uart->blocking_tx =
+		blocking_tx || IS_ENABLED(CONFIG_SHELL_BACKEND_SERIAL_FORCE_TX_BLOCKING_MODE);
 
 	if (IS_ENABLED(CONFIG_SHELL_BACKEND_SERIAL_API_INTERRUPT_DRIVEN) && blocking_tx) {
 		uart_irq_tx_disable(sh_uart->dev);
@@ -402,8 +403,8 @@ static int async_write(struct shell_uart_async *sh_uart,
 	return err;
 }
 
-static int write(const struct shell_transport *transport,
-		 const void *data, size_t length, size_t *cnt)
+static int write_uart(const struct shell_transport *transport,
+		      const void *data, size_t length, size_t *cnt)
 {
 	struct shell_uart_common *sh_uart = (struct shell_uart_common *)transport->ctx;
 
@@ -454,26 +455,24 @@ static int async_read(struct shell_uart_async *sh_uart,
 
 	memcpy(data, buf, blen);
 #endif
-	uart_async_rx_data_consume(async_rx, sh_cnt);
+	bool buf_available = uart_async_rx_data_consume(async_rx, sh_cnt);
 	*cnt = sh_cnt;
 
-	if (sh_uart->pending_rx_req) {
+	if (sh_uart->pending_rx_req && buf_available) {
 		uint8_t *buf = uart_async_rx_buf_req(async_rx);
+		size_t len = uart_async_rx_get_buf_len(async_rx);
+		int err;
 
-		if (buf) {
-			int err;
-			size_t len = uart_async_rx_get_buf_len(async_rx);
-
-			atomic_dec(&sh_uart->pending_rx_req);
-			err = uart_rx_buf_rsp(sh_uart->common.dev, buf, len);
-			/* If it is too late and RX is disabled then re-enable it. */
-			if (err < 0) {
-				if (err == -EACCES) {
-					sh_uart->pending_rx_req = 0;
-					err = rx_enable(sh_uart->common.dev, buf, len);
-				} else {
-					return err;
-				}
+		__ASSERT_NO_MSG(buf != NULL);
+		atomic_dec(&sh_uart->pending_rx_req);
+		err = uart_rx_buf_rsp(sh_uart->common.dev, buf, len);
+		/* If it is too late and RX is disabled then re-enable it. */
+		if (err < 0) {
+			if (err == -EACCES) {
+				sh_uart->pending_rx_req = 0;
+				err = rx_enable(sh_uart->common.dev, buf, len);
+			} else {
+				return err;
 			}
 		}
 	}
@@ -481,8 +480,8 @@ static int async_read(struct shell_uart_async *sh_uart,
 	return 0;
 }
 
-static int read(const struct shell_transport *transport,
-		void *data, size_t length, size_t *cnt)
+static int read_uart(const struct shell_transport *transport,
+		     void *data, size_t length, size_t *cnt)
 {
 	if (IS_ENABLED(CONFIG_SHELL_BACKEND_SERIAL_API_INTERRUPT_DRIVEN)) {
 		return irq_read((struct shell_uart_int_driven *)transport->ctx, data, length, cnt);
@@ -510,8 +509,8 @@ const struct shell_transport_api shell_uart_transport_api = {
 	.init = init,
 	.uninit = uninit,
 	.enable = enable,
-	.write = write,
-	.read = read,
+	.write = write_uart,
+	.read = read_uart,
 #ifdef CONFIG_MCUMGR_TRANSPORT_SHELL
 	.update = update,
 #endif /* CONFIG_MCUMGR_TRANSPORT_SHELL */

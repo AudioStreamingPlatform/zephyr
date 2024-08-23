@@ -9,6 +9,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/hci.h>
 
 #define NAME_LEN            30
 
@@ -16,6 +17,7 @@ static bool per_adv_found;
 static bt_addr_le_t per_addr;
 static uint8_t per_sid;
 static struct bt_conn *default_conn;
+static uint32_t per_adv_interval_ms;
 
 static K_SEM_DEFINE(sem_conn, 0, 1);
 static K_SEM_DEFINE(sem_conn_lost, 0, 1);
@@ -105,6 +107,7 @@ static void scan_recv(const struct bt_le_scan_recv_info *info,
 		/* If info->interval it is a periodic advertiser, mark for sync */
 		if (!per_adv_found && info->interval) {
 			per_adv_found = true;
+			per_adv_interval_ms = BT_GAP_PER_ADV_INTERVAL_TO_MS(info->interval);
 
 			per_sid = info->sid;
 			bt_addr_le_copy(&per_addr, info->addr);
@@ -126,7 +129,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
 	if (err != 0) {
-		printk("Failed to connect to %s (%u)\n", addr, err);
+		printk("Failed to connect to %s %u %s\n", addr, err, bt_hci_err_to_str(err));
 
 		bt_conn_unref(default_conn);
 		default_conn = NULL;
@@ -161,7 +164,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
-	printk("Disconnected: %s (reason 0x%02x)\n", addr, reason);
+	printk("Disconnected: %s, reason 0x%02x %s\n", addr, reason, bt_hci_err_to_str(reason));
 
 	bt_conn_unref(default_conn);
 	default_conn = NULL;
@@ -293,7 +296,7 @@ int main(void)
 		sync_create_param.options = 0;
 		sync_create_param.sid = per_sid;
 		sync_create_param.skip = 0;
-		sync_create_param.timeout = 0xaa;
+		sync_create_param.timeout = per_adv_interval_ms * 10 / 10; /* 10 attempts */
 		err = bt_le_per_adv_sync_create(&sync_create_param, &sync);
 		if (err != 0) {
 			printk("failed (err %d)\n", err);

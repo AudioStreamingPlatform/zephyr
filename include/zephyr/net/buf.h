@@ -23,6 +23,8 @@ extern "C" {
 /**
  * @brief Network buffer library
  * @defgroup net_buf Network Buffer Library
+ * @since 1.0
+ * @version 1.0.0
  * @ingroup networking
  * @{
  */
@@ -300,6 +302,30 @@ void net_buf_simple_add_le32(struct net_buf_simple *buf, uint32_t val);
 void net_buf_simple_add_be32(struct net_buf_simple *buf, uint32_t val);
 
 /**
+ * @brief Add 40-bit value at the end of the buffer
+ *
+ * Adds 40-bit value in little endian format at the end of buffer.
+ * Increments the data length of a buffer to account for more data
+ * at the end.
+ *
+ * @param buf Buffer to update.
+ * @param val 40-bit value to be added.
+ */
+void net_buf_simple_add_le40(struct net_buf_simple *buf, uint64_t val);
+
+/**
+ * @brief Add 40-bit value at the end of the buffer
+ *
+ * Adds 40-bit value in big endian format at the end of buffer.
+ * Increments the data length of a buffer to account for more data
+ * at the end.
+ *
+ * @param buf Buffer to update.
+ * @param val 40-bit value to be added.
+ */
+void net_buf_simple_add_be40(struct net_buf_simple *buf, uint64_t val);
+
+/**
  * @brief Add 48-bit value at the end of the buffer
  *
  * Adds 48-bit value in little endian format at the end of buffer.
@@ -442,6 +468,30 @@ uint32_t net_buf_simple_remove_le32(struct net_buf_simple *buf);
  * @return 32-bit value converted from big endian to host endian.
  */
 uint32_t net_buf_simple_remove_be32(struct net_buf_simple *buf);
+
+/**
+ * @brief Remove and convert 40 bits from the end of the buffer.
+ *
+ * Same idea as with net_buf_simple_remove_mem(), but a helper for operating
+ * on 40-bit little endian data.
+ *
+ * @param buf A valid pointer on a buffer.
+ *
+ * @return 40-bit value converted from little endian to host endian.
+ */
+uint64_t net_buf_simple_remove_le40(struct net_buf_simple *buf);
+
+/**
+ * @brief Remove and convert 40 bits from the end of the buffer.
+ *
+ * Same idea as with net_buf_simple_remove_mem(), but a helper for operating
+ * on 40-bit big endian data.
+ *
+ * @param buf A valid pointer on a buffer.
+ *
+ * @return 40-bit value converted from big endian to host endian.
+ */
+uint64_t net_buf_simple_remove_be40(struct net_buf_simple *buf);
 
 /**
  * @brief Remove and convert 48 bits from the end of the buffer.
@@ -594,6 +644,28 @@ void net_buf_simple_push_le32(struct net_buf_simple *buf, uint32_t val);
  * @param val 32-bit value to be pushed to the buffer.
  */
 void net_buf_simple_push_be32(struct net_buf_simple *buf, uint32_t val);
+
+/**
+ * @brief Push 40-bit value to the beginning of the buffer
+ *
+ * Adds 40-bit value in little endian format to the beginning of the
+ * buffer.
+ *
+ * @param buf Buffer to update.
+ * @param val 40-bit value to be pushed to the buffer.
+ */
+void net_buf_simple_push_le40(struct net_buf_simple *buf, uint64_t val);
+
+/**
+ * @brief Push 40-bit value to the beginning of the buffer
+ *
+ * Adds 40-bit value in big endian format to the beginning of the
+ * buffer.
+ *
+ * @param buf Buffer to update.
+ * @param val 40-bit value to be pushed to the buffer.
+ */
+void net_buf_simple_push_be40(struct net_buf_simple *buf, uint64_t val);
 
 /**
  * @brief Push 48-bit value to the beginning of the buffer
@@ -750,6 +822,30 @@ uint32_t net_buf_simple_pull_le32(struct net_buf_simple *buf);
 uint32_t net_buf_simple_pull_be32(struct net_buf_simple *buf);
 
 /**
+ * @brief Remove and convert 40 bits from the beginning of the buffer.
+ *
+ * Same idea as with net_buf_simple_pull(), but a helper for operating
+ * on 40-bit little endian data.
+ *
+ * @param buf A valid pointer on a buffer.
+ *
+ * @return 40-bit value converted from little endian to host endian.
+ */
+uint64_t net_buf_simple_pull_le40(struct net_buf_simple *buf);
+
+/**
+ * @brief Remove and convert 40 bits from the beginning of the buffer.
+ *
+ * Same idea as with net_buf_simple_pull(), but a helper for operating
+ * on 40-bit big endian data.
+ *
+ * @param buf A valid pointer on a buffer.
+ *
+ * @return 40-bit value converted from big endian to host endian.
+ */
+uint64_t net_buf_simple_pull_be40(struct net_buf_simple *buf);
+
+/**
  * @brief Remove and convert 48 bits from the beginning of the buffer.
  *
  * Same idea as with net_buf_simple_pull(), but a helper for operating
@@ -806,7 +902,7 @@ uint64_t net_buf_simple_pull_be64(struct net_buf_simple *buf);
  *
  * @return Tail pointer for the buffer.
  */
-static inline uint8_t *net_buf_simple_tail(struct net_buf_simple *buf)
+static inline uint8_t *net_buf_simple_tail(const struct net_buf_simple *buf)
 {
 	return buf->data + buf->len;
 }
@@ -820,7 +916,7 @@ static inline uint8_t *net_buf_simple_tail(struct net_buf_simple *buf)
  *
  * @return Number of bytes available in the beginning of the buffer.
  */
-size_t net_buf_simple_headroom(struct net_buf_simple *buf);
+size_t net_buf_simple_headroom(const struct net_buf_simple *buf);
 
 /**
  * @brief Check buffer tailroom.
@@ -831,7 +927,7 @@ size_t net_buf_simple_headroom(struct net_buf_simple *buf);
  *
  * @return Number of bytes available at the end of the buffer.
  */
-size_t net_buf_simple_tailroom(struct net_buf_simple *buf);
+size_t net_buf_simple_tailroom(const struct net_buf_simple *buf);
 
 /**
  * @brief Check maximum net_buf_simple::len value.
@@ -842,7 +938,7 @@ size_t net_buf_simple_tailroom(struct net_buf_simple *buf);
  *
  * @return Number of bytes usable behind the net_buf_simple::data pointer.
  */
-uint16_t net_buf_simple_max_len(struct net_buf_simple *buf);
+uint16_t net_buf_simple_max_len(const struct net_buf_simple *buf);
 
 /**
  * @brief Parsing state of a buffer.
@@ -866,10 +962,10 @@ struct net_buf_simple_state {
  * @param buf Buffer from which the state should be saved.
  * @param state Storage for the state.
  */
-static inline void net_buf_simple_save(struct net_buf_simple *buf,
+static inline void net_buf_simple_save(const struct net_buf_simple *buf,
 				       struct net_buf_simple_state *state)
 {
-	state->offset = net_buf_simple_headroom(buf);
+	state->offset = (uint16_t)net_buf_simple_headroom(buf);
 	state->len = buf->len;
 }
 
@@ -923,10 +1019,10 @@ struct net_buf {
 	/** Where the buffer should go when freed up. */
 	uint8_t pool_id;
 
-	/* Size of user data on this buffer */
+	/** Size of user data on this buffer */
 	uint8_t user_data_size;
 
-	/* Union for convenience access to the net_buf_simple members, also
+	/** Union for convenience access to the net_buf_simple members, also
 	 * preserving the old API.
 	 */
 	union {
@@ -948,12 +1044,16 @@ struct net_buf {
 			uint8_t *__buf;
 		};
 
+		/** @cond INTERNAL_HIDDEN */
 		struct net_buf_simple b;
+		/** @endcond */
 	};
 
-	/** System metadata for this buffer. */
+	/** System metadata for this buffer. Cleared on allocation. */
 	uint8_t user_data[] __net_buf_align;
 };
+
+/** @cond INTERNAL_HIDDEN */
 
 struct net_buf_data_cb {
 	uint8_t * __must_check (*alloc)(struct net_buf *buf, size_t *size,
@@ -965,7 +1065,10 @@ struct net_buf_data_cb {
 struct net_buf_data_alloc {
 	const struct net_buf_data_cb *cb;
 	void *alloc_data;
+	size_t max_alloc_size;
 };
+
+/** @endcond */
 
 /**
  * @brief Network buffer pool representation.
@@ -976,7 +1079,7 @@ struct net_buf_pool {
 	/** LIFO to place the buffer into when free */
 	struct k_lifo free;
 
-	/* to prevent concurrent access/modifications */
+	/** To prevent concurrent access/modifications */
 	struct k_spinlock lock;
 
 	/** Number of buffers in pool */
@@ -985,7 +1088,7 @@ struct net_buf_pool {
 	/** Number of uninitialized buffers */
 	uint16_t uninit_count;
 
-	/* Size of user data allocated to this pool */
+	/** Size of user data allocated to this pool */
 	uint8_t user_data_size;
 
 #if defined(CONFIG_NET_BUF_POOL_USAGE)
@@ -1077,13 +1180,14 @@ extern const struct net_buf_data_alloc net_buf_heap_alloc;
 					 _net_buf_##_name, _count, _ud_size, \
 					 _destroy)
 
+/** @cond INTERNAL_HIDDEN */
+
 struct net_buf_pool_fixed {
-	size_t data_size;
 	uint8_t *data_pool;
 };
 
-/** @cond INTERNAL_HIDDEN */
 extern const struct net_buf_data_cb net_buf_fixed_cb;
+
 /** @endcond */
 
 /**
@@ -1118,12 +1222,12 @@ extern const struct net_buf_data_cb net_buf_fixed_cb;
 	_NET_BUF_ARRAY_DEFINE(_name, _count, _ud_size);                        \
 	static uint8_t __noinit net_buf_data_##_name[_count][_data_size] __net_buf_align; \
 	static const struct net_buf_pool_fixed net_buf_fixed_##_name = {       \
-		.data_size = _data_size,                                       \
 		.data_pool = (uint8_t *)net_buf_data_##_name,                  \
 	};                                                                     \
 	static const struct net_buf_data_alloc net_buf_fixed_alloc_##_name = { \
 		.cb = &net_buf_fixed_cb,                                       \
 		.alloc_data = (void *)&net_buf_fixed_##_name,                  \
+		.max_alloc_size = _data_size,                                  \
 	};                                                                     \
 	static STRUCT_SECTION_ITERABLE(net_buf_pool, _name) =                  \
 		NET_BUF_POOL_INITIALIZER(_name, &net_buf_fixed_alloc_##_name,  \
@@ -1164,6 +1268,7 @@ extern const struct net_buf_data_cb net_buf_var_cb;
 	static const struct net_buf_data_alloc net_buf_data_alloc_##_name = {  \
 		.cb = &net_buf_var_cb,                                         \
 		.alloc_data = &net_buf_mem_pool_##_name,                       \
+		.max_alloc_size = 0,                                           \
 	};                                                                     \
 	static STRUCT_SECTION_ITERABLE(net_buf_pool, _name) =                  \
 		NET_BUF_POOL_INITIALIZER(_name, &net_buf_data_alloc_##_name,   \
@@ -1215,19 +1320,24 @@ struct net_buf_pool *net_buf_pool_get(int id);
  *
  * @return Zero-based index for the buffer.
  */
-int net_buf_id(struct net_buf *buf);
+int net_buf_id(const struct net_buf *buf);
 
 /**
  * @brief Allocate a new fixed buffer from a pool.
+ *
+ * @note Some types of data allocators do not support
+ *       blocking (such as the HEAP type). In this case it's still possible
+ *       for net_buf_alloc() to fail (return NULL) even if it was given
+ *       K_FOREVER.
+ *
+ * @note The timeout value will be overridden to K_NO_WAIT if called from the
+ *       system workqueue.
  *
  * @param pool Which pool to allocate the buffer from.
  * @param timeout Affects the action taken should the pool be empty.
  *        If K_NO_WAIT, then return immediately. If K_FOREVER, then
  *        wait as long as necessary. Otherwise, wait until the specified
- *        timeout. Note that some types of data allocators do not support
- *        blocking (such as the HEAP type). In this case it's still possible
- *        for net_buf_alloc() to fail (return NULL) even if it was given
- *        K_FOREVER.
+ *        timeout.
  *
  * @return New buffer or NULL if out of buffers.
  */
@@ -1255,15 +1365,20 @@ static inline struct net_buf * __must_check net_buf_alloc(struct net_buf_pool *p
 /**
  * @brief Allocate a new variable length buffer from a pool.
  *
+ * @note Some types of data allocators do not support
+ *       blocking (such as the HEAP type). In this case it's still possible
+ *       for net_buf_alloc() to fail (return NULL) even if it was given
+ *       K_FOREVER.
+ *
+ * @note The timeout value will be overridden to K_NO_WAIT if called from the
+ *       system workqueue.
+ *
  * @param pool Which pool to allocate the buffer from.
  * @param size Amount of data the buffer must be able to fit.
  * @param timeout Affects the action taken should the pool be empty.
  *        If K_NO_WAIT, then return immediately. If K_FOREVER, then
  *        wait as long as necessary. Otherwise, wait until the specified
- *        timeout. Note that some types of data allocators do not support
- *        blocking (such as the HEAP type). In this case it's still possible
- *        for net_buf_alloc() to fail (return NULL) even if it was given
- *        K_FOREVER.
+ *        timeout.
  *
  * @return New buffer or NULL if out of buffers.
  */
@@ -1287,16 +1402,21 @@ struct net_buf * __must_check net_buf_alloc_len(struct net_buf_pool *pool,
  * Allocate a new buffer from a pool, where the data pointer comes from the
  * user and not from the pool.
  *
+ * @note Some types of data allocators do not support
+ *       blocking (such as the HEAP type). In this case it's still possible
+ *       for net_buf_alloc() to fail (return NULL) even if it was given
+ *       K_FOREVER.
+ *
+ * @note The timeout value will be overridden to K_NO_WAIT if called from the
+ *       system workqueue.
+ *
  * @param pool Which pool to allocate the buffer from.
  * @param data External data pointer
  * @param size Amount of data the pointed data buffer if able to fit.
  * @param timeout Affects the action taken should the pool be empty.
  *        If K_NO_WAIT, then return immediately. If K_FOREVER, then
  *        wait as long as necessary. Otherwise, wait until the specified
- *        timeout. Note that some types of data allocators do not support
- *        blocking (such as the HEAP type). In this case it's still possible
- *        for net_buf_alloc() to fail (return NULL) even if it was given
- *        K_FOREVER.
+ *        timeout.
  *
  * @return New buffer or NULL if out of buffers.
  */
@@ -1317,8 +1437,7 @@ struct net_buf * __must_check net_buf_alloc_with_data(struct net_buf_pool *pool,
 /**
  * @brief Get a buffer from a FIFO.
  *
- * This function is NOT thread-safe if the buffers in the FIFO contain
- * fragments.
+ * @deprecated Use @a k_fifo_get() instead.
  *
  * @param fifo Which FIFO to take the buffer from.
  * @param timeout Affects the action taken should the FIFO be empty.
@@ -1328,14 +1447,14 @@ struct net_buf * __must_check net_buf_alloc_with_data(struct net_buf_pool *pool,
  * @return New buffer or NULL if the FIFO is empty.
  */
 #if defined(CONFIG_NET_BUF_LOG)
-struct net_buf * __must_check net_buf_get_debug(struct k_fifo *fifo,
-						k_timeout_t timeout,
-						const char *func, int line);
+__deprecated struct net_buf * __must_check net_buf_get_debug(struct k_fifo *fifo,
+							     k_timeout_t timeout,
+							     const char *func, int line);
 #define	net_buf_get(_fifo, _timeout) \
 	net_buf_get_debug(_fifo, _timeout, __func__, __LINE__)
 #else
-struct net_buf * __must_check net_buf_get(struct k_fifo *fifo,
-					  k_timeout_t timeout);
+__deprecated struct net_buf * __must_check net_buf_get(struct k_fifo *fifo,
+						       k_timeout_t timeout);
 #endif
 
 /**
@@ -1383,9 +1502,6 @@ void net_buf_simple_reserve(struct net_buf_simple *buf, size_t reserve);
 /**
  * @brief Put a buffer into a list
  *
- * If the buffer contains follow-up fragments this function will take care of
- * inserting them as well into the list.
- *
  * @param list Which list to append the buffer to.
  * @param buf Buffer.
  */
@@ -1393,9 +1509,6 @@ void net_buf_slist_put(sys_slist_t *list, struct net_buf *buf);
 
 /**
  * @brief Get a buffer from a list.
- *
- * If the buffer had any fragments, these will automatically be recovered from
- * the list as well and be placed to the buffer's fragment list.
  *
  * @param list Which list to take the buffer from.
  *
@@ -1406,13 +1519,12 @@ struct net_buf * __must_check net_buf_slist_get(sys_slist_t *list);
 /**
  * @brief Put a buffer to the end of a FIFO.
  *
- * If the buffer contains follow-up fragments this function will take care of
- * inserting them as well into the FIFO.
+ * @deprecated Use @a k_fifo_put() instead.
  *
  * @param fifo Which FIFO to put the buffer to.
  * @param buf Buffer.
  */
-void net_buf_put(struct k_fifo *fifo, struct net_buf *buf);
+__deprecated void net_buf_put(struct k_fifo *fifo, struct net_buf *buf);
 
 /**
  * @brief Decrements the reference count of a buffer.
@@ -1441,7 +1553,7 @@ struct net_buf * __must_check net_buf_ref(struct net_buf *buf);
 /**
  * @brief Clone buffer
  *
- * Duplicate given buffer including any data and headers currently stored.
+ * Duplicate given buffer including any (user) data and headers currently stored.
  *
  * @param buf A valid pointer on a buffer
  * @param timeout Affects the action taken should the pool be empty.
@@ -1465,6 +1577,17 @@ static inline void * __must_check net_buf_user_data(const struct net_buf *buf)
 {
 	return (void *)buf->user_data;
 }
+
+/**
+ * @brief Copy user data from one to another buffer.
+ *
+ * @param dst A valid pointer to a buffer gettings its user data overwritten.
+ * @param src A valid pointer to a buffer gettings its user data copied. User data size must be
+ *            equal to or exceed @a dst.
+ *
+ * @return 0 on success or negative error number on failure.
+ */
+int net_buf_user_data_copy(struct net_buf *dst, const struct net_buf *src);
 
 /**
  * @brief Initialize buffer with the given headroom.
@@ -1617,6 +1740,36 @@ static inline void net_buf_add_le32(struct net_buf *buf, uint32_t val)
 static inline void net_buf_add_be32(struct net_buf *buf, uint32_t val)
 {
 	net_buf_simple_add_be32(&buf->b, val);
+}
+
+/**
+ * @brief Add 40-bit value at the end of the buffer
+ *
+ * Adds 40-bit value in little endian format at the end of buffer.
+ * Increments the data length of a buffer to account for more data
+ * at the end.
+ *
+ * @param buf Buffer to update.
+ * @param val 40-bit value to be added.
+ */
+static inline void net_buf_add_le40(struct net_buf *buf, uint64_t val)
+{
+	net_buf_simple_add_le40(&buf->b, val);
+}
+
+/**
+ * @brief Add 40-bit value at the end of the buffer
+ *
+ * Adds 40-bit value in big endian format at the end of buffer.
+ * Increments the data length of a buffer to account for more data
+ * at the end.
+ *
+ * @param buf Buffer to update.
+ * @param val 40-bit value to be added.
+ */
+static inline void net_buf_add_be40(struct net_buf *buf, uint64_t val)
+{
+	net_buf_simple_add_be40(&buf->b, val);
 }
 
 /**
@@ -1797,6 +1950,36 @@ static inline uint32_t net_buf_remove_le32(struct net_buf *buf)
 static inline uint32_t net_buf_remove_be32(struct net_buf *buf)
 {
 	return net_buf_simple_remove_be32(&buf->b);
+}
+
+/**
+ * @brief Remove and convert 40 bits from the end of the buffer.
+ *
+ * Same idea as with net_buf_remove_mem(), but a helper for operating on
+ * 40-bit little endian data.
+ *
+ * @param buf A valid pointer on a buffer.
+ *
+ * @return 40-bit value converted from little endian to host endian.
+ */
+static inline uint64_t net_buf_remove_le40(struct net_buf *buf)
+{
+	return net_buf_simple_remove_le40(&buf->b);
+}
+
+/**
+ * @brief Remove and convert 40 bits from the end of the buffer.
+ *
+ * Same idea as with net_buf_remove_mem(), but a helper for operating on
+ * 40-bit big endian data.
+ *
+ * @param buf A valid pointer on a buffer
+ *
+ * @return 40-bit value converted from big endian to host endian.
+ */
+static inline uint64_t net_buf_remove_be40(struct net_buf *buf)
+{
+	return net_buf_simple_remove_be40(&buf->b);
 }
 
 /**
@@ -1988,6 +2171,34 @@ static inline void net_buf_push_le32(struct net_buf *buf, uint32_t val)
 static inline void net_buf_push_be32(struct net_buf *buf, uint32_t val)
 {
 	net_buf_simple_push_be32(&buf->b, val);
+}
+
+/**
+ * @brief Push 40-bit value to the beginning of the buffer
+ *
+ * Adds 40-bit value in little endian format to the beginning of the
+ * buffer.
+ *
+ * @param buf Buffer to update.
+ * @param val 40-bit value to be pushed to the buffer.
+ */
+static inline void net_buf_push_le40(struct net_buf *buf, uint64_t val)
+{
+	net_buf_simple_push_le40(&buf->b, val);
+}
+
+/**
+ * @brief Push 40-bit value to the beginning of the buffer
+ *
+ * Adds 40-bit value in big endian format to the beginning of the
+ * buffer.
+ *
+ * @param buf Buffer to update.
+ * @param val 40-bit value to be pushed to the buffer.
+ */
+static inline void net_buf_push_be40(struct net_buf *buf, uint64_t val)
+{
+	net_buf_simple_push_be40(&buf->b, val);
 }
 
 /**
@@ -2184,6 +2395,36 @@ static inline uint32_t net_buf_pull_be32(struct net_buf *buf)
 }
 
 /**
+ * @brief Remove and convert 40 bits from the beginning of the buffer.
+ *
+ * Same idea as with net_buf_pull(), but a helper for operating on
+ * 40-bit little endian data.
+ *
+ * @param buf A valid pointer on a buffer.
+ *
+ * @return 40-bit value converted from little endian to host endian.
+ */
+static inline uint64_t net_buf_pull_le40(struct net_buf *buf)
+{
+	return net_buf_simple_pull_le40(&buf->b);
+}
+
+/**
+ * @brief Remove and convert 40 bits from the beginning of the buffer.
+ *
+ * Same idea as with net_buf_pull(), but a helper for operating on
+ * 40-bit big endian data.
+ *
+ * @param buf A valid pointer on a buffer
+ *
+ * @return 40-bit value converted from big endian to host endian.
+ */
+static inline uint64_t net_buf_pull_be40(struct net_buf *buf)
+{
+	return net_buf_simple_pull_be40(&buf->b);
+}
+
+/**
  * @brief Remove and convert 48 bits from the beginning of the buffer.
  *
  * Same idea as with net_buf_pull(), but a helper for operating on
@@ -2252,7 +2493,7 @@ static inline uint64_t net_buf_pull_be64(struct net_buf *buf)
  *
  * @return Number of bytes available at the end of the buffer.
  */
-static inline size_t net_buf_tailroom(struct net_buf *buf)
+static inline size_t net_buf_tailroom(const struct net_buf *buf)
 {
 	return net_buf_simple_tailroom(&buf->b);
 }
@@ -2266,7 +2507,7 @@ static inline size_t net_buf_tailroom(struct net_buf *buf)
  *
  * @return Number of bytes available in the beginning of the buffer.
  */
-static inline size_t net_buf_headroom(struct net_buf *buf)
+static inline size_t net_buf_headroom(const struct net_buf *buf)
 {
 	return net_buf_simple_headroom(&buf->b);
 }
@@ -2280,7 +2521,7 @@ static inline size_t net_buf_headroom(struct net_buf *buf)
  *
  * @return Number of bytes usable behind the net_buf::data pointer.
  */
-static inline uint16_t net_buf_max_len(struct net_buf *buf)
+static inline uint16_t net_buf_max_len(const struct net_buf *buf)
 {
 	return net_buf_simple_max_len(&buf->b);
 }
@@ -2294,7 +2535,7 @@ static inline uint16_t net_buf_max_len(struct net_buf *buf)
  *
  * @return Tail pointer for the buffer.
  */
-static inline uint8_t *net_buf_tail(struct net_buf *buf)
+static inline uint8_t *net_buf_tail(const struct net_buf *buf)
 {
 	return net_buf_simple_tail(&buf->b);
 }
@@ -2370,7 +2611,7 @@ struct net_buf *net_buf_frag_del(struct net_buf *parent, struct net_buf *frag);
  * @return number of bytes actually copied
  */
 size_t net_buf_linearize(void *dst, size_t dst_len,
-			 struct net_buf *src, size_t offset, size_t len);
+			 const struct net_buf *src, size_t offset, size_t len);
 
 /**
  * @typedef net_buf_allocator_cb
@@ -2415,6 +2656,22 @@ size_t net_buf_append_bytes(struct net_buf *buf, size_t len,
 			    net_buf_allocator_cb allocate_cb, void *user_data);
 
 /**
+ * @brief Match data with a net_buf's content
+ *
+ * @details Compare data with a content of a net_buf. Provide information about
+ * the number of bytes matching between both. If needed, traverse
+ * through multiple buffer fragments.
+ *
+ * @param buf Network buffer
+ * @param offset Starting offset to compare from
+ * @param data Data buffer for comparison
+ * @param len Number of bytes to compare
+ *
+ * @return The number of bytes compared before the first difference.
+ */
+size_t net_buf_data_match(const struct net_buf *buf, size_t offset, const void *data, size_t len);
+
+/**
  * @brief Skip N number of bytes in a net_buf
  *
  * @details Skip N number of bytes starting from fragment's offset. If the total
@@ -2451,7 +2708,7 @@ static inline struct net_buf *net_buf_skip(struct net_buf *buf, size_t len)
  *
  * @return Number of bytes in the buffer and its fragments.
  */
-static inline size_t net_buf_frags_len(struct net_buf *buf)
+static inline size_t net_buf_frags_len(const struct net_buf *buf)
 {
 	size_t bytes = 0;
 

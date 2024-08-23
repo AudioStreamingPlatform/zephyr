@@ -114,8 +114,11 @@ static int char_out(uint8_t *data, size_t length, void *ctx)
 
 	(void)err;
 cleanup:
-	/* As errors cannot be returned, ignore the return value */
-	(void)pm_device_runtime_put(uart_dev);
+	/* Use async put to avoid useless device suspension/resumption
+	 * when tranmiting chain of chars.
+	 * As errors cannot be returned, ignore the return value
+	 */
+	(void)pm_device_runtime_put_async(uart_dev, K_MSEC(1));
 
 	return length;
 }
@@ -186,7 +189,7 @@ static void panic(struct log_backend const *const backend)
 
 	/* Ensure that the UART device is in active mode */
 #if defined(CONFIG_PM_DEVICE_RUNTIME)
-	pm_device_runtime_get(uart_dev);
+	(void)pm_device_runtime_get(uart_dev);
 #elif defined(CONFIG_PM_DEVICE)
 	enum pm_device_state pm_state;
 	int rc;

@@ -13,6 +13,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/kernel_structs.h>
 #include <ksched.h>
+#include <ipi.h>
 #include <zephyr/init.h>
 #include <zephyr/irq.h>
 #include <arc_irq_offload.h>
@@ -39,7 +40,7 @@ volatile char *arc_cpu_sp;
 volatile _cpu_t *_curr_cpu[CONFIG_MP_MAX_NUM_CPUS];
 
 /* Called from Zephyr initialization */
-void arch_start_cpu(int cpu_num, k_thread_stack_t *stack, int sz,
+void arch_cpu_start(int cpu_num, k_thread_stack_t *stack, int sz,
 		    arch_cpustart_t fn, void *arg)
 {
 	_curr_cpu[cpu_num] = &(_kernel.cpus[cpu_num]);
@@ -50,7 +51,7 @@ void arch_start_cpu(int cpu_num, k_thread_stack_t *stack, int sz,
 	 * arc_cpu_wake_flag will protect arc_cpu_sp that
 	 * only one slave cpu can read it per time
 	 */
-	arc_cpu_sp = Z_KERNEL_STACK_BUFFER(stack) + sz;
+	arc_cpu_sp = K_KERNEL_STACK_BUFFER(stack) + sz;
 
 	arc_cpu_wake_flag = cpu_num;
 
@@ -114,7 +115,7 @@ void arch_secondary_cpu_init(int cpu_num)
 			   DT_IRQ(DT_NODELABEL(ici), priority), 0);
 	irq_enable(DT_IRQN(DT_NODELABEL(ici)));
 #endif
-	/* call the function set by arch_start_cpu */
+	/* call the function set by arch_cpu_start */
 	fn = arc_cpu_init[cpu_num].fn;
 
 	fn(arc_cpu_init[cpu_num].arg);
@@ -130,19 +131,25 @@ static void sched_ipi_handler(const void *unused)
 	z_sched_ipi();
 }
 
-/* arch implementation of sched_ipi */
-void arch_sched_ipi(void)
+void arch_sched_directed_ipi(uint32_t cpu_bitmap)
 {
-	uint32_t i;
-
-	/* broadcast sched_ipi request to other cores
-	 * if the target is current core, hardware will ignore it
-	 */
+	unsigned int i;
 	unsigned int num_cpus = arch_num_cpus();
 
+	/* Send sched_ipi request to other cores
+	 * if the target is current core, hardware will ignore it
+	 */
+
 	for (i = 0U; i < num_cpus; i++) {
-		z_arc_connect_ici_generate(i);
+		if ((cpu_bitmap & BIT(i)) != 0) {
+			z_arc_connect_ici_generate(i);
+		}
 	}
+}
+
+void arch_sched_broadcast_ipi(void)
+{
+	arch_sched_directed_ipi(IPI_ALL_CPUS_MASK);
 }
 
 int arch_smp_init(void)
@@ -188,5 +195,4 @@ int arch_smp_init(void)
 
 	return 0;
 }
-SYS_INIT(arch_smp_init, PRE_KERNEL_1, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
 #endif

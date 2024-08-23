@@ -19,9 +19,9 @@
 
 			channel@0 {
 				reg = <0>;
-                                zephyr,gain = "ADC_GAIN_1";
-                                zephyr,reference = "ADC_REF_VDD_1";
-                                zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+				zephyr,gain = "ADC_GAIN_1";
+				zephyr,reference = "ADC_REF_VDD_1";
+				zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
 			};
 		};
 
@@ -31,6 +31,20 @@
 			reg = <0x0 0x1000>;
 			#gpio-cells = <0x2>;
 			status = "okay";
+		};
+
+		adc-keys {
+			compatible = "adc-keys";
+			io-channels = <&test_adc 0>;
+			keyup-threshold-mv = <0>;
+			button_0 {
+				press-thresholds-mv = <1500>, <1750>;
+				zephyr,code = <0>;
+			};
+			button_1 {
+				press-thresholds-mv = <2500>, <1750>;
+				zephyr,code = <1>;
+			};
 		};
 
 		gpio-keys {
@@ -64,6 +78,13 @@
 				    <&test_gpio 3 GPIO_ACTIVE_LOW>,
 				    <&test_gpio 4 GPIO_ACTIVE_LOW>;
 			actual-key-mask = <0x0f 0x0a 0x0b>;
+
+			keymap {
+				compatible = "input-keymap";
+				keymap = <0 1 2>;
+				row-size = <2>;
+				col-size = <2>;
+			};
 		};
 
 		kbd-matrix-1 {
@@ -97,17 +118,30 @@
 			idle-timeout-ms = <200>;
 		};
 
+		qdec-gpio-polled {
+			compatible = "gpio-qdec";
+			gpios = <&test_gpio 0 0>, <&test_gpio 1 0>;
+			led-gpios = <&test_gpio 2 0>;
+			led-pre-us = <5>;
+			steps-per-period = <4>;
+			zephyr,axis = <0>;
+			sample-time-us = <2000>;
+			idle-timeout-ms = <200>;
+			idle-poll-time-us = <5000>;
+		};
+
 		analog_axis {
 			compatible = "analog-axis";
 			axis-x {
 				io-channels = <&test_adc 0>;
 				out-min = <(-127)>;
 				out-max = <127>;
-				out-deadzone = <8>;
+				in-deadzone = <8>;
 				in-min = <(-100)>;
 				in-max = <100>;
 				zephyr,axis = <0>;
-				invert;
+				invert-input;
+				invert-output;
 			};
 		};
 
@@ -118,6 +152,14 @@
 			short-codes = <0>;
 			long-codes = <0>;
 			long-delay-ms = <100>;
+		};
+
+		double_tap: doubletap {
+			input = <&double_tap>;
+			compatible = "zephyr,input-double-tap";
+			input-codes = <0>;
+			double-tap-codes = <0>;
+			double-tap-delay-ms = <0>;
 		};
 
 		i2c@1 {
@@ -164,6 +206,41 @@
 				touch-average-control = <1>;
 				tracking-index = <0>;
 			};
+
+			pat@5 {
+				compatible = "pixart,pat912x";
+				reg = <0x5>;
+				motion-gpios = <&test_gpio 0 0>;
+				zephyr,axis-x = <0>;
+				zephyr,axis-y = <1>;
+				res-x-cpi = <0>;
+				res-y-cpi = <0>;
+				invert-x;
+				invert-y;
+				sleep1-enable;
+				sleep2-enable;
+			};
+
+			cf1133@6 {
+				compatible = "sitronix,cf1133";
+				reg = <0x6>;
+				int-gpios = <&test_gpio 0 0>;
+			};
+
+			chsc6x@7 {
+				compatible = "chipsemi,chsc6x";
+				reg = <0x7>;
+				irq-gpios = <&test_gpio 0 0>;
+			};
+
+			pinnacle@2a {
+				compatible = "cirque,pinnacle";
+				reg = <0x2a>;
+				data-ready-gpios = <&test_gpio 0 0>;
+				data-mode = "relative";
+				primary-tap-enable;
+				swap-xy;
+			};
 		};
 
 		spi@2 {
@@ -175,7 +252,10 @@
 			clock-frequency = <2000000>;
 
 			/* one entry for every devices */
-			cs-gpios = <&test_gpio 0 0>;
+			cs-gpios = <&test_gpio 0 0>,
+				   <&test_gpio 1 0>,
+				   <&test_gpio 2 0>,
+				   <&test_gpio 3 0>;
 
 			xpt2046@0 {
 				compatible = "xptek,xpt2046";
@@ -188,6 +268,45 @@
 				min-y = <0>;
 				max-x = <1>;
 				max-y = <1>;
+			};
+
+			pmw3610@1 {
+				compatible = "pixart,pmw3610";
+				spi-max-frequency = <0>;
+				reg = <0x1>;
+				motion-gpios = <&test_gpio 0 0>;
+				reset-gpios = <&test_gpio 1 0>;
+				zephyr,axis-x = <0>;
+				zephyr,axis-y = <1>;
+				invert-x;
+				invert-y;
+				force-awake;
+				smart-mode;
+			};
+
+			pinnacle@2 {
+				compatible = "cirque,pinnacle";
+				reg = <0x2>;
+				spi-max-frequency = <0>;
+				data-ready-gpios = <&test_gpio 0 0>;
+				data-mode = "absolute";
+				idle-packets-count = <20>;
+				clipping-enable;
+				scaling-enable;
+				invert-x;
+				invert-y;
+			};
+
+			paw32xx@3 {
+				compatible = "pixart,paw32xx";
+				reg = <3>;
+				spi-max-frequency = <0>;
+				motion-gpios = <&test_gpio 0 0>;
+				zephyr,axis-x = <0>;
+				zephyr,axis-y = <1>;
+				invert-x;
+				invert-y;
+				res-cpi = <800>;
 			};
 		};
 	};

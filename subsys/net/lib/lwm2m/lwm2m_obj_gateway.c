@@ -61,9 +61,10 @@ static struct lwm2m_engine_res res[MAX_INSTANCE_COUNT][GATEWAY_MAX_ID];
 static struct lwm2m_engine_res_inst res_inst[MAX_INSTANCE_COUNT][RESOURCE_INSTANCE_COUNT];
 lwm2m_engine_gateway_msg_cb gateway_msg_cb[MAX_INSTANCE_COUNT];
 
-static int prefix_validation_cb(uint16_t obj_inst_id, uint16_t res_id, uint16_t res_inst_id,
-				uint8_t *data, uint16_t data_len, bool last_block,
-				size_t total_size)
+static int prefix_validation_cb(uint16_t obj_inst_id, uint16_t res_id,
+				uint16_t res_inst_id, uint8_t *data,
+				uint16_t data_len, bool last_block,
+				size_t total_size, size_t offset)
 {
 	int i;
 	int length;
@@ -206,7 +207,7 @@ static int lwm2m_gw_init(void)
 	lwm2m_gw.obj_id = LWM2M_OBJECT_GATEWAY_ID;
 	lwm2m_gw.version_major = GATEWAY_VERSION_MAJOR;
 	lwm2m_gw.version_minor = GATEWAY_VERSION_MINOR;
-	lwm2m_gw.is_core = true;
+	lwm2m_gw.is_core = false;
 	lwm2m_gw.fields = fields;
 	lwm2m_gw.field_count = ARRAY_SIZE(fields);
 	lwm2m_gw.max_instance_count = MAX_INSTANCE_COUNT;
@@ -215,4 +216,4 @@ static int lwm2m_gw_init(void)
 	return ret;
 }
 
-SYS_INIT(lwm2m_gw_init, APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
+LWM2M_OBJ_INIT(lwm2m_gw_init);

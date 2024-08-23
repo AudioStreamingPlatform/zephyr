@@ -10,6 +10,7 @@
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
+#include <zephyr/bluetooth/hci.h>
 
 extern int mtu_exchange(struct bt_conn *conn);
 extern int write_cmd(struct bt_conn *conn);
@@ -35,7 +36,7 @@ static void device_found(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 	}
 
 	/* connect only to devices in close proximity */
-	if (rssi < -70) {
+	if (rssi < -50) {
 		return;
 	}
 

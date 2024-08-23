@@ -85,7 +85,7 @@ static uint8_t force_md_cnt;
 			if (force_md_cnt) { \
 				force_md_cnt--; \
 			} \
-		} while (0)
+		} while (false)
 
 #define FORCE_MD_CNT_GET() force_md_cnt
 
@@ -95,7 +95,7 @@ static uint8_t force_md_cnt;
 			    (trx_cnt >= ((CONFIG_BT_BUF_ACL_TX_COUNT) - 1))) { \
 				force_md_cnt = BT_CTLR_FORCE_MD_COUNT; \
 			} \
-		} while (0)
+		} while (false)
 
 #else /* !CONFIG_BT_CTLR_FORCE_MD_COUNT */
 #define FORCE_MD_CNT_INIT()
@@ -396,7 +396,12 @@ void lll_conn_isr_rx(void *param)
 #endif /* HAL_RADIO_GPIO_HAVE_PA_PIN */
 
 	/* assert if radio packet ptr is not set and radio started tx */
-	LL_ASSERT(!radio_is_ready());
+	if (IS_ENABLED(CONFIG_BT_CTLR_PROFILE_ISR)) {
+		LL_ASSERT_MSG(!radio_is_address(), "%s: Radio ISR latency: %u", __func__,
+			      lll_prof_latency_get());
+	} else {
+		LL_ASSERT(!radio_is_address());
+	}
 
 lll_conn_isr_rx_exit:
 	/* Save the AA captured for the first Rx in connection event */
@@ -497,6 +502,10 @@ void lll_conn_isr_tx(void *param)
 	struct lll_conn *lll;
 	uint32_t hcto;
 
+	if (IS_ENABLED(CONFIG_BT_CTLR_PROFILE_ISR)) {
+		lll_prof_latency_capture();
+	}
+
 	/* Clear radio tx status and events */
 	lll_isr_tx_status_reset();
 
@@ -566,7 +575,12 @@ void lll_conn_isr_tx(void *param)
 	lll_conn_rx_pkt_set(lll);
 
 	/* assert if radio packet ptr is not set and radio started rx */
-	LL_ASSERT(!radio_is_ready());
+	if (IS_ENABLED(CONFIG_BT_CTLR_PROFILE_ISR)) {
+		LL_ASSERT_MSG(!radio_is_address(), "%s: Radio ISR latency: %u", __func__,
+			      lll_prof_latency_get());
+	} else {
+		LL_ASSERT(!radio_is_address());
+	}
 
 #if defined(CONFIG_BT_CTLR_DF_CONN_CTE_TX)
 	pdu_tx = get_last_tx_pdu(lll);
@@ -579,9 +593,10 @@ void lll_conn_isr_tx(void *param)
 	}
 #endif /* CONFIG_BT_CTLR_DF_CONN_CTE_TX */
 
-	/* +/- 2us active clock jitter, +1 us hcto compensation */
-	hcto = radio_tmr_tifs_base_get() + EVENT_IFS_US + (EVENT_CLOCK_JITTER_US << 1) +
-	       RANGE_DELAY_US + HCTO_START_DELAY_US;
+	/* +/- 2us active clock jitter, +1 us PPI to timer start compensation */
+	hcto = radio_tmr_tifs_base_get() + EVENT_IFS_US +
+	       (EVENT_CLOCK_JITTER_US << 1) + RANGE_DELAY_US +
+	       HAL_RADIO_TMR_START_DELAY_US;
 #if defined(CONFIG_BT_CTLR_DF_CONN_CTE_TX)
 	hcto += cte_len;
 #endif /* CONFIG_BT_CTLR_DF_CONN_CTE_TX */
@@ -636,12 +651,22 @@ void lll_conn_isr_tx(void *param)
 
 void lll_conn_rx_pkt_set(struct lll_conn *lll)
 {
+	struct pdu_data *pdu_data_rx;
 	struct node_rx_pdu *node_rx;
 	uint16_t max_rx_octets;
 	uint8_t phy;
 
 	node_rx = ull_pdu_rx_alloc_peek(1);
 	LL_ASSERT(node_rx);
+
+	/* In case of ISR latencies, if packet pointer has not been set on time
+	 * then we do not want to check uninitialized length in rx buffer that
+	 * did not get used by Radio DMA. This would help us in detecting radio
+	 * ready event being set? We can not detect radio ready if it happens
+	 * twice before Radio ISR executes after latency.
+	 */
+	pdu_data_rx = (void *)node_rx->pdu;
+	pdu_data_rx->len = 0U;
 
 #if defined(CONFIG_BT_CTLR_DATA_LENGTH)
 	max_rx_octets = lll->dle.eff.max_rx_octets;
@@ -679,7 +704,7 @@ void lll_conn_rx_pkt_set(struct lll_conn *lll)
 #error "Undefined HAL_RADIO_PDU_LEN_MAX."
 #else
 		radio_pkt_rx_set(radio_ccm_rx_pkt_set(&lll->ccm_rx, phy,
-						      node_rx->pdu));
+						      pdu_data_rx));
 #endif
 #endif /* CONFIG_BT_CTLR_LE_ENC */
 	} else {
@@ -687,7 +712,7 @@ void lll_conn_rx_pkt_set(struct lll_conn *lll)
 				    RADIO_PKT_CONF_FLAGS(RADIO_PKT_CONF_PDU_TYPE_DC, phy,
 							 RADIO_PKT_CONF_CTE_DISABLED));
 
-		radio_pkt_rx_set(node_rx->pdu);
+		radio_pkt_rx_set(pdu_data_rx);
 	}
 }
 
@@ -1094,7 +1119,7 @@ static inline bool create_iq_report(struct lll_conn *lll, uint8_t rssi_ready, ui
 		ant = radio_df_pdu_antenna_switch_pattern_get();
 		iq_report = ull_df_iq_report_alloc();
 
-		iq_report->hdr.type = NODE_RX_TYPE_CONN_IQ_SAMPLE_REPORT;
+		iq_report->rx.hdr.type = NODE_RX_TYPE_CONN_IQ_SAMPLE_REPORT;
 		iq_report->sample_count = radio_df_iq_samples_amount_get();
 		iq_report->packet_status = packet_status;
 		iq_report->rssi_ant_id = ant;
@@ -1105,11 +1130,11 @@ static inline bool create_iq_report(struct lll_conn *lll, uint8_t rssi_ready, ui
 		 */
 		iq_report->event_counter = lll->event_counter - 1;
 
-		ftr = &iq_report->hdr.rx_ftr;
+		ftr = &iq_report->rx.rx_ftr;
 		ftr->param = lll;
 		ftr->rssi = ((rssi_ready) ? radio_rssi_get() : BT_HCI_LE_RSSI_NOT_AVAILABLE);
 
-		ull_rx_put(iq_report->hdr.link, iq_report);
+		ull_rx_put(iq_report->rx.hdr.link, iq_report);
 
 		return true;
 	}

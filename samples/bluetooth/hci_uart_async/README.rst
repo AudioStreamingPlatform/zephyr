@@ -47,7 +47,7 @@ For example, to build for the nRF52832 Development Kit:
 
 .. zephyr-app-commands::
    :zephyr-app: samples/bluetooth/hci_uart_async
-   :board: nrf52dk_nrf52832
+   :board: nrf52dk/nrf52832
    :goals: build flash
 
 .. _bluetooth-hci-uart-async-qemu-posix:
@@ -139,13 +139,13 @@ so:
 On the host application, some config options need to be used to select the H4
 driver instead of the built-in controller:
 
-.. code-block:: kconfig
+.. code-block:: cfg
 
    CONFIG_BT_HCI=y
    CONFIG_BT_CTLR=n
-   CONFIG_BT_H4=y
 
-Similarly, the `zephyr,bt-uart` DTS property selects which uart to use:
+Similarly, the `zephyr,bt-hci` DTS property selects which HCI instance to use.
+The UART needs to have as its child node a HCI UART node:
 
 .. code-block:: dts
 
@@ -153,6 +153,14 @@ Similarly, the `zephyr,bt-uart` DTS property selects which uart to use:
       chosen {
          zephyr,console = &uart0;
          zephyr,shell-uart = &uart0;
-         zephyr,bt-uart = &uart1;
+         zephyr,bt-hci = &bt_hci_uart;
+      };
+   };
+
+   &uart1 {
+      status = "okay";
+      bt_hci_uart: bt_hci_uart {
+         compatible = "zephyr,bt-hci-uart";
+         status = "okay";
       };
    };

@@ -67,6 +67,7 @@
 #define _IMX_BOOT_DATA_SECTION_NAME	.boot_hdr.data
 #define _IMX_BOOT_IVT_SECTION_NAME	.boot_hdr.ivt
 #define _IMX_BOOT_DCD_SECTION_NAME	.boot_hdr.dcd_data
+#define _IMX_BOOT_CONTAINER_SECTION_NAME .boot_hdr.container
 
 #define _STM32_SDRAM1_SECTION_NAME	.stm32_sdram1
 #define _STM32_SDRAM2_SECTION_NAME	.stm32_sdram2
@@ -76,6 +77,13 @@
 #ifdef CONFIG_NOCACHE_MEMORY
 #define _NOCACHE_SECTION_NAME nocache
 #endif
+
+/* Symbol table section */
+#if defined(CONFIG_SYMTAB)
+#define _SYMTAB_INFO_SECTION_NAME	.gnu.linkonce.symtab.info
+#define _SYMTAB_ENTRY_SECTION_NAME	.gnu.linkonce.symtab.entry
+#define _SYMTAB_SECTION_SYMS		.gnu.linkonce.symtab*
+#endif /* CONFIG_SYMTAB */
 
 #if defined(CONFIG_LINKER_USE_BOOT_SECTION)
 #define BOOT_TEXT_SECTION_NAME		boot_text

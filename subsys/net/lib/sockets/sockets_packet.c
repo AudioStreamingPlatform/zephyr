@@ -6,11 +6,7 @@
  */
 
 #include <stdbool.h>
-#ifdef CONFIG_ARCH_POSIX
-#include <fcntl.h>
-#else
 #include <zephyr/posix/fcntl.h>
-#endif
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(net_sock_packet, CONFIG_NET_SOCKETS_LOG_LEVEL);
@@ -50,7 +46,7 @@ static int zpacket_socket(int family, int type, int proto)
 	int fd;
 	int ret;
 
-	fd = z_reserve_fd();
+	fd = zvfs_reserve_fd();
 	if (fd < 0) {
 		return -1;
 	}
@@ -59,11 +55,19 @@ static int zpacket_socket(int family, int type, int proto)
 		if (type == SOCK_RAW) {
 			proto = IPPROTO_RAW;
 		}
+	} else {
+		/* For example in Linux, the protocol parameter can be given
+		 * as htons(ETH_P_ALL) to receive all the network packets.
+		 * So convert the proto field back to host byte order so that
+		 * we do not need to change the protocol field handling in
+		 * other part of the network stack.
+		 */
+		proto = ntohs(proto);
 	}
 
 	ret = net_context_get(family, type, proto, &ctx);
 	if (ret < 0) {
-		z_free_fd(fd);
+		zvfs_free_fd(fd);
 		errno = -ret;
 		return -1;
 	}
@@ -73,8 +77,8 @@ static int zpacket_socket(int family, int type, int proto)
 
 	/* recv_q and accept_q are in union */
 	k_fifo_init(&ctx->recv_q);
-	z_finalize_fd(fd, ctx,
-		      (const struct fd_op_vtable *)&packet_sock_fd_op_vtable);
+	zvfs_finalize_typed_fd(fd, ctx, (const struct fd_op_vtable *)&packet_sock_fd_op_vtable,
+			    ZVFS_MODE_IFSOCK);
 
 	return fd;
 }
@@ -144,6 +148,10 @@ static void zpacket_set_eth_pkttype(struct net_if *iface,
 				    struct sockaddr_ll *addr,
 				    struct net_linkaddr *lladdr)
 {
+	if (lladdr == NULL || lladdr->addr == NULL) {
+		return;
+	}
+
 	if (net_eth_is_addr_broadcast((struct net_eth_addr *)lladdr->addr)) {
 		addr->sll_pkttype = PACKET_BROADCAST;
 	} else if (net_eth_is_addr_multicast(
@@ -337,7 +345,8 @@ ssize_t zpacket_recvfrom_ctx(struct net_context *ctx, void *buf, size_t max_len,
 		zpacket_set_source_addr(ctx, pkt, src_addr, addrlen);
 	}
 
-	if (IS_ENABLED(CONFIG_NET_PKT_RXTIME_STATS) &&
+	if ((IS_ENABLED(CONFIG_NET_PKT_RXTIME_STATS) ||
+	     IS_ENABLED(CONFIG_TRACING_NET_CORE)) &&
 	    !(flags & ZSOCK_MSG_PEEK)) {
 		net_socket_update_tc_rx_time(pkt, k_cycle_get_32());
 	}
@@ -480,6 +489,7 @@ static bool packet_is_supported(int family, int type, int proto)
 {
 	switch (type) {
 	case SOCK_RAW:
+		proto = ntohs(proto);
 		return proto == ETH_P_ALL
 		  || proto == ETH_P_ECAT
 		  || proto == ETH_P_IEEE802154

@@ -23,7 +23,7 @@ LOG_MODULE_REGISTER(net_ipv4, CONFIG_NET_IPV4_LOG_LEVEL);
 #include "icmpv4.h"
 #include "udp_internal.h"
 #include "tcp_internal.h"
-#include "dhcpv4.h"
+#include "dhcpv4/dhcpv4_internal.h"
 #include "ipv4.h"
 
 BUILD_ASSERT(sizeof(struct in_addr) == NET_IPV4_ADDR_SIZE);
@@ -122,7 +122,7 @@ int net_ipv4_finalize(struct net_pkt *pkt, uint8_t next_header_proto)
 	ipv4_hdr->len   = htons(net_pkt_get_len(pkt));
 	ipv4_hdr->proto = next_header_proto;
 
-	if (net_if_need_calc_tx_checksum(net_pkt_iface(pkt))) {
+	if (net_if_need_calc_tx_checksum(net_pkt_iface(pkt), NET_IF_CHECKSUM_IPV4_HEADER)) {
 		ipv4_hdr->chksum = net_calc_chksum_ipv4(pkt);
 	}
 
@@ -196,7 +196,7 @@ int net_ipv4_parse_hdr_options(struct net_pkt *pkt,
 			break;
 
 		case NET_IPV4_OPTS_EO:
-			/* Options length should be zero, when cursor reachs to
+			/* Options length should be zero, when cursor reaches to
 			 * End of options.
 			 */
 			if (total_opts_len) {
@@ -246,7 +246,7 @@ enum net_verdict net_ipv4_input(struct net_pkt *pkt, bool is_loopback)
 	uint8_t opts_len;
 	int pkt_len;
 
-#if defined(CONFIG_NET_L2_VIRTUAL)
+#if defined(CONFIG_NET_L2_IPIP)
 	struct net_pkt_cursor hdr_start;
 
 	net_pkt_cursor_backup(pkt, &hdr_start);
@@ -317,12 +317,13 @@ enum net_verdict net_ipv4_input(struct net_pkt *pkt, bool is_loopback)
 	}
 
 	if (net_ipv4_is_addr_unspecified((struct in_addr *)hdr->src) &&
-	    !net_ipv4_is_addr_bcast(net_pkt_iface(pkt), (struct in_addr *)hdr->dst)) {
+	    !net_ipv4_is_addr_bcast(net_pkt_iface(pkt), (struct in_addr *)hdr->dst) &&
+	    (hdr->proto != IPPROTO_IGMP)) {
 		NET_DBG("DROP: src addr is %s", "unspecified");
 		goto drop;
 	}
 
-	if (net_if_need_calc_rx_checksum(net_pkt_iface(pkt)) &&
+	if (net_if_need_calc_rx_checksum(net_pkt_iface(pkt), NET_IF_CHECKSUM_IPV4_HEADER) &&
 	    net_calc_chksum_ipv4(pkt) != 0U) {
 		NET_DBG("DROP: invalid chksum");
 		goto drop;
@@ -402,21 +403,27 @@ enum net_verdict net_ipv4_input(struct net_pkt *pkt, bool is_loopback)
 		}
 		break;
 
-#if defined(CONFIG_NET_L2_VIRTUAL)
+#if defined(CONFIG_NET_L2_IPIP)
 	case IPPROTO_IPV6:
 	case IPPROTO_IPIP: {
-		struct net_addr remote_addr;
+		struct sockaddr_in remote_addr = { 0 };
+		struct net_if *tunnel_iface;
 
-		remote_addr.family = AF_INET;
-		net_ipv4_addr_copy_raw((uint8_t *)&remote_addr.in_addr, hdr->src);
+		remote_addr.sin_family = AF_INET;
+		net_ipv4_addr_copy_raw((uint8_t *)&remote_addr.sin_addr, hdr->src);
+
+		net_pkt_set_remote_address(pkt, (struct sockaddr *)&remote_addr,
+					   sizeof(struct sockaddr_in));
 
 		/* Get rid of the old IP header */
 		net_pkt_cursor_restore(pkt, &hdr_start);
 		net_pkt_pull(pkt, net_pkt_ip_hdr_len(pkt) +
 			     net_pkt_ipv4_opts_len(pkt));
 
-		return net_virtual_input(net_pkt_iface(pkt), &remote_addr,
-					 pkt);
+		tunnel_iface = net_ipip_get_virtual_interface(net_pkt_iface(pkt));
+		if (tunnel_iface != NULL && net_if_l2(tunnel_iface)->recv != NULL) {
+			return net_if_l2(tunnel_iface)->recv(net_pkt_iface(pkt), pkt);
+		}
 	}
 #endif
 	}
@@ -441,5 +448,9 @@ void net_ipv4_init(void)
 {
 	if (IS_ENABLED(CONFIG_NET_IPV4_FRAGMENT)) {
 		net_ipv4_setup_fragment_buffers();
+	}
+
+	if (IS_ENABLED(CONFIG_NET_IPV4_ACD)) {
+		net_ipv4_acd_init();
 	}
 }

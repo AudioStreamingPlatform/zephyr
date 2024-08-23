@@ -12,9 +12,9 @@
 
 #define SLEEP_MS 100
 
-pthread_mutex_t mutex;
+static pthread_mutex_t mutex;
 
-void *normal_mutex_entry(void *p1)
+static void *normal_mutex_entry(void *p1)
 {
 	int i, rc;
 
@@ -34,7 +34,7 @@ void *normal_mutex_entry(void *p1)
 	return NULL;
 }
 
-void *recursive_mutex_entry(void *p1)
+static void *recursive_mutex_entry(void *p1)
 {
 	zassert_false(pthread_mutex_lock(&mutex), "mutex is not taken");
 	zassert_false(pthread_mutex_lock(&mutex), "mutex is not taken 2nd time");
@@ -49,18 +49,27 @@ static void test_mutex_common(int type, void *(*entry)(void *arg))
 	pthread_t th;
 	int protocol;
 	int actual_type;
+	pthread_mutexattr_t mut_attr;
 	struct sched_param schedparam;
-	pthread_mutexattr_t mut_attr = {0};
 
 	schedparam.sched_priority = 2;
 
+	zassert_ok(pthread_mutexattr_init(&mut_attr));
 	zassert_ok(pthread_mutexattr_settype(&mut_attr, type), "setting mutex type is failed");
 	zassert_ok(pthread_mutex_init(&mutex, &mut_attr), "mutex initialization is failed");
 
 	zassert_ok(pthread_mutexattr_gettype(&mut_attr, &actual_type),
 		   "reading mutex type is failed");
+	zassert_not_ok(pthread_mutexattr_getprotocol(NULL, &protocol));
+	zassert_not_ok(pthread_mutexattr_getprotocol(&mut_attr, NULL));
+	zassert_not_ok(pthread_mutexattr_getprotocol(NULL, NULL));
+
+	zassert_not_ok(pthread_mutexattr_setprotocol(&mut_attr, PTHREAD_PRIO_INHERIT));
+	zassert_not_ok(pthread_mutexattr_setprotocol(&mut_attr, PTHREAD_PRIO_PROTECT));
+	zassert_ok(pthread_mutexattr_setprotocol(&mut_attr, PTHREAD_PRIO_NONE));
 	zassert_ok(pthread_mutexattr_getprotocol(&mut_attr, &protocol),
 		   "reading mutex protocol is failed");
+	zassert_ok(pthread_mutexattr_destroy(&mut_attr));
 
 	zassert_ok(pthread_mutex_lock(&mutex));
 
@@ -76,6 +85,18 @@ static void test_mutex_common(int type, void *(*entry)(void *arg))
 	zassert_ok(pthread_mutex_destroy(&mutex), "Destroying mutex is failed");
 }
 
+ZTEST(mutex, test_mutex_prioceiling_stubs)
+{
+#ifdef CONFIG_POSIX_THREAD_PRIO_PROTECT
+	zassert_equal(pthread_mutex_getprioceiling(NULL, NULL), ENOSYS);
+	zassert_equal(pthread_mutex_setprioceiling(NULL, 0, NULL), ENOSYS);
+	zassert_equal(pthread_mutexattr_getprioceiling(NULL, NULL), ENOSYS);
+	zassert_equal(pthread_mutexattr_setprioceiling(NULL, 0), ENOSYS);
+#else
+	ztest_test_skip();
+#endif /* CONFIG_POSIX_THREAD_PRIO_PROTECT */
+}
+
 /**
  * @brief Test to demonstrate PTHREAD_MUTEX_NORMAL
  *
@@ -83,7 +104,7 @@ static void test_mutex_common(int type, void *(*entry)(void *arg))
  *	    and pthread_mutex_lock are tested with mutex type being
  *	    normal.
  */
-ZTEST(posix_apis, test_mutex_normal)
+ZTEST(mutex, test_mutex_normal)
 {
 	test_mutex_common(PTHREAD_MUTEX_NORMAL, normal_mutex_entry);
 }
@@ -95,7 +116,7 @@ ZTEST(posix_apis, test_mutex_normal)
  *	    twice and unlocked for the same number of time.
  *
  */
-ZTEST(posix_apis, test_mutex_recursive)
+ZTEST(mutex, test_mutex_recursive)
 {
 	test_mutex_common(PTHREAD_MUTEX_RECURSIVE, recursive_mutex_entry);
 }
@@ -105,7 +126,7 @@ ZTEST(posix_apis, test_mutex_recursive)
  *
  * @details Exactly CONFIG_MAX_PTHREAD_MUTEX_COUNT can be in use at once.
  */
-ZTEST(posix_apis, test_mutex_resource_exhausted)
+ZTEST(mutex, test_mutex_resource_exhausted)
 {
 	size_t i;
 	pthread_mutex_t m[CONFIG_MAX_PTHREAD_MUTEX_COUNT + 1];
@@ -129,7 +150,7 @@ ZTEST(posix_apis, test_mutex_resource_exhausted)
  *
  * @details Demonstrate that mutexes may be used over and over again.
  */
-ZTEST(posix_apis, test_mutex_resource_leak)
+ZTEST(mutex, test_mutex_resource_leak)
 {
 	pthread_mutex_t m;
 
@@ -168,7 +189,7 @@ static void *test_mutex_timedlock_fn(void *arg)
 }
 
 /** @brief Test to verify @ref pthread_mutex_timedlock returns ETIMEDOUT */
-ZTEST(posix_apis, test_mutex_timedlock)
+ZTEST(mutex, test_mutex_timedlock)
 {
 	void *ret;
 	pthread_t th;
@@ -194,3 +215,15 @@ ZTEST(posix_apis, test_mutex_timedlock)
 
 	zassert_ok(pthread_mutex_destroy(&mutex));
 }
+
+static void before(void *arg)
+{
+	ARG_UNUSED(arg);
+
+	if (!IS_ENABLED(CONFIG_DYNAMIC_THREAD)) {
+		/* skip redundant testing if there is no thread pool / heap allocation */
+		ztest_test_skip();
+	}
+}
+
+ZTEST_SUITE(mutex, NULL, NULL, before, NULL, NULL);

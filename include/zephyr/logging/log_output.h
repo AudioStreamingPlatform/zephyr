@@ -54,6 +54,9 @@ extern "C" {
 /** @brief Flag thread id or name prefix. */
 #define LOG_OUTPUT_FLAG_THREAD			BIT(7)
 
+/** @brief Flag forcing to skip logging the source. */
+#define LOG_OUTPUT_FLAG_SKIP_SOURCE		BIT(8)
+
 /**@} */
 
 /** @brief Supported backend logging format types for use
@@ -151,7 +154,7 @@ void log_output_msg_process(const struct log_output *log_output,
  * @param tid		Thread ID.
  * @param level		Criticality level.
  * @param package	Cbprintf package with a logging message string.
- * @param data		Data passed to hexdump API. Can bu NULL.
+ * @param data		Data passed to hexdump API. Can be NULL.
  * @param data_len	Data length.
  * @param flags		Formatting flags. See @ref LOG_OUTPUT_FLAGS.
  */

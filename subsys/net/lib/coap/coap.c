@@ -51,6 +51,8 @@ LOG_MODULE_REGISTER(net_coap, CONFIG_COAP_LOG_LEVEL);
 
 #define BASIC_HEADER_SIZE	4
 
+#define COAP_OBSERVE_FIRST_OFFSET 2
+
 /* The CoAP message ID that is incremented each time coap_next_id() is called. */
 static uint16_t message_id;
 
@@ -1025,6 +1027,7 @@ uint8_t coap_header_get_code(const struct coap_packet *cpkt)
 	case COAP_RESPONSE_CODE_REQUEST_TOO_LARGE:
 	case COAP_RESPONSE_CODE_UNSUPPORTED_CONTENT_FORMAT:
 	case COAP_RESPONSE_CODE_UNPROCESSABLE_ENTITY:
+	case COAP_RESPONSE_CODE_TOO_MANY_REQUESTS:
 	case COAP_RESPONSE_CODE_INTERNAL_ERROR:
 	case COAP_RESPONSE_CODE_NOT_IMPLEMENTED:
 	case COAP_RESPONSE_CODE_BAD_GATEWAY:
@@ -1254,6 +1257,22 @@ int coap_remove_descriptive_block_option(struct coap_packet *cpkt)
 	}
 }
 
+bool coap_block_has_more(struct coap_packet *cpkt)
+{
+	bool more = false;
+	int opt;
+
+	if (coap_packet_is_request(cpkt)) {
+		opt = coap_get_option_int(cpkt, COAP_OPTION_BLOCK1);
+	} else {
+		opt = coap_get_option_int(cpkt, COAP_OPTION_BLOCK2);
+	}
+	if (opt >= 0) {
+		more = GET_MORE(opt);
+	}
+	return more;
+}
+
 int coap_append_block1_option(struct coap_packet *cpkt,
 			      struct coap_block_context *ctx)
 {
@@ -1323,7 +1342,7 @@ int coap_get_option_int(const struct coap_packet *cpkt, uint16_t code)
 	return val;
 }
 
-int coap_get_block1_option(const struct coap_packet *cpkt, bool *has_more, uint8_t *block_number)
+int coap_get_block1_option(const struct coap_packet *cpkt, bool *has_more, uint32_t *block_number)
 {
 	int ret = coap_get_option_int(cpkt, COAP_OPTION_BLOCK1);
 
@@ -1337,7 +1356,8 @@ int coap_get_block1_option(const struct coap_packet *cpkt, bool *has_more, uint8
 	return ret;
 }
 
-int coap_get_block2_option(const struct coap_packet *cpkt, uint8_t *block_number)
+int coap_get_block2_option(const struct coap_packet *cpkt, bool *has_more,
+			   uint32_t *block_number)
 {
 	int ret = coap_get_option_int(cpkt, COAP_OPTION_BLOCK2);
 
@@ -1345,6 +1365,7 @@ int coap_get_block2_option(const struct coap_packet *cpkt, uint8_t *block_number
 		return ret;
 	}
 
+	*has_more = GET_MORE(ret);
 	*block_number = GET_NUM(ret);
 	ret = 1 << (GET_BLOCK_SIZE(ret) + 4);
 	return ret;
@@ -1748,10 +1769,19 @@ size_t coap_pendings_count(struct coap_pending *pendings, size_t len)
 }
 
 /* Reordering according to RFC7641 section 3.4 but without timestamp comparison */
-static inline bool is_newer(int v1, int v2)
+IF_DISABLED(CONFIG_ZTEST, (static inline))
+bool coap_age_is_newer(int v1, int v2)
 {
 	return (v1 < v2 && v2 - v1 < (1 << 23))
 	    || (v1 > v2 && v1 - v2 > (1 << 23));
+}
+
+static inline void coap_observer_increment_age(struct coap_resource *resource)
+{
+	resource->age++;
+	if (resource->age > COAP_OBSERVE_MAX_AGE) {
+		resource->age = COAP_OBSERVE_FIRST_OFFSET;
+	}
 }
 
 struct coap_reply *coap_response_received(
@@ -1791,7 +1821,7 @@ struct coap_reply *coap_response_received(
 
 		age = coap_get_option_int(response, COAP_OPTION_OBSERVE);
 		/* handle observed requests only if received in order */
-		if (age == -ENOENT || is_newer(r->age, age)) {
+		if (age == -ENOENT || coap_age_is_newer(r->age, age)) {
 			r->age = age;
 			if (coap_header_get_code(response) != COAP_RESPONSE_CODE_CONTINUE) {
 				r->reply(response, r, from);
@@ -1846,7 +1876,11 @@ int coap_resource_notify(struct coap_resource *resource)
 		return -ENOENT;
 	}
 
-	resource->age++;
+	if (sys_slist_is_empty(&resource->observers)) {
+		return 0;
+	}
+
+	coap_observer_increment_age(resource);
 
 	SYS_SLIST_FOR_EACH_CONTAINER(&resource->observers, o, list) {
 		resource->notify(resource, o);
@@ -1897,7 +1931,7 @@ bool coap_register_observer(struct coap_resource *resource,
 
 	first = resource->age == 0;
 	if (first) {
-		resource->age = 2;
+		resource->age = COAP_OBSERVE_FIRST_OFFSET;
 	}
 
 	coap_observer_raise_event(resource, observer, NET_EVENT_COAP_OBSERVER_ADDED);

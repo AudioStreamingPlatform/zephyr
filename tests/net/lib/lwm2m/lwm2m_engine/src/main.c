@@ -32,12 +32,15 @@ static int lwm2m_get_res_buf_custom_fake(const struct lwm2m_obj_path *path, void
 					 uint16_t *buffer_len, uint16_t *data_len,
 					 uint8_t *data_flags)
 {
-	if (buffer_ptr)
+	if (buffer_ptr) {
 		*buffer_ptr = my_buf;
-	if (buffer_len)
+	}
+	if (buffer_len) {
 		*buffer_len = sizeof(my_buf);
-	if (data_len)
+	}
+	if (data_len) {
 		*data_len = my_data_len;
+	}
 
 	return 0;
 }
@@ -260,11 +263,13 @@ ZTEST(lwm2m_engine, test_push_queued_buffers)
 	int ret;
 	struct lwm2m_ctx ctx;
 	struct lwm2m_message msg;
+	struct coap_pending pending;
 
 	(void)memset(&ctx, 0x0, sizeof(ctx));
 
 	sys_slist_init(&ctx.queued_messages);
 	msg.ctx = &ctx;
+	msg.pending = &pending;
 	sys_slist_append(&ctx.queued_messages, &msg.node);
 	ret = lwm2m_push_queued_buffers(&ctx);
 	zassert_equal(ret, 0);
@@ -391,6 +396,7 @@ ZTEST(lwm2m_engine, test_socket_send)
 	int ret;
 	struct lwm2m_ctx ctx;
 	struct lwm2m_message msg;
+	struct coap_pending pending;
 
 	(void)memset(&ctx, 0x0, sizeof(ctx));
 
@@ -398,6 +404,7 @@ ZTEST(lwm2m_engine, test_socket_send)
 	ctx.sock_fd = -1;
 	sys_slist_init(&ctx.queued_messages);
 	msg.ctx = &ctx;
+	msg.pending = &pending;
 	msg.type = COAP_TYPE_CON;
 	sys_slist_append(&ctx.queued_messages, &msg.node);
 

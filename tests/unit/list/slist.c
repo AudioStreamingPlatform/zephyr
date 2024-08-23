@@ -184,7 +184,7 @@ static inline bool verify_tail_head(sys_slist_t *list,
  * @see sys_slist_init(), sys_slist_append(),
  * sys_slist_find_and_remove(), sys_slist_prepend(),
  * sys_slist_remove(), sys_slist_get(), sys_slist_get_not_empty(),
- * sys_slist_append_list(), sys_slist_merge_list()
+ * sys_slist_append_list(), sys_slist_merge_list(), sys_slist_find()
  */
 ZTEST(dlist_api, test_slist)
 {
@@ -201,6 +201,13 @@ ZTEST(dlist_api, test_slist)
 	zassert_true((verify_tail_head(&test_list, &test_node_1.node,
 				       &test_node_1.node, true)),
 		     "test_list head/tail are wrong");
+
+	/* Find the node 1, previous node should be null */
+	sys_snode_t *test_node_1_prev = &test_node_1.node;
+
+	zassert_true(sys_slist_find(&test_list, &test_node_1.node, &test_node_1_prev),
+		     "test_list did not find node ");
+	zassert_is_null(test_node_1_prev, "test_list previous node not null ");
 
 	/* Finding and removing node 1 */
 	sys_slist_find_and_remove(&test_list, &test_node_1.node);
@@ -257,6 +264,14 @@ ZTEST(dlist_api, test_slist)
 	zassert_true((sys_slist_peek_next_no_check(&test_node_2.node) ==
 		      &test_node_4.node),
 		     "test_list node links are wrong");
+
+	/* Find the node 4 and get the previous node*/
+	sys_snode_t *test_node_4_prev = NULL;
+
+	zassert_true(sys_slist_find(&test_list, &test_node_4.node, &test_node_4_prev),
+		     "test_list did not find node");
+	zassert_equal(&test_node_2.node, test_node_4_prev,
+		     "test_list previous node wrong ");
 
 	/* Finding and removing node 1 */
 	sys_slist_find_and_remove(&test_list, &test_node_1.node);
@@ -335,6 +350,100 @@ ZTEST(dlist_api, test_slist)
 	}
 	zassert_equal(ii, 2, "");
 
+	/* test sys_slist_remove and sys_slist_append inside safe node iteration */
+	sys_snode_t *s_node, *prev, *removed;
+	sys_snode_t append;
+
+	removed = NULL;
+	SYS_SLIST_FOR_EACH_NODE_SAFE(&test_list, node, s_node) {
+		/* Remove first node under iteration */
+		if (removed == NULL) {
+			sys_slist_remove(&test_list, NULL, node);
+			removed = node;
+		}
+	}
+	zassert_not_null(removed);
+	zassert_true((verify_content_amount(&test_list, 5)), "test_list has wrong content");
+	sys_slist_prepend(&test_list, removed);
+
+	removed = NULL;
+	SYS_SLIST_FOR_EACH_NODE_SAFE(&test_list, node, s_node) {
+		/* Remove last node under iteration */
+		if (node->next == NULL) {
+			sys_slist_remove(&test_list, prev, node);
+			removed = node;
+		}
+		prev = node;
+	}
+	zassert_not_null(removed);
+	zassert_true((verify_content_amount(&test_list, 5)), "test_list has wrong content");
+	sys_slist_append(&test_list, removed);
+
+	SYS_SLIST_FOR_EACH_NODE_SAFE(&test_list, node, s_node) {
+		/* Append on first iteration */
+		if (test_list.head == node) {
+			sys_slist_append(&test_list, &append);
+		}
+	}
+	zassert_true((verify_content_amount(&test_list, 7)), "test_list has wrong content");
+	sys_slist_find_and_remove(&test_list, &append);
+
+	SYS_SLIST_FOR_EACH_NODE_SAFE(&test_list, node, s_node) {
+		/* Append on last iteration */
+		if (node->next == NULL) {
+			sys_slist_append(&test_list, &append);
+		}
+	}
+	zassert_true((verify_content_amount(&test_list, 7)), "test_list has wrong content");
+	sys_slist_find_and_remove(&test_list, &append);
+
+	/* test sys_slist_remove and sys_slist_append inside safe container iteration */
+	struct container_node *cnode, *s_cnode, *cprev, *cremoved;
+	struct container_node cappend;
+
+	cremoved = NULL;
+	SYS_SLIST_FOR_EACH_CONTAINER_SAFE(&test_list, cnode, s_cnode, node) {
+		/* Remove on first iteration */
+		if (cremoved == NULL) {
+			sys_slist_remove(&test_list, NULL, &cnode->node);
+			cremoved = cnode;
+		}
+	}
+	zassert_not_null(cremoved);
+	zassert_true((verify_content_amount(&test_list, 5)), "test_list has wrong content");
+	sys_slist_prepend(&test_list, &cremoved->node);
+
+	cremoved = NULL;
+	SYS_SLIST_FOR_EACH_CONTAINER_SAFE(&test_list, cnode, s_cnode, node) {
+		/* Remove on last iteration */
+		if (cnode->node.next == NULL) {
+			sys_slist_remove(&test_list, &cprev->node, &cnode->node);
+			cremoved = cnode;
+		}
+		cprev = cnode;
+	}
+	zassert_not_null(cremoved);
+	zassert_true((verify_content_amount(&test_list, 5)), "test_list has wrong content");
+	sys_slist_append(&test_list, &cremoved->node);
+
+	SYS_SLIST_FOR_EACH_CONTAINER_SAFE(&test_list, cnode, s_cnode, node) {
+		/* Append on first iteration */
+		if (test_list.head == &cnode->node) {
+			sys_slist_append(&test_list, &cappend.node);
+		}
+	}
+	zassert_true((verify_content_amount(&test_list, 7)), "test_list has wrong content");
+	sys_slist_find_and_remove(&test_list, &cappend.node);
+
+	SYS_SLIST_FOR_EACH_CONTAINER_SAFE(&test_list, cnode, s_cnode, node) {
+		/* Append on last iteration */
+		if (cnode->node.next == NULL) {
+			sys_slist_append(&test_list, &cappend.node);
+		}
+	}
+	zassert_true((verify_content_amount(&test_list, 7)), "test_list has wrong content");
+	sys_slist_find_and_remove(&test_list, &cappend.node);
+
 	/* test sys_slist_get_not_empty() and sys_slist_get() APIs */
 	for (ii = 0; ii < 6; ii++) {
 		node = sys_slist_get_not_empty(&test_list);
@@ -376,7 +485,7 @@ ZTEST(dlist_api, test_slist)
 			      ((struct data_node *)node)->data);
 	}
 
-	/* test sys_slist_append_list with emtpy list */
+	/* test sys_slist_append_list with empty list */
 	sys_slist_init(&test_list);
 	sys_slist_init(&append_list);
 	for (ii = 0; ii < 6; ii++) {
@@ -406,7 +515,7 @@ ZTEST(dlist_api, test_slist)
 	zassert_true(sys_slist_is_empty(&append_list),
 		     "merged list is not empty");
 
-	/* test sys_slist_merge_slist with emtpy list */
+	/* test sys_slist_merge_slist with empty list */
 	sys_slist_init(&test_list);
 	sys_slist_init(&append_list);
 	for (ii = 0; ii < 6; ii++) {

@@ -20,6 +20,7 @@
 #include <zephyr/drivers/usb/udc.h>
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/drivers/clock_control/nrf_clock_control.h>
+#include <zephyr/dt-bindings/regulator/nrf5x.h>
 
 #include <nrf_usbd_common.h>
 #include <hal/nrf_usbd.h>
@@ -307,7 +308,7 @@ static int usbd_ctrl_feed_dout(const struct device *dev,
 		return -ENOMEM;
 	}
 
-	net_buf_put(&cfg->fifo, buf);
+	k_fifo_put(&cfg->fifo, buf);
 	udc_nrf_clear_control_out(dev);
 
 	return 0;
@@ -470,14 +471,14 @@ static void udc_nrf_power_handler(nrfx_power_usb_evt_t pwr_evt)
 	switch (pwr_evt) {
 	case NRFX_POWER_USB_EVT_DETECTED:
 		LOG_DBG("POWER event detected");
+		udc_submit_event(udc_nrf_dev, UDC_EVT_VBUS_READY, 0);
 		break;
 	case NRFX_POWER_USB_EVT_READY:
-		LOG_INF("POWER event ready");
-		udc_submit_event(udc_nrf_dev, UDC_EVT_VBUS_READY, 0);
+		LOG_DBG("POWER event ready");
 		nrf_usbd_common_start(true);
 		break;
 	case NRFX_POWER_USB_EVT_REMOVED:
-		LOG_INF("POWER event removed");
+		LOG_DBG("POWER event removed");
 		udc_submit_event(udc_nrf_dev, UDC_EVT_VBUS_REMOVED, 0);
 		break;
 	default:
@@ -552,7 +553,7 @@ static int udc_nrf_ep_enable(const struct device *dev,
 	uint16_t mps;
 
 	__ASSERT_NO_MSG(cfg);
-	mps = (cfg->mps == 0) ? cfg->caps.mps : cfg->mps;
+	mps = (udc_mps_ep_size(cfg) == 0) ? cfg->caps.mps : udc_mps_ep_size(cfg);
 	nrf_usbd_common_ep_max_packet_size_set(cfg->addr, mps);
 	nrf_usbd_common_ep_enable(cfg->addr);
 	if (!NRF_USBD_EPISO_CHECK(cfg->addr)) {
@@ -631,9 +632,26 @@ static int udc_nrf_host_wakeup(const struct device *dev)
 
 static int udc_nrf_enable(const struct device *dev)
 {
+	unsigned int key;
 	int ret;
 
-	nrf_usbd_common_enable();
+	ret = nrf_usbd_common_init(usbd_event_handler);
+	if (ret != NRFX_SUCCESS) {
+		LOG_ERR("nRF USBD driver initialization failed");
+		return -EIO;
+	}
+
+	if (udc_ep_enable_internal(dev, USB_CONTROL_EP_OUT,
+				   USB_EP_TYPE_CONTROL, UDC_NRF_EP0_SIZE, 0)) {
+		LOG_ERR("Failed to enable control endpoint");
+		return -EIO;
+	}
+
+	if (udc_ep_enable_internal(dev, USB_CONTROL_EP_IN,
+				   USB_EP_TYPE_CONTROL, UDC_NRF_EP0_SIZE, 0)) {
+		LOG_ERR("Failed to enable control endpoint");
+		return -EIO;
+	}
 
 	sys_notify_init_spinwait(&hfxo_cli.notify);
 	ret = onoff_request(hfxo_mgr, &hfxo_cli);
@@ -641,6 +659,11 @@ static int udc_nrf_enable(const struct device *dev)
 		LOG_ERR("Failed to start HFXO %d", ret);
 		return ret;
 	}
+
+	/* Disable interrupts until USBD is enabled */
+	key = irq_lock();
+	nrf_usbd_common_enable();
+	irq_unlock(key);
 
 	return 0;
 }
@@ -650,6 +673,18 @@ static int udc_nrf_disable(const struct device *dev)
 	int ret;
 
 	nrf_usbd_common_disable();
+
+	if (udc_ep_disable_internal(dev, USB_CONTROL_EP_OUT)) {
+		LOG_ERR("Failed to disable control endpoint");
+		return -EIO;
+	}
+
+	if (udc_ep_disable_internal(dev, USB_CONTROL_EP_IN)) {
+		LOG_ERR("Failed to disable control endpoint");
+		return -EIO;
+	}
+
+	nrf_usbd_common_uninit();
 
 	ret = onoff_cancel_or_release(hfxo_mgr, &hfxo_cli);
 	if (ret < 0) {
@@ -663,7 +698,6 @@ static int udc_nrf_disable(const struct device *dev)
 static int udc_nrf_init(const struct device *dev)
 {
 	const struct udc_nrf_config *cfg = dev->config;
-	int ret;
 
 	hfxo_mgr = z_nrf_clock_control_get_onoff(cfg->clock);
 
@@ -683,25 +717,7 @@ static int udc_nrf_init(const struct device *dev)
 	(void)nrfx_power_init(&cfg->pwr);
 	nrfx_power_usbevt_init(&cfg->evt);
 
-	ret = nrf_usbd_common_init(usbd_event_handler);
-	if (ret != NRFX_SUCCESS) {
-		LOG_ERR("nRF USBD driver initialization failed");
-		return -EIO;
-	}
-
 	nrfx_power_usbevt_enable();
-	if (udc_ep_enable_internal(dev, USB_CONTROL_EP_OUT,
-				   USB_EP_TYPE_CONTROL, UDC_NRF_EP0_SIZE, 0)) {
-		LOG_ERR("Failed to enable control endpoint");
-		return -EIO;
-	}
-
-	if (udc_ep_enable_internal(dev, USB_CONTROL_EP_IN,
-				   USB_EP_TYPE_CONTROL, UDC_NRF_EP0_SIZE, 0)) {
-		LOG_ERR("Failed to enable control endpoint");
-		return -EIO;
-	}
-
 	LOG_INF("Initialized");
 
 	return 0;
@@ -711,18 +727,7 @@ static int udc_nrf_shutdown(const struct device *dev)
 {
 	LOG_INF("shutdown");
 
-	if (udc_ep_disable_internal(dev, USB_CONTROL_EP_OUT)) {
-		LOG_ERR("Failed to disable control endpoint");
-		return -EIO;
-	}
-
-	if (udc_ep_disable_internal(dev, USB_CONTROL_EP_IN)) {
-		LOG_ERR("Failed to disable control endpoint");
-		return -EIO;
-	}
-
 	nrfx_power_usbevt_disable();
-	nrf_usbd_common_uninit();
 	nrfx_power_usbevt_uninit();
 #ifdef CONFIG_HAS_HW_NRF_USBREG
 	irq_disable(USBREGULATOR_IRQn);
@@ -794,6 +799,7 @@ static int udc_nrf_driver_init(const struct device *dev)
 	data->caps.rwup = true;
 	data->caps.out_ack = true;
 	data->caps.mps0 = UDC_NRF_MPS0;
+	data->caps.can_detect_vbus = true;
 
 	return 0;
 }
@@ -813,11 +819,12 @@ static const struct udc_nrf_config udc_nrf_cfg = {
 			     (CLOCK_CONTROL_NRF_SUBSYS_HF192M),
 			     (CLOCK_CONTROL_NRF_SUBSYS_HF)),
 	.pwr = {
-		.dcdcen = IS_ENABLED(CONFIG_SOC_DCDC_NRF52X) ||
-			  IS_ENABLED(CONFIG_SOC_DCDC_NRF53X_APP),
+		.dcdcen = (DT_PROP(DT_INST(0, nordic_nrf5x_regulator), regulator_initial_mode)
+			   == NRF5X_REG_MODE_DCDC),
 #if NRFX_POWER_SUPPORTS_DCDCEN_VDDH
-		.dcdcenhv = IS_ENABLED(CONFIG_SOC_DCDC_NRF52X_HV) ||
-			    IS_ENABLED(CONFIG_SOC_DCDC_NRF53X_HV),
+		.dcdcenhv = COND_CODE_1(CONFIG_SOC_SERIES_NRF52X,
+			(DT_NODE_HAS_STATUS(DT_INST(0, nordic_nrf52x_regulator_hv), okay)),
+			(DT_NODE_HAS_STATUS(DT_INST(0, nordic_nrf53x_regulator_hv), okay))),
 #endif
 	},
 

@@ -63,7 +63,7 @@ static inline bool tp_diff_in_range_ns(const struct timespec *a, const struct ti
 	return diff >= lo && diff < hi;
 }
 
-ZTEST(posix_apis, test_clock_gettime)
+ZTEST(clock, test_clock_gettime)
 {
 	struct timespec ts;
 
@@ -89,7 +89,7 @@ ZTEST(posix_apis, test_clock_gettime)
 	}
 }
 
-ZTEST(posix_apis, test_gettimeofday)
+ZTEST(clock, test_gettimeofday)
 {
 	struct timeval tv;
 	struct timespec ts;
@@ -114,7 +114,7 @@ ZTEST(posix_apis, test_gettimeofday)
 	zassert_true(tp_ge(&rts, &ts));
 }
 
-ZTEST(posix_apis, test_clock_settime)
+ZTEST(clock, test_clock_settime)
 {
 	int64_t diff_ns;
 	struct timespec ts = {0};
@@ -163,7 +163,7 @@ ZTEST(posix_apis, test_clock_settime)
 	}
 }
 
-ZTEST(posix_apis, test_realtime)
+ZTEST(clock, test_realtime)
 {
 	struct timespec then, now;
 	/*
@@ -214,14 +214,61 @@ ZTEST(posix_apis, test_realtime)
 	zassert_between_inclusive(cma, lo, hi);
 }
 
-ZTEST(posix_apis, test_clock_getcpuclockid)
+ZTEST(clock, test_clock_getcpuclockid)
 {
 	int ret = 0;
-	clockid_t clock_id;
+	clockid_t clock_id = CLOCK_INVALID;
 
 	ret = clock_getcpuclockid((pid_t)0, &clock_id);
 	zassert_equal(ret, 0, "POSIX clock_getcpuclock id failed");
+	zassert_equal(clock_id, CLOCK_PROCESS_CPUTIME_ID, "POSIX clock_getcpuclock id failed");
 
 	ret = clock_getcpuclockid((pid_t)2482, &clock_id);
 	zassert_equal(ret, EPERM, "POSIX clock_getcpuclock id failed");
 }
+
+ZTEST(clock, test_clock_getres)
+{
+	int ret;
+	struct timespec res;
+	const struct timespec one_ns = {
+		.tv_sec = 0,
+		.tv_nsec = 1,
+	};
+
+	struct arg {
+		clockid_t clock_id;
+		struct timespec *res;
+		int expect;
+	};
+
+	const struct arg args[] = {
+		/* permuting over "invalid" inputs */
+		{CLOCK_INVALID, NULL, -1},
+		{CLOCK_INVALID, &res, -1},
+		{CLOCK_REALTIME, NULL, 0},
+		{CLOCK_MONOTONIC, NULL, 0},
+		{CLOCK_PROCESS_CPUTIME_ID, NULL, 0},
+
+		/* all valid inputs */
+		{CLOCK_REALTIME, &res, 0},
+		{CLOCK_MONOTONIC, &res, 0},
+		{CLOCK_PROCESS_CPUTIME_ID, &res, 0},
+	};
+
+	ARRAY_FOR_EACH_PTR(args, arg) {
+		errno = 0;
+		res = (struct timespec){0};
+		ret = clock_getres(arg->clock_id, arg->res);
+		zassert_equal(ret, arg->expect);
+		if (ret != 0) {
+			zassert_equal(errno, EINVAL);
+			continue;
+		}
+		if (arg->res != NULL) {
+			zassert_true(tp_ge(arg->res, &one_ns));
+		}
+	}
+}
+
+ZTEST_SUITE(clock, NULL, NULL, NULL, NULL, NULL);

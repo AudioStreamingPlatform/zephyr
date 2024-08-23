@@ -19,7 +19,7 @@
 #include <zephyr/mgmt/mcumgr/transport/smp.h>
 #include <zephyr/mgmt/mcumgr/transport/serial.h>
 #include <zephyr/mgmt/mcumgr/transport/smp_shell.h>
-#include <syscalls/uart.h>
+#include <zephyr/syscalls/uart.h>
 #include <string.h>
 
 #include <mgmt/mcumgr/transport/smp_internal.h>
@@ -162,7 +162,7 @@ size_t smp_shell_rx_bytes(struct smp_shell_data *data, const uint8_t *bytes,
 		if (mcumgr_state == SMP_SHELL_MCUMGR_STATE_PAYLOAD &&
 		    byte == '\n') {
 			if (data->buf) {
-				net_buf_put(&data->buf_ready, data->buf);
+				k_fifo_put(&data->buf_ready, data->buf);
 				data->buf = NULL;
 			}
 			atomic_clear_bit(&data->esc_state, ESC_MCUMGR_PKT_1);
@@ -187,7 +187,7 @@ void smp_shell_process(struct smp_shell_data *data)
 	struct net_buf *nb;
 
 	while (true) {
-		buf = net_buf_get(&data->buf_ready, K_NO_WAIT);
+		buf = k_fifo_get(&data->buf_ready, K_NO_WAIT);
 		if (!buf) {
 			break;
 		}
@@ -242,7 +242,7 @@ int smp_shell_init(void)
 	rc = smp_transport_init(&smp_shell_transport);
 #ifdef CONFIG_SMP_CLIENT
 	if (rc == 0) {
-		smp_client_transport.smpt = &CONFIG_SMP_CLIENT;
+		smp_client_transport.smpt = &smp_shell_transport;
 		smp_client_transport.smpt_type = SMP_SHELL_TRANSPORT;
 		smp_client_transport_register(&smp_client_transport);
 	}

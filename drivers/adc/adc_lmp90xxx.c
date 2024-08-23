@@ -639,7 +639,7 @@ static int lmp90xxx_adc_read_channel(const struct device *dev,
 		if (buf[3] != crc) {
 			LOG_ERR("CRC mismatch (0x%02x vs. 0x%02x)", buf[3],
 				crc);
-			return err;
+			return -EIO;
 		}
 	}
 
@@ -1017,7 +1017,7 @@ static int lmp90xxx_init(const struct device *dev)
 	}
 
 	tid = k_thread_create(&data->thread, data->stack,
-			      CONFIG_ADC_LMP90XXX_ACQUISITION_THREAD_STACK_SIZE,
+			      K_KERNEL_STACK_SIZEOF(data->stack),
 			      lmp90xxx_acquisition_thread,
 			      data, NULL, NULL,
 			      CONFIG_ADC_LMP90XXX_ACQUISITION_THREAD_PRIO,

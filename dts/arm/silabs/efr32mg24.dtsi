@@ -24,6 +24,7 @@
 			compatible = "silabs,hfxo";
 			clock-frequency = <DT_FREQ_M(39)>;
 			ctune = <140>;
+			precision = <50>;
 		};
 	};
 
@@ -211,6 +212,12 @@
 			status = "disabled";
 			#io-channel-cells = <1>;
 		};
+	};
+
+
+	bt_hci_silabs: bt_hci_silabs {
+		compatible = "silabs,bt-hci";
+		status = "disabled";
 	};
 };
 

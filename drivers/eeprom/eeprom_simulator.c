@@ -7,6 +7,20 @@
 
 #define DT_DRV_COMPAT zephyr_sim_eeprom
 
+#ifdef CONFIG_ARCH_POSIX
+#undef _POSIX_C_SOURCE
+/* Note: This is used only for interaction with the host C library, and is therefore exempt of
+ * coding guidelines rule A.4&5 which applies to the embedded code using embedded libraries
+ */
+#define _POSIX_C_SOURCE 200809L
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+#include "cmdline.h"
+#include "soc.h"
+#endif
+
 #include <zephyr/device.h>
 #include <zephyr/drivers/eeprom.h>
 
@@ -16,15 +30,6 @@
 #include <zephyr/stats/stats.h>
 #include <string.h>
 #include <errno.h>
-
-#ifdef CONFIG_ARCH_POSIX
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/mman.h>
-#include <fcntl.h>
-#include "cmdline.h"
-#include "soc.h"
-#endif
 
 #define LOG_LEVEL CONFIG_EEPROM_LOG_LEVEL
 #include <zephyr/logging/log.h>
@@ -270,7 +275,7 @@ DEVICE_DT_INST_DEFINE(0, &eeprom_sim_init, NULL,
 
 #ifdef CONFIG_ARCH_POSIX
 
-static void eeprom_native_posix_cleanup(void)
+static void eeprom_native_cleanup(void)
 {
 	if ((mock_eeprom != MAP_FAILED) && (mock_eeprom != NULL)) {
 		munmap(mock_eeprom, DT_INST_PROP(0, size));
@@ -281,7 +286,7 @@ static void eeprom_native_posix_cleanup(void)
 	}
 }
 
-static void eeprom_native_posix_options(void)
+static void eeprom_native_options(void)
 {
 	static struct args_struct_t eeprom_options[] = {
 		{ .manual = false,
@@ -299,8 +304,7 @@ static void eeprom_native_posix_options(void)
 	native_add_command_line_opts(eeprom_options);
 }
 
-
-NATIVE_TASK(eeprom_native_posix_options, PRE_BOOT_1, 1);
-NATIVE_TASK(eeprom_native_posix_cleanup, ON_EXIT, 1);
+NATIVE_TASK(eeprom_native_options, PRE_BOOT_1, 1);
+NATIVE_TASK(eeprom_native_cleanup, ON_EXIT, 1);
 
 #endif /* CONFIG_ARCH_POSIX */

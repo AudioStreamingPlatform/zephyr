@@ -24,6 +24,7 @@
 #include <stm32_ll_rtc.h>
 #include <zephyr/drivers/counter.h>
 #include <zephyr/sys/timeutil.h>
+#include <zephyr/pm/device.h>
 
 #include <zephyr/logging/log.h>
 #include <zephyr/irq.h>
@@ -184,13 +185,13 @@ static void rtc_stm32_irq_config(const struct device *dev);
 
 static int rtc_stm32_start(const struct device *dev)
 {
-#if defined(CONFIG_SOC_SERIES_STM32WBAX)
+#if defined(CONFIG_SOC_SERIES_STM32WBAX) || defined(CONFIG_SOC_SERIES_STM32U5X)
 	const struct device *const clk = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
 	const struct rtc_stm32_config *cfg = dev->config;
 
 	/* Enable RTC bus clock */
 	if (clock_control_on(clk, (clock_control_subsys_t) &cfg->pclken[0]) != 0) {
-		LOG_ERR("clock op failed\n");
+		LOG_ERR("RTC clock enabling failed\n");
 		return -EIO;
 	}
 #else
@@ -207,13 +208,13 @@ static int rtc_stm32_start(const struct device *dev)
 
 static int rtc_stm32_stop(const struct device *dev)
 {
-#if defined(CONFIG_SOC_SERIES_STM32WBAX)
+#if defined(CONFIG_SOC_SERIES_STM32WBAX) || defined(CONFIG_SOC_SERIES_STM32U5X)
 	const struct device *const clk = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
 	const struct rtc_stm32_config *cfg = dev->config;
 
-	/* Enable RTC bus clock */
-	if (clock_control_on(clk, (clock_control_subsys_t) &cfg->pclken[0]) != 0) {
-		LOG_ERR("clock op failed\n");
+	/* Disable RTC bus clock */
+	if (clock_control_off(clk, (clock_control_subsys_t) &cfg->pclken[0]) != 0) {
+		LOG_ERR("RTC clock disabling failed\n");
 		return -EIO;
 	}
 #else
@@ -238,6 +239,12 @@ tick_t rtc_stm32_read(const struct device *dev)
 	uint32_t rtc_subseconds;
 #endif /* CONFIG_COUNTER_RTC_STM32_SUBSECONDS */
 	ARG_UNUSED(dev);
+
+	/* Enable Backup access */
+#if defined(PWR_CR_DBP) || defined(PWR_CR1_DBP) || \
+	defined(PWR_DBPCR_DBP) || defined(PWR_DBPR_DBP)
+	LL_PWR_EnableBkUpAccess();
+#endif /* PWR_CR_DBP || PWR_CR1_DBP || PWR_DBPR_DBP */
 
 	/* Read time and date registers. Make sure value of the previous register
 	 * hasn't been changed while reading the next one.
@@ -293,6 +300,12 @@ tick_t rtc_stm32_read(const struct device *dev)
 	uint32_t rtc_time, ticks;
 
 	ARG_UNUSED(dev);
+
+	/* Enable Backup access */
+#if defined(PWR_CR_DBP) || defined(PWR_CR1_DBP) || \
+	defined(PWR_DBPCR_DBP) || defined(PWR_DBPR_DBP)
+	LL_PWR_EnableBkUpAccess();
+#endif /* PWR_CR_DBP || PWR_CR1_DBP || PWR_DBPR_DBP */
 
 	rtc_time = LL_RTC_TIME_Get(RTC);
 
@@ -608,21 +621,7 @@ static int rtc_stm32_init(const struct device *dev)
 
 static struct rtc_stm32_data rtc_data;
 
-#if DT_INST_NUM_CLOCKS(0) == 1
-#warning STM32 RTC needs a kernel source clock. Please define it in dts file
-static const struct stm32_pclken rtc_clk[] = {
-	STM32_CLOCK_INFO(0, DT_DRV_INST(0)),
-	/* Use Kconfig to configure source clocks fields (Deprecated) */
-	/* Fortunately, values are consistent across enabled series */
-#ifdef CONFIG_COUNTER_RTC_STM32_CLOCK_LSE
-	{.bus = STM32_SRC_LSE, .enr = RTC_SEL(1)}
-#else
-	{.bus = STM32_SRC_LSI, .enr = RTC_SEL(2)}
-#endif
-};
-#else
 static const struct stm32_pclken rtc_clk[] = STM32_DT_INST_CLOCKS(0);
-#endif
 
 static const struct rtc_stm32_config rtc_config = {
 	.counter_info = {
@@ -648,6 +647,30 @@ static const struct rtc_stm32_config rtc_config = {
 	.pclken = rtc_clk,
 };
 
+#ifdef CONFIG_PM_DEVICE
+static int rtc_stm32_pm_action(const struct device *dev,
+			       enum pm_device_action action)
+{
+	const struct device *const clk = DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE);
+	const struct rtc_stm32_config *cfg = dev->config;
+
+	switch (action) {
+	case PM_DEVICE_ACTION_RESUME:
+		/* Enable RTC bus clock */
+		if (clock_control_on(clk, (clock_control_subsys_t) &cfg->pclken[0]) != 0) {
+			LOG_ERR("clock op failed\n");
+			return -EIO;
+		}
+		break;
+	case PM_DEVICE_ACTION_SUSPEND:
+		break;
+	default:
+		return -ENOTSUP;
+	}
+
+	return 0;
+}
+#endif /* CONFIG_PM_DEVICE */
 
 static const struct counter_driver_api rtc_stm32_driver_api = {
 	.start = rtc_stm32_start,
@@ -663,7 +686,9 @@ static const struct counter_driver_api rtc_stm32_driver_api = {
 	.get_top_value = rtc_stm32_get_top_value,
 };
 
-DEVICE_DT_INST_DEFINE(0, &rtc_stm32_init, NULL,
+PM_DEVICE_DT_INST_DEFINE(0, rtc_stm32_pm_action);
+
+DEVICE_DT_INST_DEFINE(0, &rtc_stm32_init, PM_DEVICE_DT_INST_GET(0),
 		    &rtc_data, &rtc_config, PRE_KERNEL_1,
 		    CONFIG_COUNTER_INIT_PRIORITY, &rtc_stm32_driver_api);
 

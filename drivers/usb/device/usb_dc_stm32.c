@@ -130,14 +130,14 @@ static const struct gpio_dt_spec ulpi_reset =
 /* We need n TX IN FIFOs */
 #define TX_FIFO_NUM USB_NUM_BIDIR_ENDPOINTS
 
-/* We need a minimum size for RX FIFO */
-#define USB_FIFO_RX_MIN 160
-
-/* 4-byte words TX FIFO */
-#define TX_FIFO_WORDS ((USB_RAM_SIZE - USB_FIFO_RX_MIN - 64) / 4)
+/* We need a minimum size for RX FIFO - exact number seemingly determined through trial and error */
+#define RX_FIFO_EP_WORDS 160
 
 /* Allocate FIFO memory evenly between the TX FIFOs */
 /* except the first TX endpoint need only 64 bytes */
+#define TX_FIFO_EP_0_WORDS 16
+#define TX_FIFO_WORDS (USB_RAM_SIZE / 4 - RX_FIFO_EP_WORDS - TX_FIFO_EP_0_WORDS)
+/* Number of words for each remaining TX endpoint FIFO */
 #define TX_FIFO_EP_WORDS (TX_FIFO_WORDS / (TX_FIFO_NUM - 1))
 
 #endif /* USB */
@@ -217,14 +217,45 @@ static int usb_dc_stm32_clock_enable(void)
 		return -ENODEV;
 	}
 
-#if defined(PWR_USBSCR_USB33SV) || defined(PWR_SVMCR_USV)
+#if DT_HAS_COMPAT_STATUS_OKAY(st_stm32_otghs) && defined(CONFIG_SOC_SERIES_STM32U5X)
+	/* Sequence to enable the power of the OTG HS on a stm32U5 serie : Enable VDDUSB */
+	bool pwr_clk = LL_AHB3_GRP1_IsEnabledClock(LL_AHB3_GRP1_PERIPH_PWR);
 
+	if (!pwr_clk) {
+		LL_AHB3_GRP1_EnableClock(LL_AHB3_GRP1_PERIPH_PWR);
+	}
+
+	/* Check that power range is 1 or 2 */
+	if (LL_PWR_GetRegulVoltageScaling() < LL_PWR_REGU_VOLTAGE_SCALE2) {
+		LOG_ERR("Wrong Power range to use USB OTG HS");
+		return -EIO;
+	}
+
+	LL_PWR_EnableVddUSB();
+	/* Configure VOSR register of USB HSTransceiverSupply(); */
+	LL_PWR_EnableUSBPowerSupply();
+	LL_PWR_EnableUSBEPODBooster();
+	while (LL_PWR_IsActiveFlag_USBBOOST() != 1) {
+		/* Wait for USB EPOD BOOST ready */
+	}
+
+	/* Leave the PWR clock in its initial position */
+	if (!pwr_clk) {
+		LL_AHB3_GRP1_DisableClock(LL_AHB3_GRP1_PERIPH_PWR);
+	}
+
+	/* Set the OTG PHY reference clock selection (through SYSCFG) block */
+	LL_APB3_GRP1_EnableClock(LL_APB3_GRP1_PERIPH_SYSCFG);
+	HAL_SYSCFG_SetOTGPHYReferenceClockSelection(SYSCFG_OTG_HS_PHY_CLK_SELECT_1);
+	/* Configuring the SYSCFG registers OTG_HS PHY : OTG_HS PHY enable*/
+	HAL_SYSCFG_EnableOTGPHY(SYSCFG_OTG_HS_PHY_ENABLE);
+#elif defined(PWR_USBSCR_USB33SV) || defined(PWR_SVMCR_USV)
 	/*
 	 * VDDUSB independent USB supply (PWR clock is on)
 	 * with LL_PWR_EnableVDDUSB function (higher case)
 	 */
 	LL_PWR_EnableVDDUSB();
-#endif /* PWR_USBSCR_USB33SV or PWR_SVMCR_USV */
+#endif
 
 	if (DT_INST_NUM_CLOCKS(0) > 1) {
 		if (clock_control_configure(clk, (clock_control_subsys_t)&pclken[1],
@@ -265,25 +296,31 @@ static int usb_dc_stm32_clock_enable(void)
 
 #endif /* RCC_CFGR_OTGFSPRE / RCC_CFGR_USBPRE */
 
-#if DT_HAS_COMPAT_STATUS_OKAY(st_stm32_otghs)
-#if DT_HAS_COMPAT_STATUS_OKAY(st_stm32_usbphyc)
-	LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_OTGHSULPI);
-	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_OTGPHYC);
-#elif defined(CONFIG_SOC_SERIES_STM32H7X)
-#if !USB_OTG_HS_ULPI_PHY
-	/* Disable ULPI interface (for external high-speed PHY) clock in sleep
-	 * mode.
-	 */
-	LL_AHB1_GRP1_DisableClockSleep(LL_AHB1_GRP1_PERIPH_USB1OTGHSULPI);
-#endif
+#if USB_OTG_HS_ULPI_PHY
+#if defined(CONFIG_SOC_SERIES_STM32H7X)
+	LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_USB1OTGHSULPI);
 #else
-	/* Disable ULPI interface (for external high-speed PHY) clock in low
-	 * power mode. It is disabled by default in run power mode, no need to
-	 * disable it.
+	LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_OTGHSULPI);
+#endif
+#elif DT_HAS_COMPAT_STATUS_OKAY(st_stm32_otghs) /* USB_OTG_HS_ULPI_PHY */
+	/* Disable ULPI interface (for external high-speed PHY) clock in sleep/low-power mode.
+	 * It is disabled by default in run power mode, no need to disable it.
 	 */
+#if defined(CONFIG_SOC_SERIES_STM32H7X)
+	LL_AHB1_GRP1_DisableClockSleep(LL_AHB1_GRP1_PERIPH_USB1OTGHSULPI);
+#elif defined(CONFIG_SOC_SERIES_STM32U5X)
+	LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_USBPHY);
+	/* Both OTG HS and USBPHY sleep clock MUST be disabled here at the same time */
+	LL_AHB2_GRP1_DisableClockStopSleep(LL_AHB2_GRP1_PERIPH_OTG_HS ||
+						LL_AHB2_GRP1_PERIPH_USBPHY);
+#else
 	LL_AHB1_GRP1_DisableClockLowPower(LL_AHB1_GRP1_PERIPH_OTGHSULPI);
 #endif
+
+#if USB_OTG_HS_EMB_PHY
+	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_OTGPHYC);
 #endif
+#endif /* USB_OTG_HS_ULPI_PHY */
 
 	return 0;
 }
@@ -296,6 +333,9 @@ static int usb_dc_stm32_clock_disable(void)
 		LOG_ERR("Unable to disable USB clock");
 		return -EIO;
 	}
+#if DT_HAS_COMPAT_STATUS_OKAY(st_stm32_otghs) && defined(CONFIG_SOC_SERIES_STM32U5X)
+	LL_AHB2_GRP1_DisableClock(LL_AHB2_GRP1_PERIPH_USBPHY);
+#endif
 
 	return 0;
 }
@@ -446,11 +486,12 @@ static int usb_dc_stm32_init(void)
 #else /* USB_OTG_FS */
 
 	/* TODO: make this dynamic (depending usage) */
-	HAL_PCDEx_SetRxFiFo(&usb_dc_stm32_state.pcd, USB_FIFO_RX_MIN);
+	HAL_PCDEx_SetRxFiFo(&usb_dc_stm32_state.pcd, RX_FIFO_EP_WORDS);
 	for (i = 0U; i < USB_NUM_BIDIR_ENDPOINTS; i++) {
 		if (i == 0) {
 			/* first endpoint need only 64 byte for EP_TYPE_CTRL */
-			HAL_PCDEx_SetTxFiFo(&usb_dc_stm32_state.pcd, i,	16);
+			HAL_PCDEx_SetTxFiFo(&usb_dc_stm32_state.pcd, i,
+					TX_FIFO_EP_0_WORDS);
 		} else {
 			HAL_PCDEx_SetTxFiFo(&usb_dc_stm32_state.pcd, i,
 					TX_FIFO_EP_WORDS);
@@ -784,7 +825,7 @@ int usb_dc_ep_enable(const uint8_t ep)
 	if (USB_EP_DIR_IS_OUT(ep) && ep != EP0_OUT) {
 		return usb_dc_ep_start_read(ep,
 					  usb_dc_stm32_state.ep_buf[USB_EP_GET_IDX(ep)],
-					  EP_MPS);
+					  ep_state->ep_mps);
 	}
 
 	return 0;
@@ -881,7 +922,7 @@ int usb_dc_ep_read_wait(uint8_t ep, uint8_t *data, uint32_t max_data_len,
 	read_count = ep_state->read_count;
 
 	LOG_DBG("ep 0x%02x, %u bytes, %u+%u, %p", ep, max_data_len,
-		ep_state->read_offset, read_count, data);
+		ep_state->read_offset, read_count, (void *)data);
 
 	if (!USB_EP_DIR_IS_OUT(ep)) { /* check if OUT ep */
 		LOG_ERR("Wrong endpoint direction: 0x%02x", ep);
@@ -923,7 +964,7 @@ int usb_dc_ep_read_continue(uint8_t ep)
 	 */
 	if (!ep_state->read_count) {
 		usb_dc_ep_start_read(ep, usb_dc_stm32_state.ep_buf[USB_EP_GET_IDX(ep)],
-				     EP_MPS);
+				     ep_state->ep_mps);
 	}
 
 	return 0;

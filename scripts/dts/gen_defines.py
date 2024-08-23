@@ -132,6 +132,13 @@ def main():
                 out_dt_define(f"{node.z_path_id}_CHILD_IDX",
                               node.parent.child_index(node))
 
+            out_comment("Helpers for dealing with node labels:")
+            out_dt_define(f"{node.z_path_id}_NODELABEL_NUM", len(node.labels))
+            out_dt_define(f"{node.z_path_id}_FOREACH_NODELABEL(fn)",
+                          " ".join(f"fn({nodelabel})" for nodelabel in node.labels))
+            out_dt_define(f"{node.z_path_id}_FOREACH_NODELABEL_VARGS(fn, ...)",
+                          " ".join(f"fn({nodelabel}, __VA_ARGS__)" for nodelabel in node.labels))
+
             write_children(node)
             write_dep_info(node)
             write_idents_and_existence(node)
@@ -416,6 +423,7 @@ def write_regs(node):
             idx_vals.append((idx_macro,
                              f"{reg.addr} /* {hex(reg.addr)} */"))
             if reg.name:
+                name_vals.append((f"{path_id}_REG_NAME_{reg.name}_EXISTS", 1))
                 name_macro = f"{path_id}_REG_NAME_{reg.name}_VAL_ADDRESS"
                 name_vals.append((name_macro, f"DT_{idx_macro}"))
 
@@ -477,6 +485,23 @@ def write_interrupts(node):
                 name_vals.append((name_macro, f"DT_{idx_macro}"))
                 name_vals.append((name_macro + "_EXISTS", 1))
 
+        idx_controller_macro = f"{path_id}_IRQ_IDX_{i}_CONTROLLER"
+        idx_controller_path = f"DT_{irq.controller.z_path_id}"
+        idx_vals.append((idx_controller_macro, idx_controller_path))
+        if irq.name:
+            name_controller_macro = f"{path_id}_IRQ_NAME_{str2ident(irq.name)}_CONTROLLER"
+            name_vals.append((name_controller_macro, f"DT_{idx_controller_macro}"))
+
+    # Interrupt controller info
+    irqs = []
+    while node.interrupts is not None and len(node.interrupts) > 0:
+        irq = node.interrupts[0]
+        irqs.append(irq)
+        if node == irq.controller:
+            break
+        node = irq.controller
+    idx_vals.append((f"{path_id}_IRQ_LEVEL", len(irqs)))
+
     for macro, val in idx_vals:
         out_dt_define(macro, val)
     for macro, val in name_vals:
@@ -506,6 +531,15 @@ def write_children(node):
     # Writes helper macros for dealing with node's children.
 
     out_comment("Helper macros for child nodes of this node.")
+
+    out_dt_define(f"{node.z_path_id}_CHILD_NUM", len(node.children))
+
+    ok_nodes_num = 0
+    for child in node.children.values():
+        if child.status == "okay":
+            ok_nodes_num = ok_nodes_num + 1
+
+    out_dt_define(f"{node.z_path_id}_CHILD_NUM_STATUS_OKAY", ok_nodes_num)
 
     out_dt_define(f"{node.z_path_id}_FOREACH_CHILD(fn)",
             " ".join(f"fn(DT_{child.z_path_id})" for child in

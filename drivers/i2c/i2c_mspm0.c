@@ -762,7 +762,9 @@ static int i2c_mspm0g3xxx_init(const struct device *dev)
 		k_sem_give(&data->i2c_busy_sem);
 
 		// No need to setup target yet - will be done when a target has been registered
-		i2c_mspm0g3xxx_configure(dev, speed_config);
+		ret = i2c_mspm0g3xxx_configure(dev, speed_config);
+		if (ret)
+			return ret;
 	} else {
 		/* Configure Controller Mode */
 		DL_I2C_resetControllerTransfer((I2C_Regs *)config->base);
@@ -775,8 +777,9 @@ static int i2c_mspm0g3xxx_init(const struct device *dev)
 		DL_I2C_enableControllerClockStretching((I2C_Regs *)config->base);
 
 		k_sem_give(&data->i2c_busy_sem);
-		i2c_mspm0g3xxx_configure(dev, speed_config | I2C_MODE_CONTROLLER);
-
+		ret = i2c_mspm0g3xxx_configure(dev, speed_config | I2C_MODE_CONTROLLER);
+		if (ret)
+			return ret;
 		/* Configure Interrupts */
 		DL_I2C_enableInterrupt((I2C_Regs *)config->base,
 				       DL_I2C_INTERRUPT_CONTROLLER_ARBITRATION_LOST |

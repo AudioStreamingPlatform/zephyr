@@ -58,6 +58,7 @@ struct i2c_mspm0g3xxx_config {
 	DL_I2C_ClockConfig gI2CClockConfig;
 	const struct pinctrl_dev_config *pinctrl;
 	void (*interrupt_init_function)(const struct device *dev);
+	uint32_t dt_bitrate;
 };
 
 struct i2c_mspm0g3xxx_data {
@@ -248,6 +249,9 @@ static int i2c_mspm0g3xxx_configure(const struct device *dev, uint32_t dev_confi
 		break;
 	case I2C_SPEED_FAST:
 		bitrate = 7;
+		break;
+	case I2C_SPEED_DT:
+		bitrate = config->dt_bitrate;
 		break;
 	default:
 		k_sem_give(&data->i2c_busy_sem);
@@ -736,6 +740,15 @@ static int i2c_mspm0g3xxx_init(const struct device *dev)
 	struct i2c_mspm0g3xxx_data *data = dev->data;
 	int ret;
 
+	// The register value needs to be in the range [1,127]
+	if (config->dt_bitrate < 1 || config->dt_bitrate > 127) {
+		LOG_ERR("Invalid dt bitrate %u (%uHz)", config->dt_bitrate,
+			config->clock_frequency);
+		return -EINVAL;
+	}
+	LOG_DBG("DT bitrate %uHz (%u)", config->clock_frequency,
+		config->dt_bitrate);
+
 	k_sem_init(&data->i2c_busy_sem, 0, 1);
 	k_sem_init(&data->transfer_timeout_sem, 1, 1);
 
@@ -755,9 +768,8 @@ static int i2c_mspm0g3xxx_init(const struct device *dev)
 			      (DL_I2C_ClockConfig *)&config->gI2CClockConfig);
 	DL_I2C_disableAnalogGlitchFilter((I2C_Regs *)config->base);
 
-	/* Set frequency */
-	uint32_t speed_config = i2c_map_dt_bitrate(config->clock_frequency);
-
+	// We initialize the bitrate to the one specified by the DT
+	uint32_t speed_config = I2C_SPEED_SET(I2C_SPEED_DT);
 	if (config->target_mode_only) {
 		k_sem_give(&data->i2c_busy_sem);
 
@@ -808,6 +820,26 @@ static const struct i2c_driver_api i2c_mspm0g3xxx_driver_api = {
 #endif // CONFIG_I2C_MSPM0G3XXX_TARGET_SUPPORT
 };
 
+
+/** from dl_i2c.h
+ *  scl_period = (1 + tpr) * (scl_lp + scl_hp) * int_clk_prd
+ *
+ *  where:
+ *  scl_prd is the scl line period (i2c clock)
+ *
+ *  tpr is the timer period register value (range of 1 to 127)
+ *
+ *  scl_lp is the scl low period (fixed at 6)
+ *  scl_hp is the scl high period (fixed at 4)
+ *
+ *  clk_prd is the functional clock period in ns
+ *
+ *  what we are setting is tpr. so is we solve the equation we end
+ *  up with : tpr = (int_clk_rate / (scl_lp + scl_hp) * scl_rate) - 1
+ */
+#define CALC_DT_BITRATE(i2c_clock, parent_clock) \
+	((parent_clock) / (10 * (i2c_clock) - 1))
+
 /* Macros to assist with the device-specific initialization */
 #define INTERRUPT_INIT_FUNCTION_DECLARATION(index)                                                 \
 	static void i2c_mspm0g3xxx_interrupt_init_##index(const struct device *dev)
@@ -825,7 +857,12 @@ static const struct i2c_driver_api i2c_mspm0g3xxx_driver_api = {
 	PINCTRL_DT_INST_DEFINE(index);                                                             \
                                                                                                    \
 	INTERRUPT_INIT_FUNCTION_DECLARATION(index);                                                \
-                                                                                                   \
+												   \
+	BUILD_ASSERT(!(DT_INST_PROP_BY_PHANDLE(index, clocks, clock_frequency) % DT_INST_PROP(index, clock_frequency)),	\
+		     "i2c clock frequency " STRINGIFY(DT_INST_PROP(index, clock_frequency)) \
+		     " doesn't divide well with parent clock frequency " \
+		     STRINGIFY(DT_INST_PROP_BY_PHANDLE(index, clocks, clock_frequency))); \
+												   \
 	static const struct i2c_mspm0g3xxx_config i2c_mspm0g3xxx_cfg_##index = {                   \
 		.base = DT_INST_REG_ADDR(index),                                                   \
 		.clock_frequency = DT_INST_PROP(index, clock_frequency),                           \
@@ -833,7 +870,10 @@ static const struct i2c_driver_api i2c_mspm0g3xxx_driver_api = {
 		.pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(index),                                  \
 		.interrupt_init_function = i2c_mspm0g3xxx_interrupt_init_##index,                  \
 		.gI2CClockConfig = {.clockSel = DL_I2C_CLOCK_BUSCLK,                               \
-				    .divideRatio = DL_I2C_CLOCK_DIVIDE_1}};                        \
+				    .divideRatio = DL_I2C_CLOCK_DIVIDE_1},                         \
+		.dt_bitrate = CALC_DT_BITRATE(DT_INST_PROP(index, clock_frequency),		   \
+			DT_INST_PROP_BY_PHANDLE(index, clocks, clock_frequency)),		   \
+	};											   \
                                                                                                    \
 	static struct i2c_mspm0g3xxx_data i2c_mspm0g3xxx_data_##index = {                          \
 		.cfg = &i2c_mspm0g3xxx_cfg_##index,                                                \

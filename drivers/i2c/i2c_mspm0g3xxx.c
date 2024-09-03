@@ -236,7 +236,7 @@ static int i2c_mspm0g3xxx_configure(const struct device *dev, uint32_t dev_confi
 	k_sem_take(&data->i2c_busy_sem, K_FOREVER);
 
 	/* 10-bit addressing not supported */
-	if (dev_config & I2C_MSG_ADDR_10_BITS) {
+	if (dev_config & I2C_ADDR_10_BITS) {
 		k_sem_give(&data->i2c_busy_sem);
 		return -EINVAL;
 	}

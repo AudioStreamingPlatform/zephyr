@@ -34,12 +34,6 @@ properties:
         - 16: "Configure the pwm timer as Center Align"
         - 32: "Configure the pwm timer as Edge Align Up"
 
-  ti,clock-frequency:
-    const: 32000000
-    type: int
-    required: true
-    description: Defines the clock frequency that the module will use. This value is required and should be treated as read-only; it must not be modified after initial configuration.
-
   ti,divide-ratio:
     type: int
     required: true

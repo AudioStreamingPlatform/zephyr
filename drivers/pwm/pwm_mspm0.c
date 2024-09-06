@@ -165,7 +165,7 @@ static int pwm_mspm0_init(const struct device *dev)
 				.prescale = DT_PROP(DT_DRV_INST(inst), ti_prescaler),              \
 			},                                                                         \
 		.pwm_mode = DT_PROP(DT_DRV_INST(inst), ti_mode),                                   \
-		.frequency = DT_PROP(DT_DRV_INST(inst), ti_clock_frequency),                       \
+		.frequency = DT_INST_PROP_BY_PHANDLE(inst, clocks, clock_frequency),               \
 		.pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),                                   \
 	};                                                                                         \
                                                                                                    \

@@ -18,6 +18,23 @@ LOG_MODULE_REGISTER(i2c_mspm0g3xxx);
 #include <ti/driverlib/dl_i2c.h>
 #include <ti/driverlib/dl_gpio.h>
 
+// Custom method to just control the stop bit. Used for repeated start
+__STATIC_INLINE void DL_I2C_startControllerTransferRepeated(I2C_Regs *i2c,
+    uint32_t targetAddr, DL_I2C_CONTROLLER_DIRECTION direction,
+    uint16_t length, bool stop)
+{
+    // Specify target address and read/write mode
+    DL_Common_updateReg(&i2c->MASTER.MSA,
+        ((targetAddr << I2C_MSA_SADDR_OFS) | (uint32_t) direction),
+        (I2C_MSA_SADDR_MASK | I2C_MSA_DIR_MASK));
+
+    DL_Common_updateReg(&i2c->MASTER.MCTR,
+        (((uint32_t) length << I2C_MCTR_MBLEN_OFS) | I2C_MCTR_BURSTRUN_ENABLE |
+            I2C_MCTR_START_ENABLE | (stop ? DL_I2C_CONTROLLER_STOP_ENABLE : DL_I2C_CONTROLLER_STOP_DISABLE)),
+        (I2C_MCTR_MBLEN_MASK | I2C_MCTR_BURSTRUN_MASK | I2C_MCTR_START_MASK |
+            I2C_MCTR_STOP_MASK));
+}
+
 #if CONFIG_I2C_MSPM0G3XXX_TRANSFER_TIMEOUT
 #define I2C_TRANSFER_TIMEOUT_MSEC K_MSEC(CONFIG_I2C_MSPM0G3XXX_TRANSFER_TIMEOUT)
 #else
@@ -292,8 +309,8 @@ static int i2c_mspm0g3xxx_receive(const struct device *dev, struct i2c_msg msg, 
 	/* Send a read request to Target */
 	data->count = 0;
 	data->state = I2C_mspm0g3xxx_RX_STARTED;
-	DL_I2C_startControllerTransfer((I2C_Regs *)config->base, data->addr,
-				       DL_I2C_CONTROLLER_DIRECTION_RX, data->msg.len);
+	DL_I2C_startControllerTransferRepeated((I2C_Regs *)config->base, data->addr,
+		DL_I2C_CONTROLLER_DIRECTION_RX, data->msg.len, (msg.flags & I2C_MSG_STOP));
 
 	/* Wait until the Controller receives all bytes */
 	int ret = k_sem_take(&data->transfer_timeout_sem, I2C_TRANSFER_TIMEOUT_MSEC);
@@ -352,8 +369,9 @@ static int i2c_mspm0g3xxx_transmit(const struct device *dev, struct i2c_msg msg,
 	while ((DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
 		 DL_I2C_CONTROLLER_STATUS_BUSY))
 		;
-	DL_I2C_startControllerTransfer((I2C_Regs *)config->base, data->addr,
-				       DL_I2C_CONTROLLER_DIRECTION_TX, data->msg.len);
+	DL_I2C_startControllerTransferRepeated((I2C_Regs *)config->base, data->addr,
+		DL_I2C_CONTROLLER_DIRECTION_TX, data->msg.len,
+		(msg.flags & I2C_MSG_STOP));
 
 	/* Wait until the Controller sends all bytes */
 	int ret = k_sem_take(&data->transfer_timeout_sem, I2C_TRANSFER_TIMEOUT_MSEC);
@@ -398,6 +416,10 @@ static int i2c_mspm0g3xxx_transfer(const struct device *dev, struct i2c_msg *msg
 	for (int i = 0; i < num_msgs; i++) {
 		/* initial lock to be able to wait for unlock by irq */
 		k_sem_take(&data->transfer_timeout_sem, K_NO_WAIT);
+		// make sure the stop bit is set on the last message since we
+		// rely on it being set to release the i2c line to idle
+		if (i == num_msgs - 1)
+			msgs[i].flags |= I2C_MSG_STOP;
 
 		if ((msgs[i].flags & I2C_MSG_RW_MASK) == I2C_MSG_WRITE) {
 			ret = i2c_mspm0g3xxx_transmit(dev, msgs[i], addr);

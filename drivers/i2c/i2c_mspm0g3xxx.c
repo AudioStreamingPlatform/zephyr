@@ -281,8 +281,8 @@ static int i2c_mspm0g3xxx_receive(const struct device *dev, struct i2c_msg msg, 
 	const struct i2c_mspm0g3xxx_config *config = dev->config;
 	struct i2c_mspm0g3xxx_data *data = dev->data;
 
-	while (!(DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
-		 DL_I2C_CONTROLLER_STATUS_IDLE))
+	while ((DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
+		 DL_I2C_CONTROLLER_STATUS_BUSY))
 		;
 
 	/* Update cached msg and addr */
@@ -349,8 +349,8 @@ static int i2c_mspm0g3xxx_transmit(const struct device *dev, struct i2c_msg msg,
 	 * This function will send Start + Stop automatically
 	 */
 	data->state = I2C_mspm0g3xxx_TX_STARTED;
-	while (!(DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
-		 DL_I2C_CONTROLLER_STATUS_IDLE))
+	while ((DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
+		 DL_I2C_CONTROLLER_STATUS_BUSY))
 		;
 	DL_I2C_startControllerTransfer((I2C_Regs *)config->base, data->addr,
 				       DL_I2C_CONTROLLER_DIRECTION_TX, data->msg.len);

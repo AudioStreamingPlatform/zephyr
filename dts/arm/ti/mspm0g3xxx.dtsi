@@ -111,6 +111,17 @@
                     mode = <PERIODIC_DOWN>;
                 };
 
+                tima0: tima0@40860000 {
+                    compatible = "ti,mspm0-pwm";
+                    status = "disabled";
+                    clocks = <&sysclk>;
+                    reg = <0x40860000 0x2000>;
+                    ti,divide-ratio = <RATE_1>;
+                    ti,prescaler = <0>;
+                    ti,mode = <EDGE_ALIGN_UP>;
+                    #pwm-cells = <3>;
+		};
+
 		uart0: uart@40108000 {
 			compatible = "ti,mspm0g3xxx-uart";
 			reg = <0x40108000 0x2000>;

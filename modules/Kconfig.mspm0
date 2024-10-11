@@ -22,5 +22,8 @@ config USE_MSPM0_DL_MCAN
 	bool
 
 config USE_MSPM0_DL_VREF
+ 	bool
+
+config USE_MSPM0_DL_WWDT
 	bool
 

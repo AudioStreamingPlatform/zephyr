@@ -15,6 +15,9 @@ config USE_MSPM0_DL_GPIO
 config USE_MSPM0_DL_MCAN
 	bool
 
+config USE_MSPM0_DL_SPI
+	bool
+
 config USE_MSPM0_DL_UART
 	bool
 

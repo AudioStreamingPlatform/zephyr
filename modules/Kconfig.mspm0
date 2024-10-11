@@ -6,6 +6,9 @@
 config HAS_MSPM0_SDK
 	bool
 
+config USE_MSPM0_DL_ADC
+	bool
+
 config USE_MSPM0_DL_GPIO
 	bool
 
@@ -17,3 +20,7 @@ config USE_MSPM0_DL_TIMER
 
 config USE_MSPM0_DL_MCAN
 	bool
+
+config USE_MSPM0_DL_VREF
+	bool
+

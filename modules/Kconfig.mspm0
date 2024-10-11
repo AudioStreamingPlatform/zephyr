@@ -27,3 +27,6 @@ config USE_MSPM0_DL_VREF
 config USE_MSPM0_DL_WWDT
 	bool
 
+config USE_MSPM0_DL_SPI
+	bool
+

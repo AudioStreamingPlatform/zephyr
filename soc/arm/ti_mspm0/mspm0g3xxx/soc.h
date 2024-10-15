@@ -25,7 +25,11 @@ extern "C" {
 /*!
  * @brief If true, enables HFXT to be used for CAN, otherwise enables PLL using SYSOSC
  */
-#define SOC_MSPM0_CAN_USE_HFXT      (false) 
+#if CONFIG_CAN_USE_HFXT
+#define SOC_MSPM0_CAN_USE_HFXT (true)
+#else
+#define SOC_MSPM0_CAN_USE_HFXT (false)
+#endif
 /*!
  * @brief CPU frequency in Hz
  */

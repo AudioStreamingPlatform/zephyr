@@ -27,4 +27,9 @@ config CAN_MAX_EXT_ID_FILTER
 	  Defines the maximum number of filters with extended ID (29-bit)
 	  that can be added by the application.
 
+config CAN_USE_HFXT
+	bool "Enable HFXT support for CAN"
+	help
+	  A hack to get CAN to work with HFXT support
+
 endif # CAN_MSPM0G3XXX_CANFD

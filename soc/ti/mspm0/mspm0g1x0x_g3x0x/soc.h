@@ -17,6 +17,12 @@ extern "C" {
 
 #define POWER_STARTUP_DELAY (16)
 
+#if CONFIG_CAN_USE_HFXT
+#define SOC_MSPM0_CAN_USE_HFXT (true)
+#else
+#define SOC_MSPM0_CAN_USE_HFXT (false)
+#endif
+
 #ifdef __cplusplus
 }
 #endif

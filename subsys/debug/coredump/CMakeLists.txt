@@ -31,11 +31,12 @@ zephyr_library_sources_ifdef(
 zephyr_library_sources_ifdef(
   CONFIG_DEBUG_COREDUMP_SHELL
   coredump_shell.c
+  )
 
 zephyr_library_sources_ifdef(
   CONFIG_DEBUG_COREDUMP_BACKEND_IN_MEMORY
   coredump_backend_in_memory.c
-)
+  )
 
   # @Intent: Set XTENSA_TOOLCHAIN_VARIANT macro required for Xtensa coredump
 if(CONFIG_XTENSA)

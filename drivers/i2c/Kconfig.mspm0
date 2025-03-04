@@ -1,22 +1,22 @@
 # SPDX-License-Identifier: Apache-2.0
 
-config I2C_MSPM0G3XXX
-	bool "TI I2C MSPM0G3XXX driver"
+config I2C_MSPM0
+	bool "TI I2C MSPM0 driver"
 	default y
-	depends on DT_HAS_TI_MSPM0G3XXX_I2C_ENABLED
+	depends on DT_HAS_TI_MSPM0_I2C_ENABLED
 	help
-	  Enable support for I2C on the TI MSPM0G3XXX series.
+	  Enable support for I2C on the TI MSPM0 series.
 
-if I2C_MSPM0G3XXX
+if I2C_MSPM0
 
-config I2C_MSPM0G3XXX_TARGET_SUPPORT
-	bool "TI I2C_MSPM0G3XXX target support"
+config I2C_MSPM0_TARGET_SUPPORT
+	bool "TI I2C_MSPM0 target support"
 	default n
 	help
 	  Enable support for i2c-target functionality
-	  for TI MSPM0G3XXX driver.
+	  for TI MSPM0 driver.
 
-config I2C_MSPM0G3XXX_TRANSFER_TIMEOUT
+config I2C_MSPM0_TRANSFER_TIMEOUT
 	int "Transfer timeout [ms]"
 	default 100
 	help
@@ -24,4 +24,4 @@ config I2C_MSPM0G3XXX_TRANSFER_TIMEOUT
 	  0 means that the driver should use the K_FOREVER value,
 	  i.e. it should wait as long as necessary.
 
-endif # I2C_MSPM0G3XXX
+endif # I2C_MSPM0

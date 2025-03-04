@@ -73,6 +73,10 @@ static int can_mspm0_canfd_clear_mram(const struct device *dev, uint16_t offset,
 	return can_mcan_sys_clear_mram(msp_canfd_config->mram, offset, len);
 }
 
+/* Q&D fix until the driver uses clock-control driver*/
+#define SOC_MSPM0_HFCLK_FREQ_HZ MHZ(40)
+#define SOC_MSPM0_SYSPLL_FREQ_HZ MHZ(40)
+
 static int can_mspm0_canfd_get_core_clock(const struct device *dev, uint32_t *rate)
 {
 	const struct can_mcan_config *mcan_config = dev->config;

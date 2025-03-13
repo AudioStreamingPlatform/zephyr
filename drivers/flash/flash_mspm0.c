@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #define DT_DRV_COMPAT ti_mspm0_flash_controller
@@ -18,7 +20,7 @@ struct flash_mspm0_config {
 #define MSPM0_PAGES_PER_BANK		\
 	((MSPM0_FLASH_SIZE / MSPM0_FLASH_PAGE_SIZE) / MSPM0_BANK_COUNT)
 
-LOG_MODULE_REGISTER(flash_mspm0, CONFIG_FLASH_LOG_LEVEL); 
+LOG_MODULE_REGISTER(flash_mspm0, CONFIG_FLASH_LOG_LEVEL);
 
 // #define FLASH_TIMEOUT \
 //     (2 * DT_PROP(DT_INST(0,mspm0_nv_flash), max_erase_time))
@@ -48,7 +50,7 @@ LOG_MODULE_REGISTER(flash_mspm0, CONFIG_FLASH_LOG_LEVEL);
 // #endif
 static const struct flash_parameters flash_mspm0_parameters = {
     .write_block_size = FLASH_MSPM0_WRITE_BLOCK_SIZE,
-    .erase_value = 0xff   
+    .erase_value = 0xff
 };
 
 static int flash_mspm0_init(const struct device *dev){
@@ -80,9 +82,9 @@ static void flash_mspm0_flush_caches(const struct device *dev, off_t offset, siz
 	//NOTE: May need to include conditionals for different types of boards
 
 	/*if data cache is enabled (and exists), disable cache. Reset it and then re-enable*/
-    
+
 	/*If instruction cache is enabled, disable cache. reset and then re-enable*/
-	
+
 }
 
 
@@ -104,7 +106,7 @@ static int flash_mspm0_erase(const struct device *dev, off_t offset, size_t len)
     DL_FlashCTL_unprotectSector(regs, offset, DL_FLASHCTL_REGION_SELECT_MAIN);
     DL_FlashCTL_eraseMemory(regs, offset, DL_FLASHCTL_COMMAND_SIZE_SECTOR);
     if(!status){
-        
+
         return -EINVAL;
     }
     else{
@@ -132,7 +134,7 @@ static int flash_mspm0_erase(const struct device *dev, off_t offset, size_t len)
 static int flash_mspm0_write(const struct device *dev, off_t offset, const void *data, size_t len){
     FLASHCTL_Regs *regs = FLASH_MSPM0_REGS(dev);
     //printf("%d\n",*regs);
-    //int rc; 
+    //int rc;
 
     if(!flash_mspm0_valid_range(dev, offset, len, true)){
         LOG_ERR("Erase range invalid. Offset %ld, len: %zu", (long int) offset, len);
@@ -143,14 +145,14 @@ static int flash_mspm0_write(const struct device *dev, off_t offset, const void 
     if(!len){
         return 0;
     }
-    
+
     //flash_mspm0_sem_take(dev);
 
     DL_FlashCTL_unprotectSector(regs, offset, DL_FLASHCTL_REGION_SELECT_MAIN);
-    DL_FlashCTL_programMemory64WithECCGenerated(regs, offset, data);
+    DL_FlashCTL_programMemory64WithECCGenerated(regs, offset, (uint32_t *)data);
     //DL_FlashCTL_protectSector(regs, offset, DL_FLASHCTL_REGION_SELECT_MAIN);
     return 1;
-    
+
     // LOG_DBG("Write offset: %ld, len: %zu", (long int) offset, len);
 
 	// rc = flash_stm32_write_protection(dev, false);
@@ -170,12 +172,12 @@ static int flash_mspm0_write(const struct device *dev, off_t offset, const void 
 
 }
 
-static int flash_mspm0_read(const struct device *dev, off_t offset, 
-                void *data, 
+static int flash_mspm0_read(const struct device *dev, off_t offset,
+                void *data,
                 size_t len)
 {
     if(!flash_mspm0_valid_range(dev, offset, len, false)){
-        LOG_ERR("Read range invalid. Offset %d, len %zu", (long int) offset, len);
+        LOG_ERR("Read range invalid. Offset %ld, len %zu", (long int) offset, len);
         return -EINVAL;
     }
     if(!len){
@@ -192,7 +194,7 @@ static const struct flash_parameters * flash_mspm0_get_parameters(const struct d
     return &flash_mspm0_parameters;
 }
 
-static int flash_mspm0_write_protection(const struct device *dev, bool enable)
+/*static int flash_mspm0_write_protection(const struct device *dev, bool enable)
 {
 	FLASHCTL_Regs *regs = FLASH_MSPM0_REGS(dev);
 
@@ -204,7 +206,7 @@ static int flash_mspm0_write_protection(const struct device *dev, bool enable)
 			flash_stm32_sem_give(dev);
 			return rc;
 		}
-    }
+	}*/
 /* FIXME: ST32 functionality below, unsure if there are equivalents for MSP*/
 // #if defined(FLASH_SECURITY_NS)
 // 	if (enable) {
@@ -242,7 +244,7 @@ static int flash_mspm0_write_protection(const struct device *dev, bool enable)
 // 		}
 // 	}
 // #endif /* FLASH_SECURITY_NS */
-
+/*
 	if (enable) {
 		LOG_DBG("Enable write protection");
 	} else {
@@ -250,7 +252,7 @@ static int flash_mspm0_write_protection(const struct device *dev, bool enable)
 	}
 
 	return rc;
-}
+}*/
 
 int flash_mspm0_wait_flash_idle(const struct device *dev){
     int64_t timeout_time = k_uptime_get() + FLASH_TIMEOUT;
@@ -288,7 +290,7 @@ static int flash_mspm0_check_status(const struct device *dev){
 int flash_mspm0_block_erase_loop(const struct device *dev,
 				 unsigned int offset,
 				 unsigned int len){
-        
+
 }
 
 void flash_mspm0_page_layout(const struct device *dev,
@@ -312,8 +314,8 @@ void flash_mspm0_page_layout(const struct device *dev,
 
 }
 
-static const struct flash_mspm0_config flash_mspm0_cfg = {	
-    .regs = (FLASHCTL_Regs *)DT_INST_REG_ADDR(0),		
+static const struct flash_mspm0_config flash_mspm0_cfg = {
+    .regs = (FLASHCTL_Regs *)DT_INST_REG_ADDR(0),
 };
 
 static const struct flash_driver_api flash_mspm0_driver_api = {
@@ -333,6 +335,3 @@ DEVICE_DT_INST_DEFINE(0, flash_mspm0_init, NULL,
 // DEVICE_DT_INST_DEFINE(0, flash_mspm0_init, NULL,
 // 		    &flash_mspm0_cfg, NULL, POST_KERNEL,
 // 		    CONFIG_FLASH_INIT_PRIORITY, &flash_mspm0_driver_api);
-
-
-

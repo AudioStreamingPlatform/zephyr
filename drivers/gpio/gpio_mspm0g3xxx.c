@@ -79,7 +79,7 @@ static int gpio_mspm0g3xxx_pin_configure(const struct device *port, gpio_pin_t p
 						  : (flags & GPIO_PULL_DOWN)
 							  ? DL_GPIO_RESISTOR_PULL_DOWN
 							  : DL_GPIO_RESISTOR_NONE,
-						  DL_GPIO_DRIVE_STRENGTH_LOW, DL_GPIO_HIZ_DISABLE);
+						  DL_GPIO_DRIVE_STRENGTH_LOW, (flags & GPIO_OPEN_DRAIN) ? DL_GPIO_HIZ_ENABLE : DL_GPIO_HIZ_DISABLE);
 
 		/* Set initial state */
 		if (flags & GPIO_OUTPUT_INIT_HIGH) {

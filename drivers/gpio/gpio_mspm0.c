@@ -168,7 +168,7 @@ static int gpio_mspm0_pin_configure(const struct device *port, gpio_pin_t pin, g
 	case GPIO_OUTPUT:
 		DL_GPIO_initDigitalOutputFeatures(config->pincm_lut[pin], DL_GPIO_INVERSION_DISABLE,
 						  resPull, DL_GPIO_DRIVE_STRENGTH_LOW,
-						  DL_GPIO_HIZ_DISABLE);
+						  (flags & GPIO_OPEN_DRAIN) ? DL_GPIO_HIZ_ENABLE : DL_GPIO_HIZ_DISABLE);
 
 		/* Set initial state */
 		if (flags & GPIO_OUTPUT_INIT_HIGH) {

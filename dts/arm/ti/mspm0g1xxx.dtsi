@@ -120,6 +120,18 @@
                     #pwm-cells = <3>;
 		};
 
+		tima1: tima0@40862000 {
+                    compatible = "ti,mspm0-counter";
+                    status = "disabled";
+                    clocks = <&sysclk>;
+                    prescaler = <0>;
+                    reg = <0x40862000 0x2000>;
+                    divide-ratio = <RATE_1>;
+                    interrupts = <19 0>;
+                    resolution = <16>;
+                    mode = <PERIODIC_UP>;
+		};
+
 		uart0: uart@40108000 {
 			compatible = "ti,mspm0g3xxx-uart";
 			reg = <0x40108000 0x2000>;

@@ -64,7 +64,7 @@
 		timg0: timg0@40084000 {
                     compatible = "ti,mspm0-counter";
                     status = "disabled";
-                    clock-frequency = <32000000>;
+                    clocks = <&sysclk>;
                     prescaler = <255>;
                     reg = <0x40084000 0x2000>;
                     divide-ratio = <RATE_2>;
@@ -76,7 +76,7 @@
                 timg6: timg6@40868000 {
                     compatible = "ti,mspm0-counter";
                     status = "disabled";
-                    clock-frequency = <32000000>;
+                    clocks = <&sysclk>;
                     prescaler = <255>;
                     reg = <0x40868000 0x2000>;
                     divide-ratio = <RATE_1>;
@@ -88,8 +88,8 @@
                 timg7: timg7@4086a000 {
                     compatible = "ti,mspm0-counter";
                     status = "disabled";
+                    clocks = <&sysclk>;
                     prescaler = <255>;
-                    clock-frequency = <32000000>;
                     reg = <0x4086a000 0x2000>;
                     divide-ratio = <RATE_1>;
                     interrupts = <20 0>;
@@ -100,7 +100,7 @@
                 timg12: timg12@40870000 {
                     compatible = "ti,mspm0-counter";
                     status = "disabled";
-                    clock-frequency = <32000000>;
+                    clocks = <&sysclk>;
                     prescaler = <0>; // prescaler is unused
                     reg = <0x40870000 0x2000>;
                     divide-ratio = <RATE_1>;

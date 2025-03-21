@@ -25,6 +25,3 @@ properties:
   resolution:
     type: int
     required: true
-  clock-frequency:
-    type: int
-    required: true

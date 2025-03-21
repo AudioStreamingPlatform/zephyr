@@ -32,7 +32,7 @@ struct counter_mspm0_config {
 struct counter_mspm0_data {
 	const struct counter_mspm0_config *config;
 	struct counter_mspm0_channel_data *channel_data;
-	uint32_t freq;
+	uint32_t frequency;
 	DL_Timer_TimerConfig time_cfg;
 	struct k_spinlock spinlock;
 };
@@ -63,7 +63,7 @@ static int counter_mspm0_set_alarm(const struct device *dev, uint8_t chan,
 	// NOTE: we only support only 1 channel
 	if (chan != 0) {
 		LOG_ERR("Unsupported channel: %d", chan);
-		return -EINVAL;
+		return -ENOTSUP;
 	}
 
 	struct counter_mspm0_data *data = dev->data;
@@ -89,7 +89,7 @@ static int counter_mspm0_cancel_alarm(const struct device *dev, uint8_t chan)
 	// NOTE: we only support only 1 channel
 	if (chan != 0) {
 		LOG_ERR("Unsupported channel: %d", chan);
-		return -1;
+		return -ENOTSUP;
 	}
 
 	struct counter_mspm0_data *data = dev->data;
@@ -108,7 +108,7 @@ static uint32_t counter_mspm0_get_freq(const struct device *dev)
 	const struct counter_mspm0_config *cfg = dev->config;
 	const DL_Timer_ClockConfig clock_cfg = cfg->clock_cfg;
 	// freq = (timer_clk_source / ((div_ratio + 1) * (prescale + 1))
-	return data->freq / ((clock_cfg.divideRatio + 1) * (clock_cfg.prescale + 1));
+	return data->frequency / ((clock_cfg.divideRatio + 1) * (clock_cfg.prescale + 1));
 }
 
 static const struct counter_driver_api counter_mspm0_driver_api = {
@@ -139,6 +139,7 @@ static int counter_mspm0_init(const struct device *dev)
 	DL_Timer_enableInterrupt(cfg->timer, DL_TIMER_INTERRUPT_ZERO_EVENT);
 	cfg->interrupt_init_function(dev);
 	DL_Timer_enableClock(cfg->timer);
+
 	return 0;
 }
 
@@ -178,7 +179,7 @@ static int counter_mspm0_init(const struct device *dev)
 	static struct counter_mspm0_data counter_mspm0_##inst##_data = {                           \
 		.config = &counter_mspm0_##inst##_cfg,                                             \
 		.channel_data = counter##inst##_channel_data,                                      \
-		.freq = DT_PROP(DT_DRV_INST(inst), clock_frequency),                               \
+		.frequency = DT_INST_PROP_BY_PHANDLE(inst, clocks, clock_frequency),               \
 		.time_cfg =                                                                        \
 			{                                                                          \
 				.timerMode = DT_PROP(DT_DRV_INST(inst), mode),                     \

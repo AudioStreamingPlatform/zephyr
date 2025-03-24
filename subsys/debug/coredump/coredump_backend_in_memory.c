@@ -21,7 +21,7 @@ LOG_MODULE_REGISTER(coredump, CONFIG_DEBUG_COREDUMP_LOG_LEVEL);
 
 /**
  * In-memory coredump space is arranged that way:
- * CANARY+Recorded coredump size+Coredump+Left space (if any)+CANARY
+ * CANARY+ Recorded coredump size + Coredump + Left space (if any) + CANARY
  */
 #define IN_MEMORY_SPACE CONFIG_DEBUG_COREDUMP_BACKEND_IN_MEMORY_SIZE + \
 	(IN_MEMORY_CANARY_SIZE * 2) + IN_MEMORY_COREDUMP_SIZE_RECORD
@@ -39,22 +39,22 @@ static size_t *coredump_size =
 	(size_t *)&in_memory_coredump[IN_MEMORY_CANARY_SIZE];
 static uint8_t *cur_ptr;
 
-static inline void in_memory_erase(void)
-{
-	LOG_DBG("Erasing in-memory coredump\n");
-
-	memset(in_memory_coredump, 0, IN_MEMORY_SPACE);
-	cur_ptr = NULL;
-}
 
 static inline void in_memory_invalidate(void)
 {
 	memset(in_memory_coredump, 0, IN_MEMORY_CANARY_SIZE);
 	memset(&in_memory_coredump[IN_MEMORY_END], 0, IN_MEMORY_CANARY_SIZE);
+	*coredump_size = 0;
 	cur_ptr = NULL;
 }
+static inline void in_memory_erase(void)
+{
+	LOG_DBG("Erasing in-memory coredump\n");
 
-static int in_memory_is_valid()
+	in_memory_invalidate();
+}
+
+static int in_memory_is_valid(void)
 {
 	if (!memcmp(in_memory_coredump,
 		    in_memory_canary, IN_MEMORY_CANARY_SIZE) &&
@@ -68,8 +68,9 @@ static int in_memory_is_valid()
 
 static int in_memory_copy_to(struct coredump_cmd_copy_arg *copy_arg)
 {
-	LOG_DBG("Copy to: %p offset: %lu length: %u",
-		(void *)copy_arg->buffer, copy_arg->offset, copy_arg->length);
+	LOG_DBG("Copy to: %p offset: %lu length: %lu",
+		(void *)copy_arg->buffer, copy_arg->offset,
+		(unsigned long)copy_arg->length);
 
 	if (copy_arg->buffer == NULL ||
 	    copy_arg->offset >= IN_MEMORY_END ||
@@ -122,7 +123,7 @@ static void coredump_in_memory_backend_buffer_output(uint8_t *buf,
 {
 	int space;
 
-	LOG_DBG("Output buffer size %u", buflen);
+	LOG_DBG("Output buffer size %lu", (unsigned long)buflen);
 
 	if (cur_ptr == &in_memory_coredump[IN_MEMORY_END]) {
 		/* Once full, we silently ignore the request */

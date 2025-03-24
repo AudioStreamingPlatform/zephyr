@@ -41,7 +41,7 @@ static off_t print_buf_ptr;
  * Since enum coredump_tgt_code is sequential and starting from 0,
  * let's just have an array
  */
-static const char *coredump_target_code2str[] = {
+static const char * const coredump_target_code2str[] = {
 	"Unknown",
 	"x86",
 	"x86_64",
@@ -70,6 +70,8 @@ static int cmd_coredump_error_get(const struct shell *sh,
 	ret = coredump_query(COREDUMP_QUERY_GET_ERROR, NULL);
 	if (ret == 0) {
 		shell_print(sh, "No error.");
+	} else if (ret == -ENOTSUP) {
+		shell_print(sh, "Unsupported query from the backend");
 	} else {
 		shell_print(sh, "Error: %d", ret);
 	}
@@ -90,11 +92,16 @@ static int cmd_coredump_error_clear(const struct shell *sh,
 {
 	int ret;
 
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
 	ret = coredump_cmd(COREDUMP_CMD_CLEAR_ERROR, NULL);
-	if (ret != 0) {
-		shell_print(sh, "Failed to clear the error: %d", ret);
-	} else {
+	if (ret == 0) {
 		shell_print(sh, "Error cleared.");
+	} else if (ret == -ENOTSUP) {
+		shell_print(sh, "Unsupported command from the backend");
+	} else {
+		shell_print(sh, "Failed to clear the error: %d", ret);
 	}
 
 	return 0;
@@ -121,6 +128,8 @@ static int cmd_coredump_has_stored_dump(const struct shell *sh,
 		shell_print(sh, "Stored coredump found.");
 	} else if (ret == 0) {
 		shell_print(sh, "Stored coredump NOT found.");
+	} else if (ret == -ENOTSUP) {
+		shell_print(sh, "Unsupported query from the backend");
 	} else {
 		shell_print(sh, "Failed to perform query: %d", ret);
 	}
@@ -150,6 +159,8 @@ static int cmd_coredump_verify_stored_dump(const struct shell *sh,
 	} else if (ret == 0) {
 		shell_print(sh, "Stored coredump verification failed "
 			    "or there is no stored coredump.");
+	} else if (ret == -ENOTSUP) {
+		shell_print(sh, "Unsupported command from the backend");
 	} else {
 		shell_print(sh, "Failed to perform verify command: %d", ret);
 	}
@@ -248,6 +259,70 @@ out:
 	return ret;
 }
 
+/**
+ * @brief Print raw data to shell in hexadecimal (prefixed)
+ *
+ * @param sh Shell instance
+ * @param copy A pointer on the coredump copy current context
+ * @param size Size of the data to recover/print
+ * @param error A boolean indicating so query coredump error at the end
+ * @return 0 on success, -EINVAL otherwise
+ */
+static int print_raw_data(const struct shell *sh,
+			  struct coredump_cmd_copy_arg *copy,
+			  int size, bool error)
+{
+	int ret;
+
+	copy->length = COPY_BUF_SZ;
+
+	print_buf_ptr = 0;
+	(void)memset(print_buf, 0, sizeof(print_buf));
+
+	shell_print(sh, "%s%s", COREDUMP_PREFIX_STR, COREDUMP_BEGIN_STR);
+
+	while (size > 0) {
+		if (size < COPY_BUF_SZ) {
+			copy->length = size;
+		}
+
+		ret = coredump_cmd(COREDUMP_CMD_COPY_STORED_DUMP, copy);
+		if (ret != 0) {
+			return -EINVAL;
+		}
+
+		ret = print_stored_dump(sh, copy->buffer, copy->length);
+		if (ret != 0) {
+			return -EINVAL;
+		}
+
+		if (print_buf_ptr != 0) {
+			shell_print(sh, "%s%s", COREDUMP_PREFIX_STR, print_buf);
+		}
+
+		copy->offset += copy->length;
+		size -= copy->length;
+	}
+
+	if (error && coredump_query(COREDUMP_QUERY_GET_ERROR, NULL) != 0) {
+		shell_print(sh, "%s%s", COREDUMP_PREFIX_STR,
+			    COREDUMP_ERROR_STR);
+	}
+
+	return 0;
+}
+
+/**
+ * @brief Helper parsing and pretty-printing the coredump
+ *
+ * @param sh shell instance
+ * @param coredump_header Pointer to a boolean indicating zephyr coredump
+ *        got parsed/printed aleardy header
+ * @param copy A pointer on the coredump copy context
+ * @param left_size How much of the coredump has not been parsed/printed yet
+ * @return 0 if all has been processed, a positive value indicating the amount
+ *        that the function call has processed, a negative errno otherwise
+ */
 static int parse_and_print_coredump(const struct shell *sh,
 				    bool *coredump_header,
 				    struct coredump_cmd_copy_arg *copy,
@@ -270,15 +345,15 @@ static int parse_and_print_coredump(const struct shell *sh,
 
 	ret = coredump_cmd(COREDUMP_CMD_COPY_STORED_DUMP, copy);
 	if (ret != 0) {
-		return -ENOMEM;
+		return ret;
 	}
 
 	if (!*coredump_header) {
 		ret = print_coredump_hdr(sh, copy->buffer);
-		shell_print(sh, "\tSize of the coredump: %u\n", left_size);
+		shell_print(sh, "\tSize of the coredump: %lu\n",
+			    (unsigned long)left_size);
 
 		*coredump_header = true;
-		copy->offset += copy->length;
 
 		goto hdr_done;
 	}
@@ -294,7 +369,6 @@ static int parse_and_print_coredump(const struct shell *sh,
 		shell_print(sh, "\tSize %u", hdr->num_bytes);
 
 		data_size = hdr->num_bytes;
-		copy->offset += copy->length;
 		break;
 	}
 	case THREADS_META_HDR_ID: {
@@ -306,7 +380,6 @@ static int parse_and_print_coredump(const struct shell *sh,
 		shell_print(sh, "\tSize %u", hdr->num_bytes);
 
 		data_size = hdr->num_bytes;
-		copy->offset += copy->length;
 		break;
 	}
 	case COREDUMP_MEM_HDR_ID: {
@@ -339,7 +412,6 @@ static int parse_and_print_coredump(const struct shell *sh,
 		shell_print(sh, "\tSize %u", data_size);
 		shell_print(sh, "\tStarts at %p ends at %p",
 			    (void *)hdr->start, (void *)hdr->end);
-		copy->offset += copy->length;
 		break;
 	}
 	default:
@@ -351,61 +423,32 @@ static int parse_and_print_coredump(const struct shell *sh,
 	}
 
 hdr_done:
+	copy->offset += copy->length;
 	processed_size += copy->length + data_size;
 
 	if (data_size == 0) {
 		goto out;
 	}
 
-	copy->length = COPY_BUF_SZ;
-
-	print_buf_ptr = 0;
-	(void)memset(print_buf, 0, sizeof(print_buf));
-
 	shell_print(sh, "Data:");
-	shell_print(sh, "%s%s", COREDUMP_PREFIX_STR, COREDUMP_BEGIN_STR);
 
-	while (data_size > 0) {
-		if (data_size < COPY_BUF_SZ) {
-			copy->length = data_size;
-		}
-
-		ret = coredump_cmd(COREDUMP_CMD_COPY_STORED_DUMP, copy);
-		if (ret != 0) {
-			return -EINVAL;
-		}
-
-		ret = print_stored_dump(sh, copy->buffer, copy->length);
-		if (ret != 0) {
-			return -EINVAL;
-		}
-
-		if (print_buf_ptr != 0) {
-			shell_print(sh, "%s%s", COREDUMP_PREFIX_STR, print_buf);
-		}
-
-		copy->offset += copy->length;
-		data_size -= copy->length;
+	ret = print_raw_data(sh, copy, data_size, false);
+	if (ret !=  0) {
+		return ret;
 	}
-
-	shell_print(sh, "%s%s\n", COREDUMP_PREFIX_STR, COREDUMP_END_STR);
-
 out:
-	ret = processed_size;
-	return ret;
+	return processed_size;
 }
 
 
 /**
- * @brief Shell command to print stored coredump data to shell
+ * @brief Print out the coredump in a human-readable way
  *
- * @param sh shell instance
- * @param argc (not used)
- * @param argv (not used)
+ * @param sh Shell instance
+ * @param size Size of the coredump
  * @return 0
  */
-static int cmd_coredump_print_stored_dump(const struct shell *sh,
-					  size_t argc, char **argv)
+static int pretty_print_coredump(const struct shell *sh, int size)
 {
 	uint8_t rbuf[COPY_BUF_SZ];
 	struct coredump_cmd_copy_arg copy = {
@@ -413,28 +456,7 @@ static int cmd_coredump_print_stored_dump(const struct shell *sh,
 		.buffer = rbuf,
 	};
 	bool cdump_hdr = false;
-	int size;
 	int ret;
-
-	ARG_UNUSED(argc);
-	ARG_UNUSED(argv);
-
-	/* Verify first to see if stored dump is valid */
-	ret = coredump_cmd(COREDUMP_CMD_VERIFY_STORED_DUMP, NULL);
-	if (ret == 0) {
-		shell_print(sh, "Stored coredump verification failed "
-			    "or there is no stored coredump.");
-		goto out;
-	} else if (ret != 1) {
-		shell_print(sh, "Failed to perform verify command: %d", ret);
-		goto out;
-	}
-
-	size = coredump_query(COREDUMP_QUERY_GET_STORED_DUMP_SIZE, NULL);
-	if (size <= 0) {
-		shell_print(sh, "Invalid coredump size: %d", size);
-		goto out;
-	}
 
 	while (size > 0) {
 		ret = parse_and_print_coredump(sh, &cdump_hdr, &copy, size);
@@ -449,18 +471,97 @@ static int cmd_coredump_print_stored_dump(const struct shell *sh,
 		size -= ret;
 	}
 
-	if (coredump_query(COREDUMP_QUERY_GET_ERROR, NULL) != 0) {
-		shell_print(sh, "%s%s", COREDUMP_PREFIX_STR,
-			    COREDUMP_ERROR_STR);
-	}
-
 	shell_print(sh, "Stored coredump printed");
 
 	goto out;
-
 error:
-	shell_print(sh, "Error while retrieving/parsing coredump: %d", ret);
+	if (ret == -ENOTSUP) {
+		shell_print(sh, "Unsupported command from the backend");
+	} else {
+		shell_print(sh, "Error while retrieving/parsing coredump: %d", ret);
+	}
 out:
+	return 0;
+}
+
+/**
+ * @brief Print out the coredump fully in hexadecimal
+ *
+ * @param sh Shell instance
+ * @param size Size of the coredump
+ * @return 0
+ */
+static int hex_print_coredump(const struct shell *sh, int size)
+{
+	uint8_t rbuf[COPY_BUF_SZ];
+	struct coredump_cmd_copy_arg copy = {
+		.offset = 0,
+		.buffer = rbuf,
+	};
+	int ret;
+
+	ret = print_raw_data(sh, &copy, size, true);
+	if (ret == 0) {
+		shell_print(sh, "Stored coredump printed.");
+	} else {
+		shell_print(sh, "Failed to print: %d", ret);
+	}
+
+	return 0;
+}
+
+/**
+ * @brief Shell command to print stored coredump data to shell
+ *
+ * @param sh Shell instance
+ * @param argc Number of elements in argv
+ * @param argv Parsed arguments
+ * @return 0
+ */
+static int cmd_coredump_print_stored_dump(const struct shell *sh,
+					  size_t argc, char **argv)
+{
+	int size;
+	int ret;
+
+	if (argc > 2) {
+		shell_print(sh, "Too many options");
+		return 0;
+	}
+
+	if (argv[1] != NULL) {
+		if (strncmp(argv[1], "pretty", 6) != 0) {
+			shell_print(sh, "Unknown option: %s", argv[1]);
+			return 0;
+		}
+	}
+
+	/* Verify first to see if stored dump is valid */
+	ret = coredump_cmd(COREDUMP_CMD_VERIFY_STORED_DUMP, NULL);
+	if (ret == 0) {
+		shell_print(sh, "Stored coredump verification failed "
+			    "or there is no stored coredump.");
+		return 0;
+	} else if (ret == -ENOTSUP) {
+		shell_print(sh, "Unsupported command from the backend");
+		return 0;
+	} else if (ret != 1) {
+		shell_print(sh, "Failed to perform verify command: %d", ret);
+		return 0;
+	}
+
+	size = coredump_query(COREDUMP_QUERY_GET_STORED_DUMP_SIZE, NULL);
+	if (size <= 0) {
+		shell_print(sh, "Invalid coredump size: %d", size);
+		return 0;
+	}
+
+	if (argv[1] != NULL) {
+		pretty_print_coredump(sh, size);
+	} else {
+		hex_print_coredump(sh, size);
+	}
+
 	return 0;
 }
 
@@ -483,6 +584,8 @@ static int cmd_coredump_erase_stored_dump(const struct shell *sh,
 	ret = coredump_cmd(COREDUMP_CMD_ERASE_STORED_DUMP, NULL);
 	if (ret == 0) {
 		shell_print(sh, "Stored coredump erased.");
+	} else if (ret == -ENOTSUP) {
+		shell_print(sh, "Unsupported command from the backend");
 	} else {
 		shell_print(sh, "Failed to perform erase command: %d", ret);
 	}
@@ -507,7 +610,8 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_coredump,
 		  "Query if there is a stored coredump",
 		  cmd_coredump_has_stored_dump),
 	SHELL_CMD(print, NULL,
-		  "Print stored coredump to shell",
+		  "Print stored coredump to shell "
+		  "(use option 'pretty' to get human readable output)",
 		  cmd_coredump_print_stored_dump),
 	SHELL_CMD(verify, NULL,
 		  "Verify stored coredump",

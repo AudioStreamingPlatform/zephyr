@@ -6,6 +6,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/i2c.h>
 #include <zephyr/drivers/pinctrl.h>
+#include <zephyr/drivers/counter.h>
 #include <soc.h>
 
 /* Logging includes */
@@ -76,6 +77,7 @@ struct i2c_mspm0g3xxx_config {
 	const struct pinctrl_dev_config *pinctrl;
 	void (*interrupt_init_function)(const struct device *dev);
 	uint32_t dt_bitrate;
+	const struct device *watchdog_timer;
 };
 
 struct i2c_mspm0g3xxx_data {
@@ -92,6 +94,7 @@ struct i2c_mspm0g3xxx_data {
 	int target_rx_valid;
 	struct k_sem i2c_busy_sem;
 	struct k_sem transfer_timeout_sem;
+	struct counter_alarm_cfg watchdog_timer_cfg;
 };
 
 #ifdef CONFIG_I2C_MSPM0G3XXX_TARGET_SUPPORT
@@ -110,6 +113,58 @@ K_MSGQ_DEFINE(target_msgq, sizeof(struct i2c_mspm0g3xxx_target_msg), 5, 1);
 static K_KERNEL_STACK_DEFINE(i2c_mspm0g3xxx_target_stack,
 			     CONFIG_I2C_MSPM0G3XXX_TARGET_THREAD_STACK_SIZE);
 static struct k_thread i2c_mspm0g3xxx_target_thread;
+
+static void i2c_mspm0g3xxx_target_stop_watchdog(struct i2c_mspm0g3xxx_data *data) {
+	const struct i2c_mspm0g3xxx_config *config = data->cfg;
+	if (!config->watchdog_timer) {
+		return;
+	}
+
+	int err = counter_stop(config-> watchdog_timer);
+	if (err != 0) {
+		LOG_ERR("Failed to stop the timer, err: %d", err);
+	}
+
+	err = counter_cancel_channel_alarm(config->watchdog_timer, 0);
+	if (err != 0) {
+		LOG_ERR("Failed to cancel the timer alarm, err: %d", err);
+	}
+}
+
+static void i2c_mspm0g3xxx_panic(const struct device *dev, uint8_t channel, uint32_t ticks,
+                             void *user_data)
+{
+       struct i2c_mspm0g3xxx_data *data = user_data;
+       const struct i2c_mspm0g3xxx_config *config = data->cfg;
+
+       DL_I2C_setTargetACKOverrideValue((I2C_Regs *)config->base,
+                                        DL_I2C_TARGET_RESPONSE_OVERRIDE_VALUE_NACK);
+       DL_I2C_disableTargetClockStretching((I2C_Regs *)config->base);
+       DL_I2C_disablePower((I2C_Regs *)config->base);
+       z_except_reason(CONFIG_I2C_MSPM0G3XXX_WATCHDOG_PANIC_CODE);
+}
+
+static void i2c_mspm0g3xxx_target_start_watchdog(struct i2c_mspm0g3xxx_data *data)
+{
+	const struct i2c_mspm0g3xxx_config *config = data->cfg;
+	struct counter_alarm_cfg *watchdog_timer_cfg = &data->watchdog_timer_cfg;
+
+	if (!config->watchdog_timer) {
+		return;
+	}
+
+	i2c_mspm0g3xxx_target_stop_watchdog(data);
+
+	int err = counter_set_channel_alarm(config->watchdog_timer, 0, watchdog_timer_cfg);
+	if (err != 0) {
+		LOG_ERR("Failed to cancel the timer alarm, err: %d", err);
+	}
+
+	err = counter_start(config->watchdog_timer);
+	if (err != 0) {
+		LOG_ERR("Failed to start the timer, err: %d", err);
+	}
+}
 
 void i2c_mspm0g3xxx_target_thread_work(void)
 {
@@ -151,6 +206,7 @@ void i2c_mspm0g3xxx_target_thread_work(void)
 				uint8_t nextByte;
 				while (DL_I2C_isTargetRXFIFOEmpty((I2C_Regs *)config->base) !=
 				       true) {
+				        i2c_mspm0g3xxx_target_start_watchdog(data);
 					if (data->target_rx_valid == 0) {
 						nextByte = DL_I2C_receiveTargetData(
 							(I2C_Regs *)config->base);
@@ -174,6 +230,7 @@ void i2c_mspm0g3xxx_target_thread_work(void)
 							(I2C_Regs *)config->base,
 							DL_I2C_TARGET_RESPONSE_OVERRIDE_VALUE_NACK);
 					}
+					i2c_mspm0g3xxx_target_stop_watchdog(data);
 				}
 			}
 
@@ -182,6 +239,7 @@ void i2c_mspm0g3xxx_target_thread_work(void)
 			data->state = I2C_mspm0g3xxx_TARGET_TX_INPROGRESS;
 			/* Fill TX FIFO if there are more bytes to send */
 			if (tconfig->callbacks->read_requested != NULL) {
+				i2c_mspm0g3xxx_target_start_watchdog(data);
 				uint8_t nextByte;
 				data->target_tx_valid =
 					tconfig->callbacks->read_requested(tconfig, &nextByte);
@@ -193,15 +251,19 @@ void i2c_mspm0g3xxx_target_thread_work(void)
 					 * 0's are transmitted */
 					DL_I2C_transmitTargetData((I2C_Regs *)config->base, 0x00);
 				}
+
+				i2c_mspm0g3xxx_target_stop_watchdog(data);
 			}
 			break;
 		case DL_I2C_IIDX_TARGET_TXFIFO_EMPTY:
 			if (tconfig->callbacks->read_processed != NULL) {
+				i2c_mspm0g3xxx_target_start_watchdog(data);
 				/* still using the FIFO, we call read_processed in order to add
 				 * additional data rather than from a buffer. If the write-received
 				 * function chooses to return 0 (no more data present), then 0's
 				 * will be filled in */
 				uint8_t nextByte;
+
 				if (data->target_tx_valid == 0) {
 					data->target_tx_valid = tconfig->callbacks->read_processed(
 						tconfig, &nextByte);
@@ -215,6 +277,8 @@ void i2c_mspm0g3xxx_target_thread_work(void)
 					 * 0's are transmitted */
 					DL_I2C_transmitTargetData((I2C_Regs *)config->base, 0x00);
 				}
+
+				i2c_mspm0g3xxx_target_stop_watchdog(data);
 			}
 			break;
 		case DL_I2C_IIDX_TARGET_STOP:
@@ -768,11 +832,24 @@ static int i2c_mspm0g3xxx_init(const struct device *dev)
 			config->clock_frequency);
 		return -EINVAL;
 	}
+
 	LOG_DBG("DT bitrate %uHz (%u)", config->clock_frequency,
 		config->dt_bitrate);
 
 	k_sem_init(&data->i2c_busy_sem, 0, 1);
 	k_sem_init(&data->transfer_timeout_sem, 1, 1);
+
+	if (config->watchdog_timer) {
+		if (!device_is_ready(config->watchdog_timer)) {
+			LOG_ERR("Watchdog timer is not ready");
+			return -EINVAL;
+		}
+
+		data->watchdog_timer_cfg.user_data = (void *)data;
+		data->watchdog_timer_cfg.callback = i2c_mspm0g3xxx_panic;
+		data->watchdog_timer_cfg.ticks = counter_us_to_ticks(
+			config->watchdog_timer, CONFIG_I2C_MSPM0G3XXX_WATCHDOG_TIMEOUT);
+	}
 
 	/* Init power */
 	DL_I2C_reset((I2C_Regs *)config->base);
@@ -895,6 +972,7 @@ static const struct i2c_driver_api i2c_mspm0g3xxx_driver_api = {
 				    .divideRatio = DL_I2C_CLOCK_DIVIDE_1},                         \
 		.dt_bitrate = CALC_DT_BITRATE(DT_INST_PROP(index, clock_frequency),		   \
 			DT_INST_PROP_BY_PHANDLE(index, clocks, clock_frequency)),		   \
+		.watchdog_timer = DEVICE_DT_GET_OR_NULL(DT_PHANDLE(DT_DRV_INST(index), watchdog_timer)),\
 	};											   \
                                                                                                    \
 	static struct i2c_mspm0g3xxx_data i2c_mspm0g3xxx_data_##index = {                          \
@@ -903,7 +981,7 @@ static const struct i2c_driver_api i2c_mspm0g3xxx_driver_api = {
                                                                                                    \
 	I2C_DEVICE_DT_INST_DEFINE(index, i2c_mspm0g3xxx_init, NULL, &i2c_mspm0g3xxx_data_##index,  \
 				  &i2c_mspm0g3xxx_cfg_##index, POST_KERNEL,                        \
-				  CONFIG_I2C_INIT_PRIORITY, &i2c_mspm0g3xxx_driver_api);           \
+				  CONFIG_I2C_MSPM0G3XXX_INIT_PRIORITY, &i2c_mspm0g3xxx_driver_api);           \
                                                                                                    \
 	INTERRUPT_INIT_FUNCTION(index)
 

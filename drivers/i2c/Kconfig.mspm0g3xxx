@@ -24,4 +24,27 @@ config I2C_MSPM0G3XXX_TRANSFER_TIMEOUT
 	  0 means that the driver should use the K_FOREVER value,
 	  i.e. it should wait as long as necessary.
 
+config I2C_MSPM0G3XXX_WATCHDOG_TIMEOUT
+    int "I2C watchdog reset timeout (us)"
+    default 300
+    help
+      Defines the timeout in microseconds after which the watchdog will
+      reset the I2C lines and trigger a system panic.
+
+config I2C_MSPM0G3XXX_WATCHDOG_PANIC_CODE
+    int "I2C watchdog reset panic code"
+    default 17
+    help
+      Defines the panic code that will be triggered when the I2C watchdog
+      times out and resets the I2C lines. This code can be used for debugging
+      or logging the failure reason.
+
+
+config I2C_MSPM0G3XXX_INIT_PRIORITY
+    int "TI I2C MSPM0G3XXX init priority"
+    default COUNTER_INIT_PRIORITY
+    help
+      Define the driver init priority. The driver has a dependency on the counter
+      component.
+
 endif # I2C_MSPM0G3XXX

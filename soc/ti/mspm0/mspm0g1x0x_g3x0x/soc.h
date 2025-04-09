@@ -17,11 +17,9 @@ extern "C" {
 
 #define POWER_STARTUP_DELAY (16)
 
-#if CONFIG_CAN_USE_HFXT
-#define SOC_MSPM0_CAN_USE_HFXT (true)
-#else
-#define SOC_MSPM0_CAN_USE_HFXT (false)
-#endif
+/* Q&D fix until the driver uses clock-control driver*/
+#define SOC_MSPM0_HFCLK_FREQ_HZ MHZ(40)
+#define SOC_MSPM0_SYSPLL_FREQ_HZ MHZ(40)
 
 #ifdef __cplusplus
 }

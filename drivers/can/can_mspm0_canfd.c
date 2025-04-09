@@ -73,20 +73,16 @@ static int can_mspm0_canfd_clear_mram(const struct device *dev, uint16_t offset,
 	return can_mcan_sys_clear_mram(msp_canfd_config->mram, offset, len);
 }
 
-/* Q&D fix until the driver uses clock-control driver*/
-#define SOC_MSPM0_HFCLK_FREQ_HZ MHZ(40)
-#define SOC_MSPM0_SYSPLL_FREQ_HZ MHZ(40)
-
 static int can_mspm0_canfd_get_core_clock(const struct device *dev, uint32_t *rate)
 {
 	const struct can_mcan_config *mcan_config = dev->config;
 	const struct can_mspm0_canfd_config *msp_canfd_config = mcan_config->custom;
 
-#if (true == SOC_MSPM0_CAN_USE_HFXT)
+#ifdef CONFIG_CAN_USE_HFXT
 	*rate = SOC_MSPM0_HFCLK_FREQ_HZ / (msp_canfd_config->clock_divider);
 #else
 	*rate = SOC_MSPM0_SYSPLL_FREQ_HZ / (msp_canfd_config->clock_divider);
-#endif
+#endif /* CONFIG_CAN_USE_HFXT */
 
 	return 0;
 }
@@ -97,7 +93,7 @@ static int can_mspm0_canfd_clock_enable(const struct device *dev)
 	const struct can_mspm0_canfd_config *msp_canfd_config = mcan_cfg->custom;
 	DL_MCAN_RevisionId revid_MCAN0;
 
-#if (true == SOC_MSPM0_CAN_USE_HFXT)
+#ifdef CONFIG_CAN_USE_HFXT
 	static DL_MCAN_ClockConfig gMCAN0ClockConf = {
 		.clockSel = DL_MCAN_FCLK_HFCLK,
 		.divider = DL_MCAN_FCLK_DIV_1,
@@ -107,9 +103,9 @@ static int can_mspm0_canfd_clock_enable(const struct device *dev)
 		.clockSel = DL_MCAN_FCLK_SYSPLLCLK1,
 		.divider = DL_MCAN_FCLK_DIV_1,
 	};
-#endif
+#endif /* CONFIG_CAN_USE_HFXT */
 
-#if (true == SOC_MSPM0_CAN_USE_HFXT)
+#ifdef CONFIG_CAN_USE_HFXT
 	/* Current implementation uses HFXT or PLL pre-configured in SOC.
 	 *	Future implementation can use Clock control driver.
 	 */
@@ -124,7 +120,7 @@ static int can_mspm0_canfd_clock_enable(const struct device *dev)
 		LOG_ERR("SYSPLL not available for CAN");
 		return -ENODEV;
 	}
-#endif
+#endif /* CONFIG_CAN_USE_HFXT */
 
 	if (msp_canfd_config->clock_divider != 1) {
 		gMCAN0ClockConf.divider =

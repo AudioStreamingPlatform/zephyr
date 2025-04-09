@@ -106,6 +106,12 @@ static int clock_mspm0_init(const struct device *dev)
 
 	DL_SYSCTL_setMCLKSource(SYSOSC, HSCLK, DL_SYSCTL_HSCLK_SOURCE_SYSPLL);
 #endif /* MSPM0_PLL_ENABLED */
+
+#ifdef CONFIG_CAN_USE_HFXT
+	DL_SYSCTL_disableHFXT();
+	DL_SYSCTL_setHFCLKSourceHFXTParams(DL_SYSCTL_HFXT_RANGE_32_48_MHZ, 10, true);
+#endif
+
 	return 0;
 }
 

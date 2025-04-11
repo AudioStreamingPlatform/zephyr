@@ -3,7 +3,6 @@
 
 config SOC_FLASH_MSPM0
 	bool "MSPM0 Flash driver"
-	default y
 	depends on DT_HAS_TI_MSPM0_FLASH_CONTROLLER_ENABLED
 	select FLASH_HAS_DRIVER_ENABLED
 	select FLASH_HAS_PAGE_LAYOUT

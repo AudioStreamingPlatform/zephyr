@@ -24,3 +24,16 @@ properties:
 
   pinctrl-names:
     required: true
+
+  watchdog-timer:
+    type: phandle
+    description: |
+      The type of the phandle object should be a counter device.
+      When the system is crashing, the I2C lines (SDA/SCL) are not being
+      reset and might stay LOW. To address this issue, we need to ensure that
+      none of the user i2c driver callbacks (that are doing reads or writes)
+      are taking longer than CONFIG_I2C_MSPM0_WATCHDOG_TIMEOUT. So we
+      fire a timer before each call. If the callback doesn't finish fast
+      enough, the watchdog callback will reset the i2c lines, NACK the i2c
+      message and panic with the CONFIG_MSPM0_I2C_WATCHDOG_PANIC_CODE
+      error code.

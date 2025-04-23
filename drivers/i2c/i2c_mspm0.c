@@ -42,6 +42,10 @@ __STATIC_INLINE void DL_I2C_startControllerTransferRepeated(I2C_Regs *i2c,
 #define I2C_TRANSFER_TIMEOUT_MSEC K_FOREVER
 #endif
 
+#ifndef CONFIG_I2C_MSPM0_WATCHDOG
+#define CONFIG_I2C_MSPM0_INIT_PRIORITY CONFIG_I2C_INIT_PRIORITY
+#endif
+
 #define TI_MSPM0G_TARGET_INTERRUPTS                                                                \
 	(DL_I2C_INTERRUPT_TARGET_RX_DONE | DL_I2C_INTERRUPT_TARGET_TXFIFO_TRIGGER |                \
 	 DL_I2C_INTERRUPT_TARGET_TXFIFO_EMPTY | DL_I2C_INTERRUPT_TARGET_START |                    \
@@ -114,6 +118,7 @@ static K_KERNEL_STACK_DEFINE(i2c_mspm0_target_stack,
 			     CONFIG_I2C_MSPM0_TARGET_THREAD_STACK_SIZE);
 static struct k_thread i2c_mspm0_target_thread;
 
+#ifdef CONFIG_I2C_MSPM0_WATCHDOG
 static void i2c_mspm0_target_stop_watchdog(struct i2c_mspm0_data *data) {
 	const struct i2c_mspm0_config *config = data->cfg;
 	if (!config->watchdog_timer) {
@@ -163,6 +168,7 @@ static void i2c_mspm0_target_start_watchdog(struct i2c_mspm0_data *data)
 		LOG_ERR("Failed to start the timer, err: %d", err);
 	}
 }
+#endif
 
 void i2c_mspm0_target_thread_work(void)
 {
@@ -204,7 +210,9 @@ void i2c_mspm0_target_thread_work(void)
 				uint8_t nextByte;
 				while (DL_I2C_isTargetRXFIFOEmpty((I2C_Regs *)config->base) !=
 				       true) {
+#ifdef CONFIG_I2C_MSPM0_WATCHDOG
 				        i2c_mspm0_target_start_watchdog(data);
+#endif
 					if (data->target_rx_valid == 0) {
 						nextByte = DL_I2C_receiveTargetData(
 							(I2C_Regs *)config->base);
@@ -228,7 +236,9 @@ void i2c_mspm0_target_thread_work(void)
 							(I2C_Regs *)config->base,
 							DL_I2C_TARGET_RESPONSE_OVERRIDE_VALUE_NACK);
 					}
+#ifdef CONFIG_I2C_MSPM0_WATCHDOG
 					i2c_mspm0_target_stop_watchdog(data);
+#endif
 				}
 			}
 
@@ -237,7 +247,9 @@ void i2c_mspm0_target_thread_work(void)
 			data->state = I2C_mspm0_TARGET_TX_INPROGRESS;
 			/* Fill TX FIFO if there are more bytes to send */
 			if (tconfig->callbacks->read_requested != NULL) {
+#ifdef CONFIG_I2C_MSPM0_WATCHDOG
 				i2c_mspm0_target_start_watchdog(data);
+#endif
 				uint8_t nextByte;
 				data->target_tx_valid =
 					tconfig->callbacks->read_requested(tconfig, &nextByte);
@@ -249,13 +261,16 @@ void i2c_mspm0_target_thread_work(void)
 					 * 0's are transmitted */
 					DL_I2C_transmitTargetData((I2C_Regs *)config->base, 0x00);
 				}
-
+#ifdef CONFIG_I2C_MSPM0_WATCHDOG
 				i2c_mspm0_target_stop_watchdog(data);
+#endif
 			}
 			break;
 		case DL_I2C_IIDX_TARGET_TXFIFO_EMPTY:
 			if (tconfig->callbacks->read_processed != NULL) {
+#ifdef CONFIG_I2C_MSPM0_WATCHDOG
 				i2c_mspm0_target_start_watchdog(data);
+#endif
 				/* still using the FIFO, we call read_processed in order to add
 				 * additional data rather than from a buffer. If the write-received
 				 * function chooses to return 0 (no more data present), then 0's
@@ -275,8 +290,9 @@ void i2c_mspm0_target_thread_work(void)
 					 * 0's are transmitted */
 					DL_I2C_transmitTargetData((I2C_Regs *)config->base, 0x00);
 				}
-
+#ifdef CONFIG_I2C_MSPM0_WATCHDOG
 				i2c_mspm0_target_stop_watchdog(data);
+#endif
 			}
 			break;
 		case DL_I2C_IIDX_TARGET_STOP:
@@ -837,6 +853,7 @@ static int i2c_mspm0_init(const struct device *dev)
 	k_sem_init(&data->i2c_busy_sem, 0, 1);
 	k_sem_init(&data->transfer_timeout_sem, 1, 1);
 
+#ifdef CONFIG_I2C_MSPM0_WATCHDOG
 	if (config->watchdog_timer) {
 		if (!device_is_ready(config->watchdog_timer)) {
 			LOG_ERR("Watchdog timer is not ready");
@@ -848,6 +865,7 @@ static int i2c_mspm0_init(const struct device *dev)
 		data->watchdog_timer_cfg.ticks = counter_us_to_ticks(
 			config->watchdog_timer, CONFIG_I2C_MSPM0_WATCHDOG_TIMEOUT);
 	}
+#endif
 
 	/* Init power */
 	DL_I2C_reset((I2C_Regs *)config->base);

@@ -14,6 +14,13 @@ module = LED
 module-str = led
 source "subsys/logging/Kconfig.template.log_config"
 
+config LED_CURRENT_SETTING
+	bool "Expose means to tweak consumed current to led(s)"
+	help
+	  A few controller can control the amount of current delivered
+	  to led(s). Depending on the hardware, this can be useful to
+	  prevent damages (though is could generate some if badly used).
+
 config LED_INIT_PRIORITY
 	int "LED initialization priority"
 	default 90

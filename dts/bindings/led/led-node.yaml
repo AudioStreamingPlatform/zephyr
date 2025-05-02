@@ -23,3 +23,10 @@ properties:
               <LED_COLOR_ID_RED>,
               <LED_COLOR_ID_GREEN>,
               <LED_COLOR_ID_BLUE>;
+  led-max-microamp:
+    type: int
+    description: |
+      Maximum current that can be delivered to the led. Meant to limit
+      the amount a current a led can take, so tweaking delivered current
+      will not go over this value. Beware that, if wrongly set, it will
+      enable the possibility of hardware damage led side.

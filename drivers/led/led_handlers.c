@@ -75,3 +75,15 @@ static inline int z_vrfy_led_off(const struct device *dev, uint32_t led)
 	return z_impl_led_off((const struct device *)dev, led);
 }
 #include <zephyr/syscalls/led_off_mrsh.c>
+
+#ifdef CONFIG_LED_CURRENT_SETTING
+static inline int z_vrfy_led_set_current(const struct device *dev, uint32_t led,
+					 uint32_t micro_amps)
+{
+	K_OOPS(K_SYSCALL_OBJ(dev, K_OBJ_DRIVER_LED));
+	K_OOPS(K_SYSCALL_DRIVER_LED(dev, set_curent));
+	return z_impl_led_set_current((const struct device *)dev, led,
+				      micro_amps);
+}
+#include <zephyr/syscalls/led_set_current_mrsh.c>
+#endif /* CONFIG_LED_CURRENT_SETTING */

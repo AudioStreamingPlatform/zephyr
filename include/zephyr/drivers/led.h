@@ -123,6 +123,16 @@ typedef int (*led_api_write_channels)(const struct device *dev,
 typedef int (*led_api_set_group_brightness)(const struct device *dev,
 						uint8_t group_index,
 						uint8_t brightness);
+
+/**
+ * @typedef led_api_set_current()
+ * @brief Callback API to set the current of a LED.
+ *
+ * @see led_set_current() for argument descriptions.
+ */
+typedef int (*led_api_set_current)(const struct device *dev, uint32_t led,
+				   uint32_t micro_amps);
+
 /**
  * @brief LED driver API
  */
@@ -137,6 +147,9 @@ __subsystem struct led_driver_api {
 	led_api_set_color set_color;
 	led_api_write_channels write_channels;
 	led_api_set_group_brightness set_group_brightness;
+#ifdef CONFIG_LED_CURRENT_SETTING
+	led_api_set_current set_current;
+#endif /* CONFIG_LED_CURRENT_SETTING */
 };
 
 /**
@@ -407,6 +420,40 @@ static inline int z_impl_led_set_group_brightness(const struct device *dev,
 
 	return api->set_group_brightness(dev, group_index, brightness);
 }
+
+/**
+ * @brief Set maximum current that can be delivered to a LED
+ *
+ * Sets a limit on the current (micro_amps) that can be supplied
+ * to the specified LED. If the requested value exceeds the device's
+ * maximum capability, it will be capped accordingly.
+ *
+ * Note: The actual resolution of the current setting depends on the
+ * underlying LED controller. Values may be rounded down to the nearest
+ * supported increment if fine-grained control is not available.
+ *
+ * @param dev LED device
+ * @param led LED number
+ * @param micro_amps ampere limit (relative to LED device maximum capability)
+ * @return 0 on success, negative on error
+ */
+#ifdef CONFIG_LED_CURRENT_SETTING
+__syscall int led_set_current(const struct device *dev, uint32_t led,
+			      uint32_t micro_amps);
+
+static inline int z_impl_led_set_current(const struct device *dev, uint32_t led,
+					 uint32_t micro_amps)
+{
+	const struct led_driver_api *api =
+		(const struct led_driver_api *)dev->api;
+
+	if (api->set_current == NULL) {
+		return -ENOSYS;
+	}
+
+	return api->set_current(dev, led, micro_amps);
+}
+#endif /* CONFIG_LED_CURRENT_SETTING */
 
 /*
  * LED DT helpers.

@@ -3,6 +3,16 @@
 
 # Common fields for LED controllers and child LEDs
 
+properties:
+  led-max-microamp:
+    type: int
+    description: |
+      Maximum current that can be delivered to the led by defaul.
+      Meant to limit the amount a current a led can take, so tweaking
+      delivered current will not go over this value. Beware that, if
+      wrongly set, it will enable the possibility of hardware damage
+      led side. Such setting can be overriden per-led (see led-node).
+
 child-binding:
   description: LED child node
 

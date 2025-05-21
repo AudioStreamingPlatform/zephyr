@@ -8,7 +8,7 @@
 	};
 
 	can0_tx_pa12: can0_tx_pa12 {
-		pinmux = <MSP_PINMUX(34,MSPM0_PIN_FUNCTION_6)>;
+		pinmux = <MSP_PINMUX(34,MSPM0_PIN_FUNCTION_5)>;
 	};
 
 };

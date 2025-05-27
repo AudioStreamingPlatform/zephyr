@@ -4,11 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <ti/driverlib/dl_timerg.h>
-#include <ti/driverlib/dl_timer.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/counter.h>
+#include <zephyr/drivers/clock_control.h>
+#include <zephyr/drivers/clock_control/mspm0_clock_control.h>
+
+#include <ti/driverlib/dl_timerg.h>
+#include <ti/driverlib/dl_timer.h>
 
 LOG_MODULE_REGISTER(counter_mspm0, CONFIG_LOG_DEFAULT_LEVEL);
 
@@ -25,6 +28,7 @@ struct counter_mspm0_channel_data {
 struct counter_mspm0_config {
 	struct counter_config_info info;
 	GPTIMER_Regs *timer;
+	const struct mspm0_sys_clock *clock_subsys;
 	const DL_Timer_ClockConfig clock_cfg;
 	void (*interrupt_init_function)(const struct device *dev);
 };
@@ -32,7 +36,6 @@ struct counter_mspm0_config {
 struct counter_mspm0_data {
 	const struct counter_mspm0_config *config;
 	struct counter_mspm0_channel_data *channel_data;
-	uint32_t frequency;
 	DL_Timer_TimerConfig time_cfg;
 	struct k_spinlock spinlock;
 };
@@ -104,11 +107,21 @@ static int counter_mspm0_cancel_alarm(const struct device *dev, uint8_t chan)
 
 static uint32_t counter_mspm0_get_freq(const struct device *dev)
 {
-	struct counter_mspm0_data *data = dev->data;
+	const struct device *clk_dev = DEVICE_DT_GET(DT_NODELABEL(ckm));
 	const struct counter_mspm0_config *cfg = dev->config;
 	const DL_Timer_ClockConfig clock_cfg = cfg->clock_cfg;
+	uint32_t clock_rate;
+	int ret;
+
+	ret = clock_control_get_rate(clk_dev,
+				(struct mspm0_sys_clock *)cfg->clock_subsys,
+				&clock_rate);
+	if (ret < 0) {
+		return ret;
+	}
+
 	// freq = (timer_clk_source / ((div_ratio + 1) * (prescale + 1))
-	return data->frequency / ((clock_cfg.divideRatio + 1) * (clock_cfg.prescale + 1));
+	return clock_rate / ((clock_cfg.divideRatio + 1) * (clock_cfg.prescale + 1));
 }
 
 static const struct counter_driver_api counter_mspm0_driver_api = {
@@ -155,11 +168,15 @@ static int counter_mspm0_init(const struct device *dev)
 	INTERRUPT_INIT_FUNCTION(inst)                                                              \
                                                                                                    \
 	static struct counter_mspm0_channel_data counter##inst##_channel_data[MAX_CHANNELS];       \
+	                                                                                           \
+	static const struct mspm0_sys_clock mspm0_counter_sys_clock##inst =                        \
+		MSPM0_CLOCK_SUBSYS_FN(inst);                                                       \
                                                                                                    \
 	const DL_Timer_ClockConfig counter_mspm0_clock_cfg_##inst = {                              \
-		.clockSel = DL_TIMER_CLOCK_BUSCLK,                                                 \
-		.prescale = DT_PROP(DT_DRV_INST(inst), prescaler),                                 \
-		.divideRatio = DT_PROP(DT_DRV_INST(inst), divide_ratio),                           \
+		.clockSel = MSPM0_CLOCK_PERIPH_REG_MASK(                                           \
+					DT_INST_CLOCKS_CELL(inst, clk)),                           \
+		.prescale = DT_PROP(DT_DRV_INST(inst), ti_prescaler),                              \
+		.divideRatio = DT_PROP(DT_DRV_INST(inst), ti_divider),                             \
 	};                                                                                         \
                                                                                                    \
 	const struct counter_mspm0_config counter_mspm0_##inst##_cfg = {                           \
@@ -172,6 +189,7 @@ static int counter_mspm0_init(const struct device *dev)
 				.channels = 1,                                                     \
 			},                                                                         \
 		.timer = ((GPTIMER_Regs *)DT_INST_REG_ADDR(inst)),                                 \
+		.clock_subsys = &mspm0_counter_sys_clock##inst,                                    \
 		.clock_cfg = counter_mspm0_clock_cfg_##inst,                                       \
 		.interrupt_init_function = counter_mspm0_interrupt_init_##inst,                    \
 	};                                                                                         \
@@ -179,7 +197,6 @@ static int counter_mspm0_init(const struct device *dev)
 	static struct counter_mspm0_data counter_mspm0_##inst##_data = {                           \
 		.config = &counter_mspm0_##inst##_cfg,                                             \
 		.channel_data = counter##inst##_channel_data,                                      \
-		.frequency = DT_INST_PROP_BY_PHANDLE(inst, clocks, clock_frequency),               \
 		.time_cfg =                                                                        \
 			{                                                                          \
 				.timerMode = DT_PROP(DT_DRV_INST(inst), mode),                     \

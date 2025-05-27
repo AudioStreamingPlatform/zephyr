@@ -135,6 +135,17 @@
 			};
 		};
 
+		tima0: tima0@40860000 {
+			compatible = "ti,mspm0-pwm";
+			status = "disabled";
+			clocks = <&ckm MSPM0_CLOCK_ULPCLK>;
+			reg = <0x40860000 0x2000>;
+			ti,divide-ratio = <RATE_1>;
+			ti,prescaler = <0>;
+			ti,mode = <EDGE_ALIGN_UP>;
+			#pwm-cells = <3>;
+		};
+
 		tima1: tima0@40862000 {
 			compatible = "ti,mspm0-counter";
 			status = "disabled";

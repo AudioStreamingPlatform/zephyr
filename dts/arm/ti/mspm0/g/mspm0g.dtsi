@@ -7,6 +7,8 @@
 
 #include <ti/mspm0/mspm0.dtsi>
 
+#include <ti/mspm0/g/mspm0g-pinctrl.dtsi>
+
 /{
 	clocks: clocks {
 		pll: pll {

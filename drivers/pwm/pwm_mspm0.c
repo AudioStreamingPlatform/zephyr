@@ -6,11 +6,14 @@
 
 #define DT_DRV_COMPAT ti_mspm0_pwm
 
-#include <ti/driverlib/dl_timera.h>
-#include <ti/driverlib/dl_timerg.h>
 #include <zephyr/drivers/pwm.h>
 #include <zephyr/drivers/pinctrl.h>
+#include <zephyr/drivers/clock_control.h>
+#include <zephyr/drivers/clock_control/mspm0_clock_control.h>
 #include <zephyr/logging/log.h>
+
+#include <ti/driverlib/dl_timera.h>
+#include <ti/driverlib/dl_timerg.h>
 
 #define REG_TIMA0         (GPTIMER_Regs *)0x40860000
 #define REG_TIMA1         (GPTIMER_Regs *)0x40862000
@@ -24,7 +27,7 @@ LOG_MODULE_REGISTER(pwm_mspm0, CONFIG_PWM_LOG_LEVEL);
 struct pwm_mspm0_config {
 	GPTIMER_Regs *timer;
 	const struct pinctrl_dev_config *pinctrl;
-	const uint32_t frequency;
+	const struct mspm0_sys_clock *clock_subsys;
 	const DL_Timer_ClockConfig clock_cfg;
 	const DL_TIMER_PWM_MODE pwm_mode;
 };
@@ -60,13 +63,23 @@ static int pwm_mspm0_get_cycles_per_sec(const struct device *dev, uint32_t chann
 {
 	const struct pwm_mspm0_config *config = dev->config;
 	uint8_t max_allowed_channels = NUM_CHANNELS(config->timer);
+	const struct device *clk_dev = DEVICE_DT_GET(DT_NODELABEL(ckm));
+	uint32_t clock_rate;
+	int ret;
 
 	if (channel >= max_allowed_channels) {
 		LOG_ERR("Error, invalid channel: %d", channel);
 		return -ENXIO;
 	}
 
-	*cycles = config->frequency /
+	ret = clock_control_get_rate(clk_dev,
+				(struct mspm0_sys_clock *)config->clock_subsys,
+				&clock_rate);
+	if (ret < 0) {
+		return ret;
+	}
+
+	*cycles = clock_rate /
 		  ((config->clock_cfg.divideRatio + 1) * (config->clock_cfg.prescale + 1));
 
 	return 0;
@@ -155,18 +168,22 @@ static int pwm_mspm0_init(const struct device *dev)
 
 #define PWM_MSPM0_INIT(inst)                                                                       \
 	PINCTRL_DT_INST_DEFINE(inst);                                                              \
+	                                                                                           \
+	static const struct mspm0_sys_clock mspm0_pwm_sys_clock##inst =                            \
+		MSPM0_CLOCK_SUBSYS_FN(inst);                                                       \
                                                                                                    \
 	const struct pwm_mspm0_config pwm_mspm0_##inst##_cfg = {                                   \
 		.timer = ((GPTIMER_Regs *)DT_INST_REG_ADDR(inst)),                                 \
 		.clock_cfg =                                                                       \
 			{                                                                          \
-				.clockSel = DL_TIMER_CLOCK_BUSCLK,                                 \
-				.divideRatio = DT_PROP(DT_DRV_INST(inst), ti_divide_ratio),        \
+				.clockSel =  MSPM0_CLOCK_PERIPH_REG_MASK(                          \
+					DT_INST_CLOCKS_CELL(inst, clk)),                           \
+				.divideRatio = DT_PROP(DT_DRV_INST(inst), ti_divider),             \
 				.prescale = DT_PROP(DT_DRV_INST(inst), ti_prescaler),              \
 			},                                                                         \
 		.pwm_mode = DT_PROP(DT_DRV_INST(inst), ti_mode),                                   \
-		.frequency = DT_PROP(DT_DRV_INST(inst), ti_clock_frequency),                       \
 		.pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),                                   \
+		.clock_subsys = &mspm0_pwm_sys_clock##inst,                                        \
 	};                                                                                         \
                                                                                                    \
 	DEVICE_DT_INST_DEFINE(inst, pwm_mspm0_init, NULL, NULL, &pwm_mspm0_##inst##_cfg,           \

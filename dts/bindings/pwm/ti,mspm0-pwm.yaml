@@ -14,11 +14,15 @@ compatible: "ti,mspm0-pwm"
 include: [base.yaml, pinctrl-device.yaml, pwm-controller.yaml]
 
 properties:
+  clocks:
+    required: true
+
   ti,prescaler:
     required: true
     type: int
     default: 0
-    description: Specifies the value used to divide the input clock frequency, allowing adjustment of the effective clock rate used by the timer.
+    description: Specifies the value used to divide the input clock frequency,
+      allowing adjustment of the effective clock rate used by the timer.
 
   ti,mode:
     required: true
@@ -34,16 +38,11 @@ properties:
         - 16: "Configure the pwm timer as Center Align"
         - 32: "Configure the pwm timer as Edge Align Up"
 
-  ti,clock-frequency:
-    const: 32000000
+  ti,divider:
     type: int
     required: true
-    description: Defines the clock frequency that the module will use. This value is required and should be treated as read-only; it must not be modified after initial configuration.
-
-  ti,divide-ratio:
-    type: int
-    required: true
-    description: Sets the division ratio for the clock, which controls how the clock frequency is divided before use.
+    description: Sets the division ratio for the clock, which controls how the
+      clock frequency is divided before use.
 
   "#pwm-cells":
     const: 3

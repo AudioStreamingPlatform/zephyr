@@ -219,9 +219,9 @@
 			compatible = "ti,mspm0-pwm";
 			status = "disabled";
 			clocks = <&ckm MSPM0_CLOCK_ULPCLK>;
-			reg = <0x40860000 0x2000>;
-			ti,divide-ratio = <RATE_1>;
 			ti,prescaler = <0>;
+			ti,divider = <RATE_1>;
+			reg = <0x40860000 0x2000>;
 			ti,mode = <EDGE_ALIGN_UP>;
 			#pwm-cells = <3>;
 		};

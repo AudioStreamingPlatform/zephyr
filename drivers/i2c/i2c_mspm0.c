@@ -7,6 +7,8 @@
 #include <zephyr/drivers/i2c.h>
 #include <zephyr/drivers/pinctrl.h>
 #include <zephyr/drivers/counter.h>
+#include <zephyr/drivers/clock_control.h>
+#include <zephyr/drivers/clock_control/mspm0_clock_control.h>
 #include <soc.h>
 
 /* Logging includes */
@@ -76,12 +78,12 @@ enum i2c_mspm0_state {
 struct i2c_mspm0_config {
 	uint32_t base;
 	uint32_t clock_frequency;
-	bool target_mode_only;
-	DL_I2C_ClockConfig gI2CClockConfig;
+	const struct mspm0_sys_clock *clock_subsys;
+	DL_I2C_ClockConfig clock_cfg;
 	const struct pinctrl_dev_config *pinctrl;
 	void (*interrupt_init_function)(const struct device *dev);
-	uint32_t dt_bitrate;
 	const struct device *watchdog_timer;
+	bool target_mode_only;
 };
 
 struct i2c_mspm0_data {
@@ -323,18 +325,39 @@ SYS_INIT(i2c_mspm0_target_thread_init, POST_KERNEL, CONFIG_I2C_INIT_PRIORITY);
 
 #endif // CONFIG_I2C_MSPM0_TARGET_SUPPORT
 
+
+/** from dl_i2c.h
+ *  scl_period = (1 + tpr) * (scl_lp + scl_hp) * int_clk_prd
+ *
+ *  where:
+ *  scl_prd is the scl line period (i2c clock)
+ *
+ *  tpr is the timer period register value (range of 1 to 127)
+ *
+ *  scl_lp is the scl low period (fixed at 6)
+ *  scl_hp is the scl high period (fixed at 4)
+ *
+ *  clk_prd is the functional clock period in ns
+ *
+ *  what we are setting is tpr. so is we solve the equation we end
+ *  up with : tpr = (int_clk_rate / (scl_lp + scl_hp) * scl_rate) - 1
+ */
+#define CALC_BITRATE(i2c_clock, parent_clock) \
+	((parent_clock) / (10 * (i2c_clock) - 1))
+
 static int i2c_mspm0_configure(const struct device *dev, uint32_t dev_config)
 {
 	const struct i2c_mspm0_config *config = dev->config;
 	struct i2c_mspm0_data *data = dev->data;
 	uint32_t bitrate;
+	int ret = 0;
 
 	k_sem_take(&data->i2c_busy_sem, K_FOREVER);
 
 	/* 10-bit addressing not supported */
 	if (dev_config & I2C_ADDR_10_BITS) {
-		k_sem_give(&data->i2c_busy_sem);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out;
 	}
 
 	/* Config I2C speed */
@@ -346,20 +369,44 @@ static int i2c_mspm0_configure(const struct device *dev, uint32_t dev_config)
 		bitrate = 7;
 		break;
 	case I2C_SPEED_DT:
-		bitrate = config->dt_bitrate;
+	{
+		const struct device *clk_dev = DEVICE_DT_GET(DT_NODELABEL(ckm));
+		uint32_t clock_rate;
+
+		ret = clock_control_get_rate(clk_dev,
+				(struct mspm0_sys_clock *)config->clock_subsys,
+				&clock_rate);
+		if (ret < 0) {
+			LOG_ERR("Could not get the i2c clock");
+			goto out;
+		}
+
+		bitrate = CALC_BITRATE(config->clock_frequency, clock_rate);
+
+		// The register value needs to be in the range [1,127]
+		if (bitrate < 1 || bitrate > 127) {
+			LOG_ERR("Invalid DT bitrate %uHz (%u)",
+				config->clock_frequency, bitrate);
+			ret = -EINVAL;
+			goto out;
+		}
+
+		LOG_DBG("DT bitrate %uHz (%u)",
+			config->clock_frequency, bitrate);
 		break;
+	}
 	default:
-		k_sem_give(&data->i2c_busy_sem);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out;
 	}
 
 	/* Set the I2C speed */
 	DL_I2C_setTimerPeriod((I2C_Regs *)config->base, bitrate);
 
 	data->dev_config = dev_config;
-
+out:
 	k_sem_give(&data->i2c_busy_sem);
-	return 0;
+	return ret;
 }
 
 static int i2c_mspm0_get_config(const struct device *dev, uint32_t *dev_config)
@@ -840,16 +887,6 @@ static int i2c_mspm0_init(const struct device *dev)
 	struct i2c_mspm0_data *data = dev->data;
 	int ret;
 
-	// The register value needs to be in the range [1,127]
-	if (config->dt_bitrate < 1 || config->dt_bitrate > 127) {
-		LOG_ERR("Invalid dt bitrate %u (%uHz)", config->dt_bitrate,
-			config->clock_frequency);
-		return -EINVAL;
-	}
-
-	LOG_DBG("DT bitrate %uHz (%u)", config->clock_frequency,
-		config->dt_bitrate);
-
 	k_sem_init(&data->i2c_busy_sem, 0, 1);
 	k_sem_init(&data->transfer_timeout_sem, 1, 1);
 
@@ -880,7 +917,7 @@ static int i2c_mspm0_init(const struct device *dev)
 
 	/* Config clocks and analog filter */
 	DL_I2C_setClockConfig((I2C_Regs *)config->base,
-			      (DL_I2C_ClockConfig *)&config->gI2CClockConfig);
+			      (DL_I2C_ClockConfig *)&config->clock_cfg);
 	DL_I2C_disableAnalogGlitchFilter((I2C_Regs *)config->base);
 
 	// We initialize the bitrate to the one specified by the DT
@@ -935,34 +972,14 @@ static const struct i2c_driver_api i2c_mspm0_driver_api = {
 #endif // CONFIG_I2C_MSPM0_TARGET_SUPPORT
 };
 
-
-/** from dl_i2c.h
- *  scl_period = (1 + tpr) * (scl_lp + scl_hp) * int_clk_prd
- *
- *  where:
- *  scl_prd is the scl line period (i2c clock)
- *
- *  tpr is the timer period register value (range of 1 to 127)
- *
- *  scl_lp is the scl low period (fixed at 6)
- *  scl_hp is the scl high period (fixed at 4)
- *
- *  clk_prd is the functional clock period in ns
- *
- *  what we are setting is tpr. so is we solve the equation we end
- *  up with : tpr = (int_clk_rate / (scl_lp + scl_hp) * scl_rate) - 1
- */
-#define CALC_DT_BITRATE(i2c_clock, parent_clock) \
-	((parent_clock) / (10 * (i2c_clock) - 1))
-
 /* Macros to assist with the device-specific initialization */
 #define INTERRUPT_INIT_FUNCTION_DECLARATION(index)                                                 \
 	static void i2c_mspm0_interrupt_init_##index(const struct device *dev)
 
 #define INTERRUPT_INIT_FUNCTION(index)                                                             \
-	static void i2c_mspm0_interrupt_init_##index(const struct device *dev)                \
+	static void i2c_mspm0_interrupt_init_##index(const struct device *dev)                     \
 	{                                                                                          \
-		IRQ_CONNECT(DT_INST_IRQN(index), DT_INST_IRQ(index, priority), i2c_mspm0_isr, \
+		IRQ_CONNECT(DT_INST_IRQN(index), DT_INST_IRQ(index, priority), i2c_mspm0_isr,      \
 			    DEVICE_DT_INST_GET(index), 0);                                         \
 		irq_enable(DT_INST_IRQN(index));                                                   \
 	}
@@ -972,32 +989,32 @@ static const struct i2c_driver_api i2c_mspm0_driver_api = {
 	PINCTRL_DT_INST_DEFINE(index);                                                             \
                                                                                                    \
 	INTERRUPT_INIT_FUNCTION_DECLARATION(index);                                                \
+	                                                                                           \
+	static const struct mspm0_sys_clock mspm0_i2c_sys_clock##index =                           \
+		MSPM0_CLOCK_SUBSYS_FN(index);                                                      \
 												   \
-	BUILD_ASSERT(!(DT_INST_PROP_BY_PHANDLE(index, clocks, clock_frequency) % DT_INST_PROP(index, clock_frequency)),	\
-		     "i2c clock frequency " STRINGIFY(DT_INST_PROP(index, clock_frequency)) \
-		     " doesn't divide well with parent clock frequency " \
-		     STRINGIFY(DT_INST_PROP_BY_PHANDLE(index, clocks, clock_frequency))); \
-												   \
-	static const struct i2c_mspm0_config i2c_mspm0_cfg_##index = {                   \
+	static const struct i2c_mspm0_config i2c_mspm0_cfg_##index = {                             \
 		.base = DT_INST_REG_ADDR(index),                                                   \
 		.clock_frequency = DT_INST_PROP(index, clock_frequency),                           \
-		.target_mode_only = DT_INST_PROP_OR(index, target_mode_only, false),               \
+		.clock_subsys = &mspm0_i2c_sys_clock##index,                                       \
 		.pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(index),                                  \
-		.interrupt_init_function = i2c_mspm0_interrupt_init_##index,                  \
-		.gI2CClockConfig = {.clockSel = DL_I2C_CLOCK_BUSCLK,                               \
-				    .divideRatio = DL_I2C_CLOCK_DIVIDE_1},                         \
-		.dt_bitrate = CALC_DT_BITRATE(DT_INST_PROP(index, clock_frequency),		   \
-			DT_INST_PROP_BY_PHANDLE(index, clocks, clock_frequency)),		   \
+		.interrupt_init_function = i2c_mspm0_interrupt_init_##index,                       \
+		.clock_cfg = {                                                                     \
+			.clockSel = MSPM0_CLOCK_PERIPH_REG_MASK(                                   \
+					DT_INST_CLOCKS_CELL(index, clk)),                          \
+			.divideRatio = DT_PROP(DT_DRV_INST(index), ti_divider),                    \
+		},                                                                                 \
 		.watchdog_timer = DEVICE_DT_GET_OR_NULL(DT_PHANDLE(DT_DRV_INST(index), watchdog_timer)),\
+		.target_mode_only = DT_INST_PROP_OR(index, target_mode_only, false),               \
 	};											   \
                                                                                                    \
-	static struct i2c_mspm0_data i2c_mspm0_data_##index = {                          \
-		.cfg = &i2c_mspm0_cfg_##index,                                                \
+	static struct i2c_mspm0_data i2c_mspm0_data_##index = {                                    \
+		.cfg = &i2c_mspm0_cfg_##index,                                                     \
 	};                                                                                         \
                                                                                                    \
-	I2C_DEVICE_DT_INST_DEFINE(index, i2c_mspm0_init, NULL, &i2c_mspm0_data_##index,  \
-				  &i2c_mspm0_cfg_##index, POST_KERNEL,                        \
-				  CONFIG_I2C_MSPM0_INIT_PRIORITY, &i2c_mspm0_driver_api);           \
+	I2C_DEVICE_DT_INST_DEFINE(index, i2c_mspm0_init, NULL, &i2c_mspm0_data_##index,            \
+				  &i2c_mspm0_cfg_##index, POST_KERNEL,                             \
+				  CONFIG_I2C_MSPM0_INIT_PRIORITY, &i2c_mspm0_driver_api);          \
                                                                                                    \
 	INTERRUPT_INIT_FUNCTION(index)
 

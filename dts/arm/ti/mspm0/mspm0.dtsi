@@ -199,6 +199,7 @@
 		adc0: adc@40000000 {
 			compatible = "ti,mspm0-adc12";
 			reg = <0x40000000 0x1000>;
+			clocks = <&ckm MSPM0_CLOCK_SYSOSC>;
 			interrupts = <4 0>;
 			status = "disabled";
 			#io-channel-cells = <1>;
@@ -207,6 +208,7 @@
 		adc1: adc@40002000 {
 			compatible = "ti,mspm0-adc12";
 			reg = <0x40002000 0x1000>;
+			clocks = <&ckm MSPM0_CLOCK_SYSOSC>;
 			interrupts = <5 0>;
 			status = "disabled";
 			#io-channel-cells = <1>;

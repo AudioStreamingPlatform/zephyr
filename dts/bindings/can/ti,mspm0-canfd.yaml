@@ -16,13 +16,9 @@ properties:
   clocks:
     required: true
 
-  clk-divider:
+  ti,divider:
     type: int
-    enum:
-      - 1
-      - 2
-      - 4
-
+    required: true
     description: |
       Clock divide ratio specification. Enables configuring clock divide
       settings for the MCAN functional clock input to the MCAN-SS.

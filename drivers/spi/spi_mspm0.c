@@ -9,6 +9,8 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/pinctrl.h>
+#include <zephyr/drivers/clock_control.h>
+#include <zephyr/drivers/clock_control/mspm0_clock_control.h>
 #include <zephyr/drivers/spi.h>
 #include <zephyr/logging/log.h>
 #include <soc.h>
@@ -50,8 +52,8 @@ LOG_MODULE_REGISTER(spi_mspm0, CONFIG_SPI_LOG_LEVEL);
 struct spi_mspm0_config {
 	SPI_Regs *base;
 	const struct pinctrl_dev_config *pinctrl;
-	const DL_SPI_ClockConfig clock_config;
-	uint32_t clock_frequency;
+	const struct mspm0_sys_clock *clock_subsys;
+	const DL_SPI_ClockConfig clock_cfg;
 };
 
 struct spi_mspm0_data {
@@ -63,7 +65,10 @@ static int spi_mspm0_configure(const struct device *dev, const struct spi_config
 {
 	struct spi_mspm0_data *const data = dev->data;
 	const struct spi_mspm0_config *const cfg = dev->config;
+	const struct device *clk_dev = DEVICE_DT_GET(DT_NODELABEL(ckm));
 	struct spi_context *ctx = &data->ctx;
+	uint32_t clock_rate;
+	int ret;
 
 	if (spi_context_configured(ctx, spi_cfg)) {
 		/* this configuration is already in use */
@@ -75,12 +80,19 @@ static int spi_mspm0_configure(const struct device *dev, const struct spi_config
 		return -ENOTSUP;
 	}
 
-	if (spi_cfg->frequency > (cfg->clock_frequency / 2)) {
+	ret = clock_control_get_rate(clk_dev,
+				(struct mspm0_sys_clock *)cfg->clock_subsys,
+				&clock_rate);
+	if (ret < 0) {
+		return ret;
+	}
+
+	if (spi_cfg->frequency > (clock_rate / 2)) {
 		return -EINVAL;
 	}
 
 	/* see DL_SPI_setBitRateSerialClockDivider for details */
-	uint16_t clock_scr = cfg->clock_frequency / ((2 * spi_cfg->frequency) - 1);
+	uint16_t clock_scr = clock_rate / ((2 * spi_cfg->frequency) - 1);
 
 	if (!IN_RANGE(clock_scr, 0, 1023)) {
 		return -EINVAL;
@@ -268,7 +280,7 @@ static int spi_mspm0_init(const struct device *dev)
 		return ret;
 	}
 
-	DL_SPI_setClockConfig(cfg->base, (DL_SPI_ClockConfig *)&cfg->clock_config);
+	DL_SPI_setClockConfig(cfg->base, (DL_SPI_ClockConfig *)&cfg->clock_cfg);
 	DL_SPI_enable(cfg->base);
 
 	spi_context_unlock_unconditionally(ctx);
@@ -279,12 +291,18 @@ static int spi_mspm0_init(const struct device *dev)
 #define MSPM0_SPI_INIT(inst)                                                                       \
 	PINCTRL_DT_INST_DEFINE(inst);                                                              \
                                                                                                    \
+	static const struct mspm0_sys_clock mspm0_spi_sys_clock##inst =                            \
+		MSPM0_CLOCK_SUBSYS_FN(inst);                                                       \
+	                                                                                           \
 	static struct spi_mspm0_config spi_mspm0_##inst##_cfg = {                                  \
 		.base = (SPI_Regs *)DT_INST_REG_ADDR(inst),                                        \
 		.pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),                                   \
-		.clock_config = {.clockSel = DL_SPI_CLOCK_BUSCLK,                                  \
-				 .divideRatio = DL_SPI_CLOCK_DIVIDE_RATIO_1},                      \
-		.clock_frequency = DT_PROP(DT_INST_CLOCKS_CTLR(inst), clock_frequency),            \
+		.clock_subsys = &mspm0_spi_sys_clock##inst,                                        \
+		.clock_cfg = {                                                                     \
+			.clockSel = MSPM0_CLOCK_PERIPH_REG_MASK(                                   \
+					DT_INST_CLOCKS_CELL(inst, clk)),                           \
+			.divideRatio = DT_PROP(DT_DRV_INST(inst), ti_divider)                      \
+		},                                                                                 \
 	};                                                                                         \
                                                                                                    \
 	static struct spi_mspm0_data spi_mspm0_##inst##_data = {                                   \

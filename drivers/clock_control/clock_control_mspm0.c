@@ -136,9 +136,13 @@ static int clock_mspm0_get_rate(const struct device *dev,
 		*rate = mspm0_mfpclk_cfg.clk_freq;
 		break;
 #endif
-
-	case MSPM0_CLOCK_MFCLK:
 	case MSPM0_CLOCK_CANCLK:
+		/* Fixme: we are on PD0 so whether is SYSPLL or HFCLK
+		 * let's use ULPCLK
+		 */
+		*rate = mspm0_ulpclk_cfg.clk_freq;
+		break;
+	case MSPM0_CLOCK_MFCLK:
 	default:
 		return -ENOTSUP;
 	}

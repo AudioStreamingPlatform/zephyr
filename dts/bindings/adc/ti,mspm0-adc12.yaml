@@ -32,11 +32,10 @@ properties:
     required: true
     description: |
       ADC clock range.
-      Must be selected accordingly to ti,clk-source.
+      Must be selected accordingly to the selected clock.
       Check available options in dt_bindings/adc/mspm0_adc.h
 
-
-  ti,clk-divider:
+  ti,clk-div:
     type: int
     required: true
     enum:
@@ -48,9 +47,7 @@ properties:
       - 24
       - 32
       - 48
-    description: |
-      Sample clock divider:
-      Applies to the ti,clk-source.
+    description: Sample clock divider, applies to the selected clock.
 
   vref-mv:
     type: int

@@ -37,3 +37,12 @@ properties:
       enough, the watchdog callback will reset the i2c lines, NACK the i2c
       message and panic with the CONFIG_MSPM0_I2C_WATCHDOG_PANIC_CODE
       error code.
+
+  clocks:
+    required: true
+
+  ti,clk-div:
+    type: int
+    required: true
+    description: Sets the division ratio for the clock, which controls how the
+      clock frequency is divided before use.

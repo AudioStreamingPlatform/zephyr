@@ -17,6 +17,8 @@ LOG_MODULE_REGISTER(adc_mspm0);
 #include <zephyr/init.h>
 #include <zephyr/drivers/adc.h>
 #include <zephyr/drivers/pinctrl.h>
+#include <zephyr/drivers/clock_control.h>
+#include <zephyr/drivers/clock_control/mspm0_clock_control.h>
 #include <soc.h>
 
 /* Driverlib includes */
@@ -58,7 +60,7 @@ struct adc_mspm0_data {
 
 struct adc_mspm0_cfg {
 	uint32_t base;
-	DL_ADC12_ClockConfig ADCClockConfig;
+	const DL_ADC12_ClockConfig clock_cfg;
 	const struct pinctrl_dev_config *pinctrl;
 	void (*irq_cfg_func)(void);
 };
@@ -119,7 +121,7 @@ static int adc_mspm0_init(const struct device *dev)
 
 	/* Configure clock */
 	DL_ADC12_setClockConfig((ADC12_Regs *)config->base,
-				(DL_ADC12_ClockConfig *)&config->ADCClockConfig);
+				(DL_ADC12_ClockConfig *)&config->clock_cfg);
 
 	DL_ADC12_setPowerDownMode((ADC12_Regs *)config->base, DL_ADC12_POWER_DOWN_MODE_MANUAL);
 
@@ -587,45 +589,46 @@ static void adc_mspm0_isr(const struct device *dev)
 	adc_context_on_sampling_done(&data->ctx, dev);
 }
 
-#define ADC_DT_CLOCK_SOURCE(x) DT_INST_PROP(x, ti_clk_source)
-
-#define ADC_CLOCK_DIV(x)    DT_INST_PROP(x, ti_clk_divider)
-#define ADC_DT_CLOCK_DIV(x) _CONCAT(DL_ADC12_CLOCK_DIVIDE_, ADC_CLOCK_DIV(x))
-
-#define ADC_DT_CLOCK_RANGE(x) DT_INST_PROP(x, ti_clk_range)
-
 #define MSPM0_ADC_INIT(index)                                                                 \
-                                                                                                   \
-	PINCTRL_DT_INST_DEFINE(index);                                                             \
-                                                                                                   \
+                                                                                              \
+	PINCTRL_DT_INST_DEFINE(index);                                                        \
+                                                                                              \
 	static void adc_mspm0_cfg_func_##index(void);                                         \
-                                                                                                   \
-	static const struct adc_mspm0_cfg adc_mspm0_cfg_##index = {                      \
-		.base = DT_INST_REG_ADDR(index),                                                   \
+                                                                                              \
+	static const struct adc_mspm0_cfg adc_mspm0_cfg_##index = {                           \
+		.base = DT_INST_REG_ADDR(index),                                              \
 		.irq_cfg_func = adc_mspm0_cfg_func_##index,                                   \
-		.pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(index),                                  \
-		.ADCClockConfig = {.clockSel = ADC_DT_CLOCK_SOURCE(index),                         \
-				   .freqRange = ADC_DT_CLOCK_RANGE(index),                         \
-				   .divideRatio = ADC_DT_CLOCK_DIV(index)}};                       \
+		.pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(index),                             \
+		.clock_cfg = {                                                                \
+			.clockSel =  MSPM0_CLOCK_PERIPH_REG_MASK(                             \
+					DT_INST_CLOCKS_CELL(index, clk)),                     \
+			.freqRange = DT_INST_PROP(index, ti_clk_range),                       \
+			.divideRatio = DT_PROP(DT_DRV_INST(index), ti_divider),               \
+		}                                                                             \
+	};                                                                                    \
+	                                                                                      \
 	static const struct adc_driver_api mspm0_driver_api##index = {                        \
 		.channel_setup = adc_mspm0_channel_setup,                                     \
 		.read = adc_mspm0_read,                                                       \
-		.ref_internal = DT_INST_PROP(index, vref_mv),                                      \
-		IF_ENABLED(CONFIG_ADC_ASYNC, (.read_async = adc_mspm0_read_async,))};        \
-	static struct adc_mspm0_data adc_mspm0_data_##index = {                          \
+		.ref_internal = DT_INST_PROP(index, vref_mv),                                 \
+		IF_ENABLED(CONFIG_ADC_ASYNC, (.read_async = adc_mspm0_read_async,))           \
+	};                                                                                    \
+	                                                                                      \
+	static struct adc_mspm0_data adc_mspm0_data_##index = {                               \
 		ADC_CONTEXT_INIT_TIMER(adc_mspm0_data_##index, ctx),                          \
 		ADC_CONTEXT_INIT_LOCK(adc_mspm0_data_##index, ctx),                           \
 		ADC_CONTEXT_INIT_SYNC(adc_mspm0_data_##index, ctx),                           \
-	};                                                                                         \
-	DEVICE_DT_INST_DEFINE(index, &adc_mspm0_init, NULL, &adc_mspm0_data_##index,     \
+	};                                                                                    \
+	                                                                                      \
+	DEVICE_DT_INST_DEFINE(index, &adc_mspm0_init, NULL, &adc_mspm0_data_##index,          \
 			      &adc_mspm0_cfg_##index, POST_KERNEL, CONFIG_ADC_INIT_PRIORITY,  \
 			      &mspm0_driver_api##index);                                      \
-                                                                                                   \
+                                                                                              \
 	static void adc_mspm0_cfg_func_##index(void)                                          \
-	{                                                                                          \
+	{                                                                                     \
 		IRQ_CONNECT(DT_INST_IRQN(index), DT_INST_IRQ(index, priority), adc_mspm0_isr, \
-			    DEVICE_DT_INST_GET(index), 0);                                         \
-		irq_enable(DT_INST_IRQN(index));                                                   \
+			    DEVICE_DT_INST_GET(index), 0);                                    \
+		irq_enable(DT_INST_IRQN(index));                                              \
 	}
 
 DT_INST_FOREACH_STATUS_OKAY(MSPM0_ADC_INIT)

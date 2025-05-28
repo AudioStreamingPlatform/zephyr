@@ -4,13 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr/drivers/can.h>
-#include <zephyr/drivers/can/can_mcan.h>
-#include <zephyr/drivers/pinctrl.h>
 #include <zephyr/kernel.h>
 #include <zephyr/irq.h>
 #include <soc.h>
-
+#include <zephyr/drivers/can.h>
+#include <zephyr/drivers/can/can_mcan.h>
+#include <zephyr/drivers/pinctrl.h>
+#include <zephyr/drivers/clock_control.h>
+#include <zephyr/drivers/clock_control/mspm0_clock_control.h>
 #include <zephyr/logging/log.h>
 
 /* Driverlib includes */
@@ -22,13 +23,13 @@ LOG_MODULE_REGISTER(can_mspm0_canfd, CONFIG_CAN_LOG_LEVEL);
 
 struct can_mspm0_canfd_config {
 	uint32_t ti_canfd_base;
+	const struct mspm0_sys_clock *clock_subsys;
+	const DL_MCAN_ClockConfig clock_cfg;
 	mm_reg_t mcan_base;
 	mem_addr_t mram;
 
 	void (*irq_cfg_func)(void);
 	const struct pinctrl_dev_config *pinctrl;
-
-	uint8_t clock_divider;
 };
 
 static int can_mspm0_canfd_read_reg(const struct device *dev, uint16_t reg, uint32_t *val)
@@ -77,12 +78,22 @@ static int can_mspm0_canfd_get_core_clock(const struct device *dev, uint32_t *ra
 {
 	const struct can_mcan_config *mcan_config = dev->config;
 	const struct can_mspm0_canfd_config *msp_canfd_config = mcan_config->custom;
+	const struct device *clk_dev = DEVICE_DT_GET(DT_NODELABEL(ckm));
+	uint32_t clock_rate;
+	int ret;
 
-#if (true == SOC_MSPM0_CAN_USE_HFXT)
-	*rate = SOC_MSPM0_HFCLK_FREQ_HZ / (msp_canfd_config->clock_divider);
-#else
-	*rate = SOC_MSPM0_SYSPLL_FREQ_HZ / (msp_canfd_config->clock_divider);
-#endif
+	ret = clock_control_get_rate(clk_dev,
+				(struct mspm0_sys_clock *)msp_canfd_config->clock_subsys,
+				&clock_rate);
+	if (ret < 0) {
+		return ret;
+	}
+
+	if (msp_canfd_config->clock_cfg.divider != DL_MCAN_FCLK_DIV_1) {
+		*rate = clock_rate / (msp_canfd_config->clock_cfg.divider >>  MCAN_CLKDIV_RATIO_OFS);
+	} else {
+		*rate = clock_rate;
+	}
 
 	return 0;
 }
@@ -93,43 +104,8 @@ static int can_mspm0_canfd_clock_enable(const struct device *dev)
 	const struct can_mspm0_canfd_config *msp_canfd_config = mcan_cfg->custom;
 	DL_MCAN_RevisionId revid_MCAN0;
 
-#if (true == SOC_MSPM0_CAN_USE_HFXT)
-	static DL_MCAN_ClockConfig gMCAN0ClockConf = {
-		.clockSel = DL_MCAN_FCLK_HFCLK,
-		.divider = DL_MCAN_FCLK_DIV_1,
-	};
-#else
-	static DL_MCAN_ClockConfig gMCAN0ClockConf = {
-		.clockSel = DL_MCAN_FCLK_SYSPLLCLK1,
-		.divider = DL_MCAN_FCLK_DIV_1,
-	};
-#endif
-
-#if (true == SOC_MSPM0_CAN_USE_HFXT)
-	/* Current implementation uses HFXT or PLL pre-configured in SOC.
-	 *	Future implementation can use Clock control driver.
-	 */
-	if ((DL_SYSCTL_getClockStatus() & (DL_SYSCTL_CLK_STATUS_HFCLK_GOOD)) !=
-	    DL_SYSCTL_CLK_STATUS_HFCLK_GOOD) {
-		LOG_ERR("HFCLK not available for CAN");
-		return -ENODEV;
-	}
-#else
-	if ((DL_SYSCTL_getClockStatus() & (DL_SYSCTL_CLK_STATUS_SYSPLL_GOOD)) !=
-	    DL_SYSCTL_CLK_STATUS_SYSPLL_GOOD) {
-		LOG_ERR("SYSPLL not available for CAN");
-		return -ENODEV;
-	}
-#endif
-
-	if (msp_canfd_config->clock_divider != 1) {
-		gMCAN0ClockConf.divider =
-			((msp_canfd_config->clock_divider) << MCAN_CLKDIV_RATIO_OFS) &
-			(MCAN_CLKDIV_RATIO_MASK);
-	}
-
 	DL_MCAN_setClockConfig((MCAN_Regs *)msp_canfd_config->ti_canfd_base,
-			       (DL_MCAN_ClockConfig *)&gMCAN0ClockConf);
+			       (DL_MCAN_ClockConfig *)&msp_canfd_config->clock_cfg);
 
 	/* Get MCANSS Revision ID. */
 	do {
@@ -241,46 +217,56 @@ static const struct can_mcan_ops can_mspm0_canfd_ops = {
 	.clear_mram = can_mspm0_canfd_clear_mram,
 };
 
-#define can_mspm0_canfd_IRQ_CFG_FUNCTION(index)                                               \
+#define can_mspm0_canfd_IRQ_CFG_FUNCTION(index)                                                    \
 	static void config_can_##index(void)                                                       \
 	{                                                                                          \
 		IRQ_CONNECT(DT_INST_IRQN(index), DT_INST_IRQ(index, priority),                     \
-			    can_mspm0_canfd_isr, DEVICE_DT_INST_GET(index), 0);               \
+			    can_mspm0_canfd_isr, DEVICE_DT_INST_GET(index), 0);                    \
 		irq_enable(DT_INST_IRQN(index));                                                   \
 	}
 
-#define can_mspm0_canfd_CFG_INST(index)                                                       \
+#define can_mspm0_canfd_CFG_INST(index)                                                            \
 	BUILD_ASSERT(CAN_MCAN_DT_INST_MRAM_ELEMENTS_SIZE(index) <=                                 \
 			     CAN_MCAN_DT_INST_MRAM_SIZE(index),                                    \
 		     "Insufficient Message RAM size");                                             \
                                                                                                    \
 	PINCTRL_DT_INST_DEFINE(index);                                                             \
-	CAN_MCAN_CALLBACKS_DEFINE(can_mspm0_canfd_cbs_##index,                                \
+	CAN_MCAN_CALLBACKS_DEFINE(can_mspm0_canfd_cbs_##index,                                     \
 				  CAN_MCAN_DT_INST_MRAM_TX_BUFFER_ELEMENTS(index),                 \
 				  CONFIG_CAN_MAX_STD_ID_FILTER, CONFIG_CAN_MAX_EXT_ID_FILTER);     \
+	                                                                                           \
+	static const struct mspm0_sys_clock mspm0_can_sys_clock##index =                           \
+		MSPM0_CLOCK_SUBSYS_FN(index);                                                      \
                                                                                                    \
-	static const struct can_mspm0_canfd_config can_mspm0_canfd_cfg_##index = {       \
+	static const struct can_mspm0_canfd_config can_mspm0_canfd_cfg_##index = {                 \
 		.ti_canfd_base = DT_REG_ADDR_BY_NAME(DT_DRV_INST(index), ti_canfd),                \
+		.clock_subsys = &mspm0_can_sys_clock##index,                                       \
+		.clock_cfg =                                                                       \
+			{                                                                          \
+				.clockSel =  MSPM0_CLOCK_PERIPH_REG_MASK(                          \
+					DT_INST_CLOCKS_CELL(index, clk)),                          \
+				.divider = DT_PROP(DT_DRV_INST(index), ti_clk_div),                \
+			},                                                                         \
 		.mcan_base = CAN_MCAN_DT_INST_MCAN_ADDR(index),                                    \
 		.mram = CAN_MCAN_DT_INST_MRAM_ADDR(index),                                         \
 		.irq_cfg_func = config_can_##index,                                                \
 		.pinctrl = PINCTRL_DT_INST_DEV_CONFIG_GET(index),                                  \
-		.clock_divider = DT_INST_PROP_OR(inst, clk_divider, 1)};                           \
-                                                                                                   \
+	};                                                                                         \
+	                                                                                           \
 	static const struct can_mcan_config can_mcan_cfg_##index = CAN_MCAN_DT_CONFIG_INST_GET(    \
-		index, &can_mspm0_canfd_cfg_##index, &can_mspm0_canfd_ops,                    \
+		index, &can_mspm0_canfd_cfg_##index, &can_mspm0_canfd_ops,                         \
 		&can_mspm0_canfd_cbs_##index);
 
-#define can_mspm0_canfd_DATA_INST(index)                                                      \
+#define can_mspm0_canfd_DATA_INST(index)                                                           \
 	static struct can_mcan_data can_mcan_data_##index = CAN_MCAN_DATA_INITIALIZER(NULL);
 
-#define can_mspm0_canfd_DEVICE_INST(index)                                                    \
-	CAN_DEVICE_DT_INST_DEFINE(index, can_mspm0_canfd_init, NULL, &can_mcan_data_##index,  \
+#define can_mspm0_canfd_DEVICE_INST(index)                                                         \
+	CAN_DEVICE_DT_INST_DEFINE(index, can_mspm0_canfd_init, NULL, &can_mcan_data_##index,       \
 				  &can_mcan_cfg_##index, POST_KERNEL, CONFIG_CAN_INIT_PRIORITY,    \
 				  &can_mspm0_canfd_driver_api);
 
-#define can_mspm0_canfd_INST(index)                                                           \
-	can_mspm0_canfd_IRQ_CFG_FUNCTION(index) can_mspm0_canfd_CFG_INST(index)          \
+#define can_mspm0_canfd_INST(index)                                                                \
+	can_mspm0_canfd_IRQ_CFG_FUNCTION(index) can_mspm0_canfd_CFG_INST(index)                    \
 		can_mspm0_canfd_DATA_INST(index) can_mspm0_canfd_DEVICE_INST(index)
 
 DT_INST_FOREACH_STATUS_OKAY(can_mspm0_canfd_INST)

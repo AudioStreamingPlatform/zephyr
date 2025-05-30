@@ -498,7 +498,8 @@ void z_shell_cmd_trim(const struct shell *sh)
 
 static const struct device *shell_device_internal(size_t idx,
 						  const char *prefix,
-						  shell_device_filter_t filter)
+						  shell_device_filter_t filter,
+						  bool ready)
 {
 	size_t match_idx = 0;
 	const struct device *dev;
@@ -506,7 +507,7 @@ static const struct device *shell_device_internal(size_t idx,
 	const struct device *dev_end = dev + len;
 
 	while (dev < dev_end) {
-		if (device_is_ready(dev)
+		if (((ready && device_is_ready(dev)) || !ready)
 		    && (dev->name != NULL)
 		    && (strlen(dev->name) != 0)
 		    && ((prefix == NULL)
@@ -527,13 +528,19 @@ static const struct device *shell_device_internal(size_t idx,
 const struct device *shell_device_filter(size_t idx,
 					 shell_device_filter_t filter)
 {
-	return shell_device_internal(idx, NULL, filter);
+	return shell_device_internal(idx, NULL, filter, true);
 }
 
 const struct device *shell_device_lookup(size_t idx,
 					 const char *prefix)
 {
-	return shell_device_internal(idx, prefix, NULL);
+	return shell_device_internal(idx, prefix, NULL, true);
+}
+
+const struct device *shell_device_lookup_all(size_t idx,
+					     const char *prefix)
+{
+	return shell_device_internal(idx, prefix, NULL, false);
 }
 
 const struct device *shell_device_get_binding(const char *name)
@@ -545,6 +552,24 @@ const struct device *shell_device_get_binding(const char *name)
 	}
 
 	return dev;
+}
+
+const struct device *shell_device_get_binding_all(const char *name)
+{
+	const struct device *dev;
+	size_t len = z_device_get_all_static(&dev);
+	const struct device *dev_end = dev + len;
+
+	while (dev < dev_end) {
+		if ((dev->name != NULL) &&
+		    (strncmp(name, dev->name, strlen(name)) == 0)) {
+			return dev;
+		}
+
+		++dev;
+	}
+
+	return NULL;
 }
 
 long shell_strtol(const char *str, int base, int *err)

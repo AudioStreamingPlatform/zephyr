@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2018 Nordic Semiconductor ASA
  * Copyright (c) 2016 Intel Corporation
+ * Copyright (C) 2025 Bang & Olufsen A/S, Denmark
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -117,6 +118,33 @@ static int cmd_device_list(const struct shell *sh,
 	return 0;
 }
 
+static int cmd_device_init(const struct shell *sh, size_t argc, char **argv)
+{
+	const struct device *dev;
+	int ret;
+
+	dev = device_get_binding(argv[1]);
+	if (dev == NULL) {
+		shell_error(sh, "Device unknown (%s)", argv[1]);
+		return -ENODEV;
+	}
+
+	if (!device_is_ready(dev)) {
+		shell_info(sh, "Device %s is already initialized", argv[1]);
+		return 0;
+	}
+
+	ret = device_init(dev);
+	if (ret != 0) {
+		shell_error(sh, "Device %s initalization failed (%d)",
+			    argv[1], ret);
+	} else {
+		shell_info(sh, "Device %s inialized successfully", argv[1]);
+	}
+
+	return ret;
+}
+
 #ifdef CONFIG_PM_DEVICE_RUNTIME
 static int cmd_device_pm_toggle(const struct shell *sh,
 			 size_t argc, char **argv)
@@ -160,6 +188,7 @@ static int cmd_device_pm_toggle(const struct shell *sh,
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_device,
 	SHELL_CMD(list, NULL, "List configured devices", cmd_device_list),
+	SHELL_CMD(init, NULL, "Manually initialize a device", cmd_device_init),
 	PM_SHELL_CMD
 	SHELL_SUBCMD_SET_END /* Array terminated. */
 );

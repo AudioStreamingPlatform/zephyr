@@ -2,7 +2,7 @@ description: TI LP5569 LED
 
 compatible: "ti,lp5569"
 
-include: i2c-device.yaml
+include: [led-controller.yaml, i2c-device.yaml]
 
 properties:
   enable-gpios:

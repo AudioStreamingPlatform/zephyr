@@ -42,9 +42,18 @@ LOG_MODULE_REGISTER(lp5569, CONFIG_LED_LOG_LEVEL);
 #define LP5569_MASTER_FADER2     0x47
 #define LP5569_MASTER_FADER3     0x48
 
+#ifdef CONFIG_LED_CURRENT_SETTING
+/* Base register for controlling maximum delivered current */
+#define LP5569_LED0_CURRENT 0x22
+#define LP5569_MAX_CURRENT  25500
+#endif /* CONFIG_LED_CURRENT_SETTING */
+
 struct lp5569_config {
 	struct i2c_dt_spec bus;
 	struct gpio_dt_spec enable_gpio;
+#ifdef CONFIG_LED_CURRENT_SETTING
+	const uint32_t current_limit;
+#endif /* CONFIG_LED_CURRENT_SETTING */
 	const uint8_t cp_mode;
 };
 
@@ -138,6 +147,30 @@ static int lp5569_set_group_brightness(const struct device *dev, uint8_t group_i
 
 	return 0;
 }
+
+#ifdef CONFIG_LED_CURRENT_SETTING
+static int lp5569_set_current(const struct device *dev, uint32_t led, uint32_t micro_amps)
+{
+	const struct lp5569_config *config = dev->config;
+	uint8_t val;
+	int ret;
+
+	if (led >= LP5569_NUM_LEDS) {
+		return -EINVAL;
+	}
+
+	/* we should never exceed the device's limitations */
+	micro_amps = MIN(micro_amps, config->current_limit);
+	val = micro_amps / 100;
+
+	ret = i2c_reg_write_byte_dt(&config->bus, LP5569_LED0_CURRENT + led, val);
+	if (ret < 0) {
+		LOG_ERR("LED reg update failed");
+	}
+
+	return ret;
+}
+#endif /* CONFIG_LED_CURRENT_SETTING */
 
 static int lp5569_enable(const struct device *dev)
 {
@@ -255,6 +288,9 @@ static DEVICE_API(led, lp5569_led_api) = {
 	.off = lp5569_led_off,
 	.write_channels = lp5569_write_channels,
 	.set_group_brightness = lp5569_set_group_brightness,
+#ifdef CONFIG_LED_CURRENT_SETTING
+	.set_current = lp5569_set_current,
+#endif /* CONFIG_LED_CURRENT_SETTING */
 };
 
 #define LP5569_DEFINE(id)                                                                          \
@@ -262,7 +298,9 @@ static DEVICE_API(led, lp5569_led_api) = {
 		.bus = I2C_DT_SPEC_INST_GET(id),                                                   \
 		.enable_gpio = GPIO_DT_SPEC_INST_GET_OR(id, enable_gpios, {0}),                    \
 		.cp_mode = DT_ENUM_IDX(DT_DRV_INST(id), charge_pump_mode),                         \
-	};                                                                                         \
+		COND_CODE_1(IS_ENABLED(CONFIG_LED_CURRENT_SETTING),                                \
+			    (.current_limit = DT_PROP_OR(id, led-max-microamp,                     \
+							 LP5569_MAX_CURRENT)), ()) }; \
                                                                                                    \
 	PM_DEVICE_DT_INST_DEFINE(id, lp5569_pm_action);                                            \
                                                                                                    \

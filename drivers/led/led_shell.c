@@ -330,6 +330,36 @@ cmd_write_channels(const struct shell *sh, size_t argc, char **argv)
 	return err;
 }
 
+#ifdef CONFIG_LED_CURRENT_SETTING
+static int cmd_set_current(const struct shell *sh, size_t argc, char **argv)
+{
+	const struct device *dev;
+	unsigned long current;
+	char *end_ptr;
+	uint32_t led;
+	int err;
+
+	err = parse_common_args(sh, argv, &dev, &led);
+	if (err < 0) {
+		return err;
+	}
+
+	current = strtoul(argv[arg_idx_value], &end_ptr, 0);
+	if (*end_ptr != '\0') {
+		shell_error(sh, "Invalid LED current parameter %s",
+			    argv[arg_idx_value]);
+		return -EINVAL;
+	}
+
+	err = led_set_current(dev, led, current);
+	if (err) {
+		shell_error(sh, "Error: %d", err);
+	}
+
+	return err;
+}
+#endif /* CONFIG_LED_CURRENT_SETTING */
+
 static bool device_is_led(const struct device *dev)
 {
 	return DEVICE_API_IS(led, dev);
@@ -361,6 +391,10 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 	SHELL_CMD_ARG(write_channels, &dsub_device_name,
 		      "<device> <chan> <value 0 [0-255]> ... <value N>", cmd_write_channels, 4,
 		      MAX_CHANNEL_ARGS - 1),
+	COND_CODE_1(IS_ENABLED(CONFIG_LED_CURRENT_SETTING),
+		    (SHELL_CMD_ARG(set_current, &dsub_device_name,
+				  "<device> <led> <current N [in micro-amps]>",
+				   cmd_set_current, 4, 0),), ())
 	SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(led, &sub_led, "LED commands", NULL);

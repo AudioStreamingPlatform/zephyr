@@ -58,4 +58,14 @@ config I2C_MSPM0_INIT_PRIORITY
 
 endif # I2C_MSPM0_WATCHDOG
 
+config I2C_MSPM0_THREAD_SUPPORT
+    bool "TI I2C_MSPM0 thread support"
+    default y
+    help
+      Enable thread offloading support for i2c_target functionality for TI MSPM0 driver.
+      This will offload incoming i2c events to a new worker rather than continuing the
+      the execution in the ISR context. This ensures that a registered i2c target driver
+      will not hog the execution while more i2c bytes have to be served. Instead, they
+      will be pushed to a message queue, and handled whenever the CPU is idle.
+
 endif # I2C_MSPM0

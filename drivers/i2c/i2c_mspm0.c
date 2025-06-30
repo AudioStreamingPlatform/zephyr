@@ -111,6 +111,8 @@ struct i2c_mspm0_target_msg {
 	struct i2c_target_config *tconfig;
 };
 
+#ifdef CONFIG_I2C_MSPM0_THREAD_SUPPORT
+
 #define CONFIG_I2C_MSPM0_TARGET_THREAD_STACK_SIZE 768
 #define CONFIG_I2C_MSPM0_TARGET_THREAD_PRIORITY   1
 
@@ -119,6 +121,8 @@ K_MSGQ_DEFINE(target_msgq, sizeof(struct i2c_mspm0_target_msg), 5, 1);
 static K_KERNEL_STACK_DEFINE(i2c_mspm0_target_stack,
 			     CONFIG_I2C_MSPM0_TARGET_THREAD_STACK_SIZE);
 static struct k_thread i2c_mspm0_target_thread;
+
+#endif /* CONFIG_I2C_MSPM0_THREAD_SUPPORT */
 
 #ifdef CONFIG_I2C_MSPM0_WATCHDOG
 static void i2c_mspm0_target_stop_watchdog(struct i2c_mspm0_data *data) {
@@ -172,142 +176,148 @@ static void i2c_mspm0_target_start_watchdog(struct i2c_mspm0_data *data)
 }
 #endif
 
-void i2c_mspm0_target_thread_work(void)
+static void i2c_mspm0_process_target_msg(struct i2c_mspm0_target_msg *target_msg)
 {
-	struct i2c_mspm0_target_msg target_msg;
-	while (1) {
-		k_msgq_get(&target_msgq, &target_msg, K_FOREVER);
+	struct i2c_mspm0_data *data = target_msg->data;
+	const struct i2c_mspm0_config *config = data->cfg;
+	struct i2c_target_config *tconfig = target_msg->tconfig;
 
-		struct i2c_mspm0_data *data = target_msg.data;
-		const struct i2c_mspm0_config *config = data->cfg;
-		struct i2c_target_config *tconfig = target_msg.tconfig;
+	if (tconfig == NULL) {
+		LOG_ERR("target work invoked on invalid target");
+		return;
+	}
 
-		if (tconfig == NULL) {
-			LOG_ERR("target work invoked on invalid target");
-			return;
+	switch (target_msg->i2c_iidx) {
+	case DL_I2C_IIDX_TARGET_START:
+		/* We can receive multiple starts without stop (eg. write-read
+		 * operations). So only reset state if we've already received stop */
+		if (k_sem_take(&data->i2c_busy_sem, K_NO_WAIT) == 0) {
+			/* semaphore has successfully been obtained */
+			data->state = I2C_MSPM0_TARGET_STARTED;
+
+			/* Flush TX FIFO to clear out any stale data */
+			DL_I2C_flushTargetTXFIFO((I2C_Regs *)config->base);
 		}
-
-		switch (target_msg.i2c_iidx) {
-		case DL_I2C_IIDX_TARGET_START:
-			/* We can receive multiple starts without stop (eg. write-read
-			 * operations). So only reset state if we've already received stop */
-			if (k_sem_take(&data->i2c_busy_sem, K_NO_WAIT) == 0) {
-				/* semaphore has successfully been obtained */
-				data->state = I2C_MSPM0_TARGET_STARTED;
-
-				/* Flush TX FIFO to clear out any stale data */
-				DL_I2C_flushTargetTXFIFO((I2C_Regs *)config->base);
+		break;
+	case DL_I2C_IIDX_TARGET_RX_DONE:
+		if (data->state == I2C_MSPM0_TARGET_STARTED) {
+			data->state = I2C_MSPM0_TARGET_RX_INPROGRESS;
+			if (tconfig->callbacks->write_requested != NULL) {
+				data->target_rx_valid =
+					tconfig->callbacks->write_requested(tconfig);
 			}
-			break;
-		case DL_I2C_IIDX_TARGET_RX_DONE:
-			if (data->state == I2C_MSPM0_TARGET_STARTED) {
-				data->state = I2C_MSPM0_TARGET_RX_INPROGRESS;
-				if (tconfig->callbacks->write_requested != NULL) {
-					data->target_rx_valid =
-						tconfig->callbacks->write_requested(tconfig);
-				}
-			}
-			/* Store received data in buffer */
-			if (tconfig->callbacks->write_received != NULL) {
-				uint8_t nextByte;
-				while (DL_I2C_isTargetRXFIFOEmpty((I2C_Regs *)config->base) !=
-				       true) {
+		}
+		/* Store received data in buffer */
+		if (tconfig->callbacks->write_received != NULL) {
+			uint8_t nextByte;
+			while (DL_I2C_isTargetRXFIFOEmpty((I2C_Regs *)config->base) != true) {
 #ifdef CONFIG_I2C_MSPM0_WATCHDOG
-				        i2c_mspm0_target_start_watchdog(data);
+				i2c_mspm0_target_start_watchdog(data);
 #endif
-					if (data->target_rx_valid == 0) {
-						nextByte = DL_I2C_receiveTargetData(
-							(I2C_Regs *)config->base);
-						data->target_rx_valid =
-							tconfig->callbacks->write_received(
-								tconfig, nextByte);
+				if (data->target_rx_valid == 0) {
+					nextByte = DL_I2C_receiveTargetData(
+						(I2C_Regs *)config->base);
+					data->target_rx_valid =
+						tconfig->callbacks->write_received(
+							tconfig, nextByte);
 
-						if (data->target_rx_valid == 0) {
-							DL_I2C_setTargetACKOverrideValue(
-								(I2C_Regs *)config->base,
-								DL_I2C_TARGET_RESPONSE_OVERRIDE_VALUE_ACK);
-						} else {
-							DL_I2C_setTargetACKOverrideValue(
-								(I2C_Regs *)config->base,
-								DL_I2C_TARGET_RESPONSE_OVERRIDE_VALUE_NACK);
-						}
+					if (data->target_rx_valid == 0) {
+						DL_I2C_setTargetACKOverrideValue(
+							(I2C_Regs *)config->base,
+							DL_I2C_TARGET_RESPONSE_OVERRIDE_VALUE_ACK);
 					} else {
-						/* Prevent overflow and just ignore data */
-						DL_I2C_receiveTargetData((I2C_Regs *)config->base);
 						DL_I2C_setTargetACKOverrideValue(
 							(I2C_Regs *)config->base,
 							DL_I2C_TARGET_RESPONSE_OVERRIDE_VALUE_NACK);
 					}
-#ifdef CONFIG_I2C_MSPM0_WATCHDOG
-					i2c_mspm0_target_stop_watchdog(data);
-#endif
-				}
-			}
-
-			break;
-		case DL_I2C_IIDX_TARGET_TXFIFO_TRIGGER:
-			data->state = I2C_MSPM0_TARGET_TX_INPROGRESS;
-			/* Fill TX FIFO if there are more bytes to send */
-			if (tconfig->callbacks->read_requested != NULL) {
-#ifdef CONFIG_I2C_MSPM0_WATCHDOG
-				i2c_mspm0_target_start_watchdog(data);
-#endif
-				uint8_t nextByte;
-				data->target_tx_valid =
-					tconfig->callbacks->read_requested(tconfig, &nextByte);
-				if (data->target_tx_valid == 0) {
-					DL_I2C_transmitTargetData((I2C_Regs *)config->base,
-								  nextByte);
 				} else {
-					/* In this case, no new data is desired to be filled, thus
-					 * 0's are transmitted */
-					DL_I2C_transmitTargetData((I2C_Regs *)config->base, 0x00);
+					/* Prevent overflow and just ignore data */
+					DL_I2C_receiveTargetData((I2C_Regs *)config->base);
+					DL_I2C_setTargetACKOverrideValue(
+						(I2C_Regs *)config->base,
+						DL_I2C_TARGET_RESPONSE_OVERRIDE_VALUE_NACK);
 				}
 #ifdef CONFIG_I2C_MSPM0_WATCHDOG
 				i2c_mspm0_target_stop_watchdog(data);
 #endif
 			}
-			break;
-		case DL_I2C_IIDX_TARGET_TXFIFO_EMPTY:
-			if (tconfig->callbacks->read_processed != NULL) {
-#ifdef CONFIG_I2C_MSPM0_WATCHDOG
-				i2c_mspm0_target_start_watchdog(data);
-#endif
-				/* still using the FIFO, we call read_processed in order to add
-				 * additional data rather than from a buffer. If the write-received
-				 * function chooses to return 0 (no more data present), then 0's
-				 * will be filled in */
-				uint8_t nextByte;
-
-				if (data->target_tx_valid == 0) {
-					data->target_tx_valid = tconfig->callbacks->read_processed(
-						tconfig, &nextByte);
-				}
-
-				if (data->target_tx_valid == 0) {
-					DL_I2C_transmitTargetData((I2C_Regs *)config->base,
-								  nextByte);
-				} else {
-					/* In this case, no new data is desired to be filled, thus
-					 * 0's are transmitted */
-					DL_I2C_transmitTargetData((I2C_Regs *)config->base, 0x00);
-				}
-#ifdef CONFIG_I2C_MSPM0_WATCHDOG
-				i2c_mspm0_target_stop_watchdog(data);
-#endif
-			}
-			break;
-		case DL_I2C_IIDX_TARGET_STOP:
-			data->state = I2C_MSPM0_IDLE;
-			k_sem_give(&data->i2c_busy_sem);
-			if (tconfig->callbacks->stop) {
-				tconfig->callbacks->stop(tconfig);
-			}
-			break;
-		default:
-			LOG_WRN("Invalid target work!");
-			break;
 		}
+
+		break;
+	case DL_I2C_IIDX_TARGET_TXFIFO_TRIGGER:
+		data->state = I2C_MSPM0_TARGET_TX_INPROGRESS;
+		/* Fill TX FIFO if there are more bytes to send */
+		if (tconfig->callbacks->read_requested != NULL) {
+#ifdef CONFIG_I2C_MSPM0_WATCHDOG
+			i2c_mspm0_target_start_watchdog(data);
+#endif
+			uint8_t nextByte;
+			data->target_tx_valid =
+				tconfig->callbacks->read_requested(tconfig, &nextByte);
+			if (data->target_tx_valid == 0) {
+				DL_I2C_transmitTargetData((I2C_Regs *)config->base,
+							  nextByte);
+			} else {
+				/* In this case, no new data is desired to be filled, thus
+				 * 0's are transmitted */
+				DL_I2C_transmitTargetData((I2C_Regs *)config->base, 0x00);
+			}
+#ifdef CONFIG_I2C_MSPM0_WATCHDOG
+			i2c_mspm0_target_stop_watchdog(data);
+#endif
+		}
+		break;
+	case DL_I2C_IIDX_TARGET_TXFIFO_EMPTY:
+		if (tconfig->callbacks->read_processed != NULL) {
+#ifdef CONFIG_I2C_MSPM0_WATCHDOG
+			i2c_mspm0_target_start_watchdog(data);
+#endif
+			/* still using the FIFO, we call read_processed in order to add
+			 * additional data rather than from a buffer. If the write-received
+			 * function chooses to return 0 (no more data present), then 0's
+			 * will be filled in */
+			uint8_t nextByte;
+
+			if (data->target_tx_valid == 0) {
+				data->target_tx_valid = tconfig->callbacks->read_processed(
+					tconfig, &nextByte);
+			}
+
+			if (data->target_tx_valid == 0) {
+				DL_I2C_transmitTargetData((I2C_Regs *)config->base,
+							  nextByte);
+			} else {
+				/* In this case, no new data is desired to be filled, thus
+				 * 0's are transmitted */
+				DL_I2C_transmitTargetData((I2C_Regs *)config->base, 0x00);
+			}
+#ifdef CONFIG_I2C_MSPM0_WATCHDOG
+			i2c_mspm0_target_stop_watchdog(data);
+#endif
+		}
+		break;
+	case DL_I2C_IIDX_TARGET_STOP:
+		data->state = I2C_MSPM0_IDLE;
+		k_sem_give(&data->i2c_busy_sem);
+		if (tconfig->callbacks->stop) {
+			tconfig->callbacks->stop(tconfig);
+		}
+		break;
+	default:
+		LOG_WRN("Invalid target work!");
+		break;
+	}
+}
+
+#ifdef CONFIG_I2C_MSPM0_THREAD_SUPPORT
+
+void i2c_mspm0_target_thread_work(void)
+{
+	struct i2c_mspm0_target_msg target_msg;
+
+	while (1) {
+		k_msgq_get(&target_msgq, &target_msg, K_FOREVER);
+		i2c_mspm0_process_target_msg(&target_msg);
 	}
 }
 
@@ -323,7 +333,8 @@ static int i2c_mspm0_target_thread_init(void)
 }
 SYS_INIT(i2c_mspm0_target_thread_init, POST_KERNEL, CONFIG_I2C_INIT_PRIORITY);
 
-#endif // CONFIG_I2C_MSPM0_TARGET_SUPPORT
+#endif /* CONFIG_I2C_MSPM0_THREAD_SUPPORT */
+#endif /* CONFIG_I2C_MSPM0_TARGET_SUPPORT */
 
 
 /** from dl_i2c.h
@@ -587,6 +598,14 @@ enum i2c_mspm0_target_type i2c_mspm0_next_target_type(struct i2c_mspm0_data *dat
 		k_sem_give(_sem);                                                                  \
 	}
 
+static bool i2c_mspm0_has_thread_support() {
+#ifdef CONFIG_I2C_MSPM0_THREAD_SUPPORT
+	return k_current_get() == &i2c_mspm0_target_thread;
+#else
+	return false;
+#endif
+}
+
 static int i2c_mspm0_target_register(const struct device *dev,
 					  struct i2c_target_config *target_config)
 {
@@ -609,7 +628,7 @@ static int i2c_mspm0_target_register(const struct device *dev,
 	 *
 	 *  To handle all cases in a generic way use the provided lock helpers
 	 *  */
-	const bool omit_lock = k_current_get() == &i2c_mspm0_target_thread;
+	const bool omit_lock = i2c_mspm0_has_thread_support();
 	const k_timeout_t timeout = k_is_in_isr() ? K_NO_WAIT : K_FOREVER;
 	int res = 0;
 
@@ -715,7 +734,7 @@ static int i2c_mspm0_target_unregister(const struct device *dev,
 	 *
 	 *  To handle all cases in a generic way use the provided lock helpers
 	 *  */
-	const bool omit_lock = k_current_get() == &i2c_mspm0_target_thread;
+	const bool omit_lock = i2c_mspm0_has_thread_support();
 	const k_timeout_t timeout = k_is_in_isr() ? K_NO_WAIT : K_FOREVER;
 	int res = 0;
 
@@ -865,9 +884,14 @@ static void i2c_mspm0_isr(const struct device *dev)
 			i2c_mspm0_config_from_addr(data, addr_match);
 		struct i2c_mspm0_target_msg target_msg = {
 			.data = data, .i2c_iidx = pending_int, .tconfig = tconfig};
+
+#ifdef CONFIG_I2C_MSPM0_THREAD_SUPPORT
 		if (k_msgq_put(&target_msgq, &target_msg, K_NO_WAIT) != 0) {
 			LOG_ERR("Queue full - could not process target request!");
 		}
+#else
+		i2c_mspm0_process_target_msg(&target_msg);
+#endif
 #endif // CONFIG_I2C_MSPM0_TARGET_SUPPORT
 	} break;
 	/* Not implemented */

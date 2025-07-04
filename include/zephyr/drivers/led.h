@@ -115,6 +115,15 @@ typedef int (*led_api_write_channels)(const struct device *dev,
 				      const uint8_t *buf);
 
 /**
+ * @typedef led_api_set_group_brightness()
+ * @ brief Callback API for setting the brightness of a LED group
+ *
+ * @see led_api_set_group_brightness() for arguments descriptions
+ */
+typedef int (*led_api_set_group_brightness)(const struct device *dev,
+						uint8_t group_index,
+						uint8_t brightness);
+/**
  * @brief LED driver API
  */
 __subsystem struct led_driver_api {
@@ -127,6 +136,7 @@ __subsystem struct led_driver_api {
 	led_api_get_info get_info;
 	led_api_set_color set_color;
 	led_api_write_channels write_channels;
+	led_api_set_group_brightness set_group_brightness;
 };
 
 /**
@@ -372,6 +382,30 @@ static inline int z_impl_led_off(const struct device *dev, uint32_t led)
 	}
 
 	return api->off(dev, led);
+}
+
+/**
+ * @brief Control the global brightness of a LED Group
+ *
+ * @param dev LED device
+ * @param group_index LED Group number
+ * @param brightness Global brightness to be applied
+ * @return 0 on success, negative on error
+ */
+__syscall int led_set_group_brightness(const struct device *dev,
+					uint8_t group_index,
+					uint8_t brightness);
+
+static inline int z_impl_led_set_group_brightness(const struct device *dev,
+						   uint8_t group_index,
+						   uint8_t brightness)
+{
+	const struct led_driver_api *api = (const struct led_driver_api *)dev->api;
+	if (api->set_group_brightness == NULL) {
+		return -ENOSYS;
+	}
+
+	return api->set_group_brightness(dev, group_index, brightness);
 }
 
 /*

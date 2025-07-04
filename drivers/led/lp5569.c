@@ -35,7 +35,12 @@ LOG_MODULE_REGISTER(lp5569, CONFIG_LED_LOG_LEVEL);
 #define LP5569_CP_MODE_SHIFT 3
 
 /* PWM base Register for controlling the duty-cycle */
-#define LP5569_LED0_PWM 0x16
+#define LP5569_LED0_PWM          0x16
+#define LP5569_LED0_CONTROL      0x7
+#define LP5569_MF_MAPPING_FADER1 BIT(5)
+#define LP5569_MASTER_FADER1     0x46
+#define LP5569_MASTER_FADER2     0x47
+#define LP5569_MASTER_FADER3     0x48
 
 struct lp5569_config {
 	struct i2c_dt_spec bus;
@@ -94,6 +99,46 @@ static int lp5569_write_channels(const struct device *dev, uint32_t start_channe
 	return i2c_write_dt(&config->bus, i2c_msg, i2c_len);
 }
 
+static int lp5569_set_group_brightness(const struct device *dev, uint8_t group_index,
+				       uint8_t brightness)
+{
+	const struct lp5569_config *config = dev->config;
+	int ret;
+	uint8_t val;
+	uint8_t master_fader_id;
+
+	if (brightness > 100) {
+		return -EINVAL;
+	}
+
+	/* Map 0-100 % to 0-255 fader register value */
+	val = brightness * 255 / 100;
+
+	switch (group_index) {
+	case 0:
+		master_fader_id = LP5569_MASTER_FADER1;
+		break;
+	case 1:
+		master_fader_id = LP5569_MASTER_FADER2;
+		break;
+	case 2:
+		master_fader_id = LP5569_MASTER_FADER3;
+		break;
+	default:
+		LOG_ERR("Unsupported group id: %d", group_index);
+		return -EINVAL;
+	}
+
+	/* apply the group brightness */
+	ret = i2c_reg_write_byte_dt(&config->bus, master_fader_id, val);
+	if (ret < 0) {
+		LOG_ERR("Failed to apply group brightness");
+		return ret;
+	}
+
+	return 0;
+}
+
 static int lp5569_enable(const struct device *dev)
 {
 	const struct lp5569_config *config = dev->config;
@@ -135,6 +180,25 @@ static int lp5569_enable(const struct device *dev)
 	if (ret < 0) {
 		LOG_ERR("LED reg update failed");
 		return ret;
+	}
+
+	/* apply the group brightness to MASTER_FADER1 */
+	ret = i2c_reg_write_byte_dt(&config->bus, LP5569_MASTER_FADER1, 0xFF);
+	if (ret < 0) {
+		LOG_ERR("Failed to apply group brightness");
+		return ret;
+	}
+
+	/* assign each led into MASTER_FADER1 group */
+	for (uint8_t i = 0; i < LP5569_NUM_LEDS; i++) {
+		const uint8_t current_led = LP5569_LED0_CONTROL + i;
+
+		/* directly assign to the 1st group */
+		ret = i2c_reg_write_byte_dt(&config->bus, current_led, LP5569_MF_MAPPING_FADER1);
+		if (ret < 0) {
+			LOG_ERR("Assigning led to MASTER_FADER group failed");
+			return ret;
+		}
 	}
 
 	return 0;
@@ -190,6 +254,7 @@ static DEVICE_API(led, lp5569_led_api) = {
 	.on = lp5569_led_on,
 	.off = lp5569_led_off,
 	.write_channels = lp5569_write_channels,
+	.set_group_brightness = lp5569_set_group_brightness,
 };
 
 #define LP5569_DEFINE(id)                                                                          \

@@ -44,8 +44,9 @@ LOG_MODULE_REGISTER(lp5569, CONFIG_LED_LOG_LEVEL);
 
 #ifdef CONFIG_LED_CURRENT_SETTING
 /* Base register for controlling maximum delivered current */
-#define LP5569_LED0_CURRENT 0x22
-#define LP5569_MAX_CURRENT  25500
+#define LP5569_LED0_CURRENT    0x22
+#define LP5569_MAX_CURRENT     25500
+#define LP5569_DEFAULT_CURRENT 17500
 #endif /* CONFIG_LED_CURRENT_SETTING */
 
 struct lp5569_config {
@@ -175,6 +176,9 @@ static int lp5569_set_current(const struct device *dev, uint32_t led, uint32_t m
 static int lp5569_enable(const struct device *dev)
 {
 	const struct lp5569_config *config = dev->config;
+#ifdef CONFIG_LED_CURRENT_SETTING
+	uint8_t led_current_i2c_buf[LP5569_NUM_LEDS + 1];
+#endif
 	int ret;
 
 	if (!i2c_is_ready_dt(&config->bus)) {
@@ -214,6 +218,22 @@ static int lp5569_enable(const struct device *dev)
 		LOG_ERR("LED reg update failed");
 		return ret;
 	}
+
+#ifdef CONFIG_LED_CURRENT_SETTING
+	/*
+	 * initialize led current to the minimum between the limit configured in dts and the default
+	 * register value.
+	 */
+	led_current_i2c_buf[0] = LP5569_LED0_CURRENT;
+	memset(&led_current_i2c_buf[1], MIN(config->current_limit, LP5569_DEFAULT_CURRENT) / 100,
+	       LP5569_NUM_LEDS);
+
+	ret = i2c_write_dt(&config->bus, led_current_i2c_buf, ARRAY_SIZE(led_current_i2c_buf));
+	if (ret < 0) {
+		LOG_ERR("Failed to initialize led current");
+		return ret;
+	}
+#endif
 
 	/* apply the group brightness to MASTER_FADER1 */
 	ret = i2c_reg_write_byte_dt(&config->bus, LP5569_MASTER_FADER1, 0xFF);

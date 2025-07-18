@@ -299,8 +299,8 @@ static DEVICE_API(led, lp5569_led_api) = {
 		.enable_gpio = GPIO_DT_SPEC_INST_GET_OR(id, enable_gpios, {0}),                    \
 		.cp_mode = DT_ENUM_IDX(DT_DRV_INST(id), charge_pump_mode),                         \
 		COND_CODE_1(IS_ENABLED(CONFIG_LED_CURRENT_SETTING),                                \
-			    (.current_limit = DT_PROP_OR(id, led-max-microamp,                     \
-							 LP5569_MAX_CURRENT)), ()) }; \
+			    (.current_limit = DT_INST_PROP_OR(id, led_max_microamp,                \
+							 LP5569_MAX_CURRENT)), ()) };              \
                                                                                                    \
 	PM_DEVICE_DT_INST_DEFINE(id, lp5569_pm_action);                                            \
                                                                                                    \

@@ -253,7 +253,7 @@ static int spi_mspm0_release(const struct device *dev, const struct spi_config *
 	return 0;
 }
 
-static const struct spi_driver_api spi_mspm0_api = {
+static DEVICE_API(spi, spi_mspm0_api) = {
 	.transceive = spi_mspm0_transceive,
 	.release = spi_mspm0_release,
 };

@@ -607,7 +607,7 @@ static void adc_mspm0_isr(const struct device *dev)
 		}                                                                             \
 	};                                                                                    \
 	                                                                                      \
-	static const struct adc_driver_api mspm0_driver_api##index = {                        \
+	static DEVICE_API(adc, mspm0_driver_api##index) = {                                   \
 		.channel_setup = adc_mspm0_channel_setup,                                     \
 		.read = adc_mspm0_read,                                                       \
 		.ref_internal = DT_INST_PROP(index, vref_mv),                                 \

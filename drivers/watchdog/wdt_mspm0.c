@@ -228,7 +228,7 @@ static int wwdt_mspm0_feed(const struct device *dev, int channel_id){
     return 0;
 }
 
-static const struct wdt_driver_api wwdt_mspm0_driver_api = {
+static DEVICE_API(wdt, wwdt_mspm0_driver_api) = {
     .setup = wwdt_mspm0_setup,
     .disable = wwdt_mspm0_disable,
     .install_timeout = wwdt_mspm0_install_timeout,

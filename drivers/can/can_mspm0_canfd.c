@@ -184,7 +184,7 @@ static void can_mspm0_canfd_isr(const struct device *dev)
 	}
 }
 
-static const struct can_driver_api can_mspm0_canfd_driver_api = {
+static DEVICE_API(can, can_mspm0_canfd_driver_api) = {
 	.get_capabilities = can_mcan_get_capabilities,
 	.start = can_mcan_start,
 	.stop = can_mcan_stop,

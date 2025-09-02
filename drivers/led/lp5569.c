@@ -39,6 +39,7 @@ LOG_MODULE_REGISTER(lp5569, CONFIG_LED_LOG_LEVEL);
 /* PWM base Register for controlling the duty-cycle */
 #define LP5569_LED0_PWM          0x16
 #define LP5569_LED0_CONTROL      0x7
+#define LP5569_EXP_EN            BIT(3)
 #define LP5569_MF_MAPPING_FADER1 BIT(5)
 #define LP5569_MASTER_FADER1     0x46
 #define LP5569_MASTER_FADER2     0x47
@@ -244,7 +245,8 @@ static int lp5569_enable(const struct device *dev)
 		const uint8_t current_led = LP5569_LED0_CONTROL + i;
 
 		/* directly assign to the 1st group */
-		ret = i2c_reg_write_byte_dt(&config->bus, current_led, LP5569_MF_MAPPING_FADER1);
+		ret = i2c_reg_write_byte_dt(&config->bus, current_led,
+					    LP5569_MF_MAPPING_FADER1 | LP5569_EXP_EN);
 		if (ret < 0) {
 			LOG_ERR("Assigning led to MASTER_FADER group failed");
 			return ret;

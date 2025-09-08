@@ -45,6 +45,10 @@ LOG_MODULE_REGISTER(lp5569, CONFIG_LED_LOG_LEVEL);
 #define LP5569_MASTER_FADER2     0x47
 #define LP5569_MASTER_FADER3     0x48
 
+#define LP5569_IO_CONTROL       0x3D
+#define LP5569_IO_CONTROL_RESET 0x2
+#define LP5569_EN_CLK_OUT       BIT(3)
+
 #ifdef CONFIG_LED_CURRENT_SETTING
 /* Base register for controlling maximum delivered current */
 #define LP5569_LED0_CURRENT    0x22
@@ -60,6 +64,7 @@ struct lp5569_config {
 #endif /* CONFIG_LED_CURRENT_SETTING */
 	const uint8_t cp_mode;
 	const bool int_clk_en;
+	const bool en_clk_out;
 	const bool cp_return_1x;
 	const bool powersave_en;
 };
@@ -209,6 +214,14 @@ static int lp5569_enable(const struct device *dev)
 		return ret;
 	}
 
+	ret = i2c_reg_write_byte_dt(&config->bus, LP5569_IO_CONTROL,
+				    LP5569_IO_CONTROL_RESET |
+					    (config->en_clk_out ? LP5569_EN_CLK_OUT : 0));
+	if (ret < 0) {
+		LOG_ERR("IO control failed");
+		return ret;
+	}
+
 	ret = i2c_reg_write_byte_dt(&config->bus, LP5569_CONFIG, LP5569_CHIP_EN);
 	if (ret < 0) {
 		LOG_ERR("Enable LP5569 failed");
@@ -311,11 +324,16 @@ static DEVICE_API(led, lp5569_led_api) = {
 };
 
 #define LP5569_DEFINE(id)                                                                          \
+	BUILD_ASSERT(!DT_INST_PROP_OR(id, en_clk_out, false) ||                                    \
+			     DT_INST_PROP_OR(id, int_clk_en, false),                               \
+		     "en_clk_out can only be enabled if int_clk_en is also enabled");              \
+                                                                                                   \
 	static const struct lp5569_config lp5569_config_##id = {                                   \
 		.bus = I2C_DT_SPEC_INST_GET(id),                                                   \
 		.enable_gpio = GPIO_DT_SPEC_INST_GET_OR(id, enable_gpios, {0}),                    \
 		.cp_mode = DT_ENUM_IDX(DT_DRV_INST(id), charge_pump_mode),                         \
 		.int_clk_en = DT_INST_PROP_OR(id, int_clk_en, false),                              \
+		.en_clk_out = DT_INST_PROP_OR(id, en_clk_out, false),                              \
 		.cp_return_1x = DT_INST_PROP_OR(id, cp_return_1x, false),                          \
 		.powersave_en = DT_INST_PROP_OR(id, powersave_en, false),                          \
 		COND_CODE_1(IS_ENABLED(CONFIG_LED_CURRENT_SETTING),                                \

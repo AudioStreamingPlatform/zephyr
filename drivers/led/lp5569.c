@@ -67,6 +67,7 @@ struct lp5569_config {
 	const bool en_clk_out;
 	const bool cp_return_1x;
 	const bool powersave_en;
+	const bool exp_en;
 };
 
 static int lp5569_led_set_brightness(const struct device *dev, uint32_t led, uint8_t brightness)
@@ -271,7 +272,8 @@ static int lp5569_enable(const struct device *dev)
 
 		/* directly assign to the 1st group */
 		ret = i2c_reg_write_byte_dt(&config->bus, current_led,
-					    LP5569_MF_MAPPING_FADER1 | LP5569_EXP_EN);
+					    LP5569_MF_MAPPING_FADER1 |
+						    (config->exp_en ? LP5569_EXP_EN : 0));
 		if (ret < 0) {
 			LOG_ERR("Assigning led to MASTER_FADER group failed");
 			return ret;
@@ -350,6 +352,7 @@ static DEVICE_API(led, lp5569_led_api) = {
 		.en_clk_out = DT_INST_PROP_OR(id, en_clk_out, false),                              \
 		.cp_return_1x = DT_INST_PROP_OR(id, cp_return_1x, false),                          \
 		.powersave_en = DT_INST_PROP_OR(id, powersave_en, false),                          \
+		.exp_en = DT_INST_PROP_OR(id, exp_en, false),                                      \
 		COND_CODE_1(IS_ENABLED(CONFIG_LED_CURRENT_SETTING),                                \
 			    (.current_limit = DT_INST_PROP_OR(id, led_max_microamp,                \
 							 LP5569_MAX_CURRENT)), ()) };                                                     \

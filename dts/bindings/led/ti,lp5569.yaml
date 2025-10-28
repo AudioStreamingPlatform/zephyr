@@ -49,3 +49,8 @@ properties:
     type: boolean
     description: |
       Power-save mode enable select. Default disabled on reset.
+
+  exp-en:
+    type: boolean
+    description: |
+      Exponential brightness curve select. Default disabled on reset.

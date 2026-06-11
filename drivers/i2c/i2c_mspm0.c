@@ -177,85 +177,87 @@ static void i2c_mspm0_target_start_watchdog(struct i2c_mspm0_data *data)
 }
 #endif
 
-/* Ignore not implemented flags
-    DL_I2C_IIDX_CONTROLLER_RXFIFO_FULL:
-    DL_I2C_IIDX_CONTROLLER_TXFIFO_EMPTY:
-    DL_I2C_IIDX_CONTROLLER_START:
-    DL_I2C_IIDX_CONTROLLER_STOP:
-    DL_I2C_IIDX_CONTROLLER_EVENT1_DMA_DONE:
-    DL_I2C_IIDX_CONTROLLER_EVENT2_DMA_DONE:
-*/
-const uint32_t priority_list_interrupt[] = {
-    DL_I2C_INTERRUPT_CONTROLLER_RX_DONE,
-    DL_I2C_INTERRUPT_CONTROLLER_TX_DONE,
-    DL_I2C_INTERRUPT_CONTROLLER_RXFIFO_TRIGGER,
-    DL_I2C_INTERRUPT_CONTROLLER_TXFIFO_TRIGGER,
-    DL_I2C_INTERRUPT_CONTROLLER_ARBITRATION_LOST,
-    DL_I2C_INTERRUPT_CONTROLLER_NACK,
+/*
+ * Interrupt priority table. When multiple interrupt flags are set simultaneously,
+ * the ISR services them in the order listed here.
+ *
+ * Target START/RX/TX must be ordered before STOP so that the state machine
+ * transitions correctly when a write-read sequence generates both in one pass.
+ */
+static const uint32_t i2c_mspm0_irq_priority_table[] = {
+	/* Controller interrupts */
+	DL_I2C_INTERRUPT_CONTROLLER_RX_DONE,
+	DL_I2C_INTERRUPT_CONTROLLER_TX_DONE,
+	DL_I2C_INTERRUPT_CONTROLLER_RXFIFO_TRIGGER,
+	DL_I2C_INTERRUPT_CONTROLLER_TXFIFO_TRIGGER,
+	DL_I2C_INTERRUPT_CONTROLLER_ARBITRATION_LOST,
+	DL_I2C_INTERRUPT_CONTROLLER_NACK,
 
-    /* Critical (target) priority reshuffle to make regmem state machine to work */
-    DL_I2C_INTERRUPT_TARGET_START,
-    DL_I2C_INTERRUPT_TARGET_RX_DONE,
-    DL_I2C_INTERRUPT_TARGET_TXFIFO_TRIGGER,
-    DL_I2C_INTERRUPT_TARGET_TXFIFO_EMPTY,
-    DL_I2C_INTERRUPT_TARGET_STOP,
+	/* Target interrupts — START before data before STOP */
+	DL_I2C_INTERRUPT_TARGET_START,
+	DL_I2C_INTERRUPT_TARGET_RX_DONE,
+	DL_I2C_INTERRUPT_TARGET_TXFIFO_TRIGGER,
+	DL_I2C_INTERRUPT_TARGET_TXFIFO_EMPTY,
+	DL_I2C_INTERRUPT_TARGET_STOP,
 
-    DL_I2C_INTERRUPT_TARGET_RXFIFO_FULL,
-    DL_I2C_INTERRUPT_TARGET_RXFIFO_TRIGGER,
-    DL_I2C_INTERRUPT_TARGET_GENERAL_CALL,
-    DL_I2C_INTERRUPT_TARGET_EVENT1_DMA_DONE,
-    DL_I2C_INTERRUPT_TARGET_EVENT2_DMA_DONE
+	DL_I2C_INTERRUPT_TARGET_RXFIFO_FULL,
+	DL_I2C_INTERRUPT_TARGET_RXFIFO_TRIGGER,
+	DL_I2C_INTERRUPT_TARGET_GENERAL_CALL,
+	DL_I2C_INTERRUPT_TARGET_EVENT1_DMA_DONE,
+	DL_I2C_INTERRUPT_TARGET_EVENT2_DMA_DONE,
 };
 
-static uint32_t getReprioritizedInterrupt(I2C_Regs *regs) {
-	// Return interrupt based on priority set on this list
-	size_t count = sizeof(priority_list_interrupt) / sizeof(priority_list_interrupt[0]);
-	for (uint8_t i = 0; i < count; i++) {
-	    uint32_t interrupt = DL_I2C_getRawInterruptStatus(regs, priority_list_interrupt[i]);
-	    if (interrupt != 0) return interrupt;
+static uint32_t i2c_mspm0_get_pending_interrupt(I2C_Regs *regs)
+{
+	for (size_t i = 0; i < ARRAY_SIZE(i2c_mspm0_irq_priority_table); i++) {
+		uint32_t ris = DL_I2C_getRawInterruptStatus(regs, i2c_mspm0_irq_priority_table[i]);
+
+		if (ris != 0) {
+			return ris;
+		}
 	}
+
 	return 0;
 }
 
-static DL_I2C_IIDX Ris2Iidx(uint32_t ris) {
+static DL_I2C_IIDX i2c_mspm0_ris_to_iidx(uint32_t ris)
+{
 	switch (ris) {
 	case DL_I2C_INTERRUPT_TARGET_START:
-	    return DL_I2C_IIDX_TARGET_START;
+		return DL_I2C_IIDX_TARGET_START;
 	case DL_I2C_INTERRUPT_TARGET_STOP:
-	    return DL_I2C_IIDX_TARGET_STOP;
+		return DL_I2C_IIDX_TARGET_STOP;
 	case DL_I2C_INTERRUPT_TARGET_RX_DONE:
-	    return DL_I2C_IIDX_TARGET_RX_DONE;
+		return DL_I2C_IIDX_TARGET_RX_DONE;
 	case DL_I2C_INTERRUPT_TARGET_TXFIFO_TRIGGER:
-	    return DL_I2C_IIDX_TARGET_TXFIFO_TRIGGER;
+		return DL_I2C_IIDX_TARGET_TXFIFO_TRIGGER;
 	case DL_I2C_INTERRUPT_TARGET_TXFIFO_EMPTY:
-	    return DL_I2C_IIDX_TARGET_TXFIFO_EMPTY;
-
+		return DL_I2C_IIDX_TARGET_TXFIFO_EMPTY;
 	case DL_I2C_INTERRUPT_CONTROLLER_RX_DONE:
-	    return DL_I2C_IIDX_CONTROLLER_RX_DONE;
+		return DL_I2C_IIDX_CONTROLLER_RX_DONE;
 	case DL_I2C_INTERRUPT_CONTROLLER_TX_DONE:
-	    return DL_I2C_IIDX_CONTROLLER_TX_DONE;
+		return DL_I2C_IIDX_CONTROLLER_TX_DONE;
 	case DL_I2C_INTERRUPT_CONTROLLER_RXFIFO_TRIGGER:
-	    return DL_I2C_IIDX_CONTROLLER_RXFIFO_TRIGGER;
+		return DL_I2C_IIDX_CONTROLLER_RXFIFO_TRIGGER;
 	case DL_I2C_INTERRUPT_CONTROLLER_TXFIFO_TRIGGER:
-	    return DL_I2C_IIDX_CONTROLLER_TXFIFO_TRIGGER;
+		return DL_I2C_IIDX_CONTROLLER_TXFIFO_TRIGGER;
 	case DL_I2C_INTERRUPT_CONTROLLER_ARBITRATION_LOST:
-	    return DL_I2C_IIDX_CONTROLLER_ARBITRATION_LOST;
+		return DL_I2C_IIDX_CONTROLLER_ARBITRATION_LOST;
 	case DL_I2C_INTERRUPT_CONTROLLER_NACK:
-	    return DL_I2C_IIDX_CONTROLLER_NACK;
-
+		return DL_I2C_IIDX_CONTROLLER_NACK;
 	case DL_I2C_INTERRUPT_TARGET_RXFIFO_FULL:
-	    return DL_I2C_IIDX_TARGET_RXFIFO_FULL;
+		return DL_I2C_IIDX_TARGET_RXFIFO_FULL;
 	case DL_I2C_INTERRUPT_TARGET_RXFIFO_TRIGGER:
-	    return DL_I2C_IIDX_TARGET_RXFIFO_TRIGGER;
+		return DL_I2C_IIDX_TARGET_RXFIFO_TRIGGER;
 	case DL_I2C_INTERRUPT_TARGET_GENERAL_CALL:
-	    return DL_I2C_IIDX_TARGET_GENERAL_CALL;
+		return DL_I2C_IIDX_TARGET_GENERAL_CALL;
 	case DL_I2C_INTERRUPT_TARGET_EVENT1_DMA_DONE:
-	    return DL_I2C_IIDX_TARGET_EVENT1_DMA_DONE;
+		return DL_I2C_IIDX_TARGET_EVENT1_DMA_DONE;
 	case DL_I2C_INTERRUPT_TARGET_EVENT2_DMA_DONE:
-	    return DL_I2C_IIDX_TARGET_EVENT2_DMA_DONE;
+		return DL_I2C_IIDX_TARGET_EVENT2_DMA_DONE;
 	default:
-	    /* TODO: Check if this flag is ok to return? */
-	    return DL_I2C_IIDX_TARGET_GENERAL_CALL;
+		LOG_WRN("Unhandled interrupt status: 0x%08x", ris);
+		return DL_I2C_IIDX_TARGET_GENERAL_CALL;
 	}
 }
 
@@ -900,8 +902,8 @@ static void i2c_mspm0_isr(const struct device *dev)
 	struct i2c_mspm0_data *data = dev->data;
 
 	uint32_t interrupt_ris = 0;
-	while ((interrupt_ris = getReprioritizedInterrupt((I2C_Regs *)config->base)) != 0) {
-	    DL_I2C_IIDX pending_int = Ris2Iidx(interrupt_ris);
+	while ((interrupt_ris = i2c_mspm0_get_pending_interrupt((I2C_Regs *)config->base)) != 0) {
+	    DL_I2C_IIDX pending_int = i2c_mspm0_ris_to_iidx(interrupt_ris);
 	    // Clear the interrupt we are about to service
 	    DL_I2C_clearInterruptStatus((I2C_Regs *)config->base, interrupt_ris);
 	    switch (pending_int) {

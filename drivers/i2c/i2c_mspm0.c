@@ -178,6 +178,27 @@ static void i2c_mspm0_target_start_watchdog(struct i2c_mspm0_data *data)
 #endif
 
 /*
+ * Combined mask of every interrupt the driver handles.
+ */
+#define I2C_MSPM0_ALL_INTERRUPTS						\
+	(DL_I2C_INTERRUPT_CONTROLLER_RX_DONE		|			\
+	 DL_I2C_INTERRUPT_CONTROLLER_TX_DONE		|			\
+	 DL_I2C_INTERRUPT_CONTROLLER_RXFIFO_TRIGGER	|			\
+	 DL_I2C_INTERRUPT_CONTROLLER_TXFIFO_TRIGGER	|			\
+	 DL_I2C_INTERRUPT_CONTROLLER_ARBITRATION_LOST	|			\
+	 DL_I2C_INTERRUPT_CONTROLLER_NACK		|			\
+	 DL_I2C_INTERRUPT_TARGET_START			|			\
+	 DL_I2C_INTERRUPT_TARGET_RX_DONE		|			\
+	 DL_I2C_INTERRUPT_TARGET_TXFIFO_TRIGGER		|			\
+	 DL_I2C_INTERRUPT_TARGET_TXFIFO_EMPTY		|			\
+	 DL_I2C_INTERRUPT_TARGET_STOP			|			\
+	 DL_I2C_INTERRUPT_TARGET_RXFIFO_FULL		|			\
+	 DL_I2C_INTERRUPT_TARGET_RXFIFO_TRIGGER		|			\
+	 DL_I2C_INTERRUPT_TARGET_GENERAL_CALL		|			\
+	 DL_I2C_INTERRUPT_TARGET_EVENT1_DMA_DONE	|			\
+	 DL_I2C_INTERRUPT_TARGET_EVENT2_DMA_DONE)
+
+/*
  * Interrupt priority table. When multiple interrupt flags are set simultaneously,
  * the ISR services them in the order listed here.
  *
@@ -209,11 +230,10 @@ static const uint32_t i2c_mspm0_irq_priority_table[] = {
 
 static uint32_t i2c_mspm0_get_pending_interrupt(I2C_Regs *regs)
 {
+	uint32_t ris = DL_I2C_getRawInterruptStatus(regs, I2C_MSPM0_ALL_INTERRUPTS);
 	for (size_t i = 0; i < ARRAY_SIZE(i2c_mspm0_irq_priority_table); i++) {
-		uint32_t ris = DL_I2C_getRawInterruptStatus(regs, i2c_mspm0_irq_priority_table[i]);
-
-		if (ris != 0) {
-			return ris;
+		if (ris & i2c_mspm0_irq_priority_table[i]) {
+			return i2c_mspm0_irq_priority_table[i];
 		}
 	}
 
@@ -904,7 +924,7 @@ static void i2c_mspm0_isr(const struct device *dev)
 	uint32_t interrupt_ris = 0;
 	while ((interrupt_ris = i2c_mspm0_get_pending_interrupt((I2C_Regs *)config->base)) != 0) {
 	    DL_I2C_IIDX pending_int = i2c_mspm0_ris_to_iidx(interrupt_ris);
-	    // Clear the interrupt we are about to service
+	    /* Clear the interrupt we are about to service */
 	    DL_I2C_clearInterruptStatus((I2C_Regs *)config->base, interrupt_ris);
 	    switch (pending_int) {
 	    /* controller interrupts */

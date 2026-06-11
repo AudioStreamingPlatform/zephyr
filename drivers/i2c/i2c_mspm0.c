@@ -2,9 +2,6 @@
 
 #define DT_DRV_COMPAT ti_mspm0_i2c
 
-// !TESTING!
-// #define USE_IIDX
-
 /* Zephyr includes */
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/i2c.h>
@@ -902,18 +899,12 @@ static void i2c_mspm0_isr(const struct device *dev)
 	const struct i2c_mspm0_config *config = dev->config;
 	struct i2c_mspm0_data *data = dev->data;
 
-#ifdef USE_IIDX
-	uint32_t interrupt_ris = DL_I2C_getRawInterruptStatus((I2C_Regs *)config->base, TI_MSPM0G_TARGET_INTERRUPTS);
-	DL_I2C_IIDX pending_int = DL_I2C_getPendingInterrupt((I2C_Regs *)config->base);
-	switch (pending_int) {
-#else
 	uint32_t interrupt_ris = 0;
 	while ((interrupt_ris = getReprioritizedInterrupt((I2C_Regs *)config->base)) != 0) {
 	    DL_I2C_IIDX pending_int = Ris2Iidx(interrupt_ris);
 	    // Clear the interrupt we are about to service
 	    DL_I2C_clearInterruptStatus((I2C_Regs *)config->base, interrupt_ris);
 	    switch (pending_int) {
-#endif
 	    /* controller interrupts */
 	    case DL_I2C_IIDX_CONTROLLER_RX_DONE:
 		    data->state = I2C_MSPM0_RX_COMPLETE;
@@ -978,11 +969,7 @@ static void i2c_mspm0_isr(const struct device *dev)
 		    struct i2c_target_config *tconfig =
 			    i2c_mspm0_config_from_addr(data, addr_match);
 		    struct i2c_mspm0_target_msg target_msg = {
-#ifdef USE_IIDX
-			.data = data, .i2c_iidx = pending_int, .i2c_ris = interrupt_ris, .tconfig = tconfig};
-#else
 			    .data = data, .i2c_iidx = pending_int, .i2c_ris = interrupt_ris, .tconfig = tconfig};
-#endif
 
 #ifdef CONFIG_I2C_MSPM0_THREAD_SUPPORT
 		    if (k_msgq_put(&target_msgq, &target_msg, K_NO_WAIT) != 0) {
@@ -1002,11 +989,7 @@ static void i2c_mspm0_isr(const struct device *dev)
 	    default:
 		    break;
 	    }
-#ifdef USE_IIDX
-#else
 	}
-#endif
-
 
 }
 

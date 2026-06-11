@@ -48,6 +48,57 @@ __STATIC_INLINE void DL_I2C_startControllerTransferRepeated(I2C_Regs *i2c,
 #define CONFIG_I2C_MSPM0_INIT_PRIORITY CONFIG_I2C_INIT_PRIORITY
 #endif
 
+/*
+ * Combined mask of every interrupt the driver handles.
+ */
+#define TI_MSPM0_ALL_INTERRUPTS \
+	(DL_I2C_INTERRUPT_CONTROLLER_RX_DONE		| \
+	 DL_I2C_INTERRUPT_CONTROLLER_TX_DONE		| \
+	 DL_I2C_INTERRUPT_CONTROLLER_RXFIFO_TRIGGER	| \
+	 DL_I2C_INTERRUPT_CONTROLLER_TXFIFO_TRIGGER	| \
+	 DL_I2C_INTERRUPT_CONTROLLER_ARBITRATION_LOST	| \
+	 DL_I2C_INTERRUPT_CONTROLLER_NACK		| \
+	 DL_I2C_INTERRUPT_TARGET_START			| \
+	 DL_I2C_INTERRUPT_TARGET_RX_DONE		| \
+	 DL_I2C_INTERRUPT_TARGET_TXFIFO_TRIGGER		| \
+	 DL_I2C_INTERRUPT_TARGET_TXFIFO_EMPTY		| \
+	 DL_I2C_INTERRUPT_TARGET_STOP			| \
+	 DL_I2C_INTERRUPT_TARGET_RXFIFO_FULL		| \
+	 DL_I2C_INTERRUPT_TARGET_RXFIFO_TRIGGER		| \
+	 DL_I2C_INTERRUPT_TARGET_GENERAL_CALL		| \
+	 DL_I2C_INTERRUPT_TARGET_EVENT1_DMA_DONE	| \
+	 DL_I2C_INTERRUPT_TARGET_EVENT2_DMA_DONE)
+
+/*
+ * Interrupt priority table. When multiple interrupt flags are set simultaneously,
+ * the ISR services them in the order listed here.
+ *
+ * Target interrupts, START/RX/TX/STOP, are ordered such that the interrupts reflect
+ * the i2c physical bus's state when more than one is set in the interrupt register.
+ */
+static const uint32_t i2c_mspm0_irq_priority_table[] = {
+	/* Controller interrupts */
+	DL_I2C_INTERRUPT_CONTROLLER_RX_DONE,
+	DL_I2C_INTERRUPT_CONTROLLER_TX_DONE,
+	DL_I2C_INTERRUPT_CONTROLLER_RXFIFO_TRIGGER,
+	DL_I2C_INTERRUPT_CONTROLLER_TXFIFO_TRIGGER,
+	DL_I2C_INTERRUPT_CONTROLLER_ARBITRATION_LOST,
+	DL_I2C_INTERRUPT_CONTROLLER_NACK,
+
+	/* Target interrupts — START before data before STOP */
+	DL_I2C_INTERRUPT_TARGET_START,
+	DL_I2C_INTERRUPT_TARGET_RX_DONE,
+	DL_I2C_INTERRUPT_TARGET_TXFIFO_TRIGGER,
+	DL_I2C_INTERRUPT_TARGET_TXFIFO_EMPTY,
+	DL_I2C_INTERRUPT_TARGET_STOP,
+
+	DL_I2C_INTERRUPT_TARGET_RXFIFO_FULL,
+	DL_I2C_INTERRUPT_TARGET_RXFIFO_TRIGGER,
+	DL_I2C_INTERRUPT_TARGET_GENERAL_CALL,
+	DL_I2C_INTERRUPT_TARGET_EVENT1_DMA_DONE,
+	DL_I2C_INTERRUPT_TARGET_EVENT2_DMA_DONE,
+};
+
 #define TI_MSPM0G_TARGET_INTERRUPTS                                                                \
 	(DL_I2C_INTERRUPT_TARGET_RX_DONE | DL_I2C_INTERRUPT_TARGET_TXFIFO_TRIGGER |                \
 	 DL_I2C_INTERRUPT_TARGET_TXFIFO_EMPTY | DL_I2C_INTERRUPT_TARGET_START |                    \
@@ -175,6 +226,60 @@ static void i2c_mspm0_target_start_watchdog(struct i2c_mspm0_data *data)
 	}
 }
 #endif
+
+static uint32_t i2c_mspm0_get_pending_interrupt(I2C_Regs *regs)
+{
+	uint32_t ris = DL_I2C_getRawInterruptStatus(regs, TI_MSPM0_ALL_INTERRUPTS);
+
+	for (size_t i = 0; i < ARRAY_SIZE(i2c_mspm0_irq_priority_table); i++) {
+		if (ris & i2c_mspm0_irq_priority_table[i]) {
+			return i2c_mspm0_irq_priority_table[i];
+		}
+	}
+
+	return 0;
+}
+
+static DL_I2C_IIDX i2c_mspm0_ris_to_iidx(uint32_t ris)
+{
+	switch (ris) {
+	case DL_I2C_INTERRUPT_TARGET_START:
+		return DL_I2C_IIDX_TARGET_START;
+	case DL_I2C_INTERRUPT_TARGET_STOP:
+		return DL_I2C_IIDX_TARGET_STOP;
+	case DL_I2C_INTERRUPT_TARGET_RX_DONE:
+		return DL_I2C_IIDX_TARGET_RX_DONE;
+	case DL_I2C_INTERRUPT_TARGET_TXFIFO_TRIGGER:
+		return DL_I2C_IIDX_TARGET_TXFIFO_TRIGGER;
+	case DL_I2C_INTERRUPT_TARGET_TXFIFO_EMPTY:
+		return DL_I2C_IIDX_TARGET_TXFIFO_EMPTY;
+	case DL_I2C_INTERRUPT_CONTROLLER_RX_DONE:
+		return DL_I2C_IIDX_CONTROLLER_RX_DONE;
+	case DL_I2C_INTERRUPT_CONTROLLER_TX_DONE:
+		return DL_I2C_IIDX_CONTROLLER_TX_DONE;
+	case DL_I2C_INTERRUPT_CONTROLLER_RXFIFO_TRIGGER:
+		return DL_I2C_IIDX_CONTROLLER_RXFIFO_TRIGGER;
+	case DL_I2C_INTERRUPT_CONTROLLER_TXFIFO_TRIGGER:
+		return DL_I2C_IIDX_CONTROLLER_TXFIFO_TRIGGER;
+	case DL_I2C_INTERRUPT_CONTROLLER_ARBITRATION_LOST:
+		return DL_I2C_IIDX_CONTROLLER_ARBITRATION_LOST;
+	case DL_I2C_INTERRUPT_CONTROLLER_NACK:
+		return DL_I2C_IIDX_CONTROLLER_NACK;
+	case DL_I2C_INTERRUPT_TARGET_RXFIFO_FULL:
+		return DL_I2C_IIDX_TARGET_RXFIFO_FULL;
+	case DL_I2C_INTERRUPT_TARGET_RXFIFO_TRIGGER:
+		return DL_I2C_IIDX_TARGET_RXFIFO_TRIGGER;
+	case DL_I2C_INTERRUPT_TARGET_GENERAL_CALL:
+		return DL_I2C_IIDX_TARGET_GENERAL_CALL;
+	case DL_I2C_INTERRUPT_TARGET_EVENT1_DMA_DONE:
+		return DL_I2C_IIDX_TARGET_EVENT1_DMA_DONE;
+	case DL_I2C_INTERRUPT_TARGET_EVENT2_DMA_DONE:
+		return DL_I2C_IIDX_TARGET_EVENT2_DMA_DONE;
+	default:
+		LOG_WRN("Unhandled interrupt status: 0x%08x", ris);
+		return DL_I2C_IIDX_TARGET_GENERAL_CALL;
+	}
+}
 
 static void i2c_mspm0_process_target_msg(struct i2c_mspm0_target_msg *target_msg)
 {
@@ -816,92 +921,97 @@ static void i2c_mspm0_isr(const struct device *dev)
 {
 	const struct i2c_mspm0_config *config = dev->config;
 	struct i2c_mspm0_data *data = dev->data;
+	uint32_t interrupt_ris = 0;
 
-	DL_I2C_IIDX pending_int = DL_I2C_getPendingInterrupt((I2C_Regs *)config->base);
-	switch (pending_int) {
-	/* controller interrupts */
-	case DL_I2C_IIDX_CONTROLLER_RX_DONE:
-		data->state = I2C_MSPM0_RX_COMPLETE;
-		k_sem_give(&data->transfer_timeout_sem);
-		break;
-	case DL_I2C_IIDX_CONTROLLER_TX_DONE:
-		DL_I2C_disableInterrupt((I2C_Regs *)config->base,
-					DL_I2C_INTERRUPT_CONTROLLER_TXFIFO_TRIGGER);
-		data->state = I2C_MSPM0_TX_COMPLETE;
-		k_sem_give(&data->transfer_timeout_sem);
-		break;
-	case DL_I2C_IIDX_CONTROLLER_RXFIFO_TRIGGER:
-		if (data->state != I2C_MSPM0_RX_COMPLETE) {
-			/* Fix for RX_DONE happening before the last RXFIFO_TRIGGER */
-			data->state = I2C_MSPM0_RX_INPROGRESS;
-		}
-		/* Receive all bytes from target */
-		while (DL_I2C_isControllerRXFIFOEmpty((I2C_Regs *)config->base) != true) {
-			if (data->count < data->msg.len) {
-				data->msg.buf[data->count++] =
-					DL_I2C_receiveControllerData((I2C_Regs *)config->base);
-			} else {
-				/* Ignore and remove from FIFO if the buffer is full */
-				DL_I2C_receiveControllerData((I2C_Regs *)config->base);
-			}
-		}
-		break;
-	case DL_I2C_IIDX_CONTROLLER_TXFIFO_TRIGGER:
-		data->state = I2C_MSPM0_TX_INPROGRESS;
-		/* Fill TX FIFO with next bytes to send */
-		if (data->count < data->msg.len) {
-			data->count += DL_I2C_fillControllerTXFIFO((I2C_Regs *)config->base,
-								   &data->msg.buf[data->count],
-								   data->msg.len - data->count);
-		}
-		break;
-	case DL_I2C_IIDX_CONTROLLER_ARBITRATION_LOST:
-	case DL_I2C_IIDX_CONTROLLER_NACK:
-		if ((data->state == I2C_MSPM0_RX_STARTED) ||
-		    (data->state == I2C_MSPM0_TX_STARTED)) {
-			/* NACK interrupt if I2C Target is disconnected */
-			data->state = I2C_MSPM0_ERROR;
+	while ((interrupt_ris = i2c_mspm0_get_pending_interrupt((I2C_Regs *)config->base)) != 0) {
+		DL_I2C_IIDX pending_int = i2c_mspm0_ris_to_iidx(interrupt_ris);
+		/* Clear the interrupt we are about to service */
+		DL_I2C_clearInterruptStatus((I2C_Regs *)config->base, interrupt_ris);
+		switch (pending_int) {
+		/* controller interrupts */
+		case DL_I2C_IIDX_CONTROLLER_RX_DONE:
+			data->state = I2C_MSPM0_RX_COMPLETE;
 			k_sem_give(&data->transfer_timeout_sem);
-		}
+			break;
+		case DL_I2C_IIDX_CONTROLLER_TX_DONE:
+			DL_I2C_disableInterrupt((I2C_Regs *)config->base,
+						DL_I2C_INTERRUPT_CONTROLLER_TXFIFO_TRIGGER);
+			data->state = I2C_MSPM0_TX_COMPLETE;
+			k_sem_give(&data->transfer_timeout_sem);
+			break;
+		case DL_I2C_IIDX_CONTROLLER_RXFIFO_TRIGGER:
+			if (data->state != I2C_MSPM0_RX_COMPLETE) {
+				/* Fix for RX_DONE happening before the last RXFIFO_TRIGGER */
+				data->state = I2C_MSPM0_RX_INPROGRESS;
+			}
+			/* Receive all bytes from target */
+			while (DL_I2C_isControllerRXFIFOEmpty((I2C_Regs *)config->base) != true) {
+				if (data->count < data->msg.len) {
+					data->msg.buf[data->count++] =
+						DL_I2C_receiveControllerData((I2C_Regs *)config->base);
+				} else {
+					/* Ignore and remove from FIFO if the buffer is full */
+					DL_I2C_receiveControllerData((I2C_Regs *)config->base);
+				}
+			}
+			break;
+		case DL_I2C_IIDX_CONTROLLER_TXFIFO_TRIGGER:
+			data->state = I2C_MSPM0_TX_INPROGRESS;
+			/* Fill TX FIFO with next bytes to send */
+			if (data->count < data->msg.len) {
+				data->count += DL_I2C_fillControllerTXFIFO((I2C_Regs *)config->base,
+									&data->msg.buf[data->count],
+									data->msg.len - data->count);
+			}
+			break;
+		case DL_I2C_IIDX_CONTROLLER_ARBITRATION_LOST:
+		case DL_I2C_IIDX_CONTROLLER_NACK:
+			if ((data->state == I2C_MSPM0_RX_STARTED) ||
+			    (data->state == I2C_MSPM0_TX_STARTED)) {
+				/* NACK interrupt if I2C Target is disconnected */
+				data->state = I2C_MSPM0_ERROR;
+				k_sem_give(&data->transfer_timeout_sem);
+			}
 
-	/* Not implemented */
-	case DL_I2C_IIDX_CONTROLLER_RXFIFO_FULL:
-	case DL_I2C_IIDX_CONTROLLER_TXFIFO_EMPTY:
-	case DL_I2C_IIDX_CONTROLLER_START:
-	case DL_I2C_IIDX_CONTROLLER_STOP:
-	case DL_I2C_IIDX_CONTROLLER_EVENT1_DMA_DONE:
-	case DL_I2C_IIDX_CONTROLLER_EVENT2_DMA_DONE:
+		/* Not implemented */
+		case DL_I2C_IIDX_CONTROLLER_RXFIFO_FULL:
+		case DL_I2C_IIDX_CONTROLLER_TXFIFO_EMPTY:
+		case DL_I2C_IIDX_CONTROLLER_START:
+		case DL_I2C_IIDX_CONTROLLER_STOP:
+		case DL_I2C_IIDX_CONTROLLER_EVENT1_DMA_DONE:
+		case DL_I2C_IIDX_CONTROLLER_EVENT2_DMA_DONE:
 		break;
-	/* target interrupts */
-	case DL_I2C_IIDX_TARGET_START:
-	case DL_I2C_IIDX_TARGET_RX_DONE:
-	case DL_I2C_IIDX_TARGET_TXFIFO_TRIGGER:
-	case DL_I2C_IIDX_TARGET_TXFIFO_EMPTY:
-	case DL_I2C_IIDX_TARGET_STOP: {
+		/* target interrupts */
+		case DL_I2C_IIDX_TARGET_START:
+		case DL_I2C_IIDX_TARGET_RX_DONE:
+		case DL_I2C_IIDX_TARGET_TXFIFO_TRIGGER:
+		case DL_I2C_IIDX_TARGET_TXFIFO_EMPTY:
+		case DL_I2C_IIDX_TARGET_STOP: {
 #ifdef CONFIG_I2C_MSPM0_TARGET_SUPPORT
-		uint32_t addr_match = DL_I2C_getTargetAddressMatch((I2C_Regs *)config->base);
-		struct i2c_target_config *tconfig =
-			i2c_mspm0_config_from_addr(data, addr_match);
-		struct i2c_mspm0_target_msg target_msg = {
-			.data = data, .i2c_iidx = pending_int, .tconfig = tconfig};
+			uint32_t addr_match = DL_I2C_getTargetAddressMatch((I2C_Regs *)config->base);
+			struct i2c_target_config *tconfig =
+				i2c_mspm0_config_from_addr(data, addr_match);
+			struct i2c_mspm0_target_msg target_msg = {
+				.data = data, .i2c_iidx = pending_int, .tconfig = tconfig};
 
 #ifdef CONFIG_I2C_MSPM0_THREAD_SUPPORT
-		if (k_msgq_put(&target_msgq, &target_msg, K_NO_WAIT) != 0) {
-			LOG_ERR("Queue full - could not process target request!");
-		}
+			if (k_msgq_put(&target_msgq, &target_msg, K_NO_WAIT) != 0) {
+				LOG_ERR("Queue full - could not process target request!");
+			}
 #else
-		i2c_mspm0_process_target_msg(&target_msg);
+			i2c_mspm0_process_target_msg(&target_msg);
 #endif
 #endif // CONFIG_I2C_MSPM0_TARGET_SUPPORT
-	} break;
-	/* Not implemented */
-	case DL_I2C_IIDX_TARGET_RXFIFO_FULL:
-	case DL_I2C_IIDX_TARGET_RXFIFO_TRIGGER:
-	case DL_I2C_IIDX_TARGET_GENERAL_CALL:
-	case DL_I2C_IIDX_TARGET_EVENT1_DMA_DONE:
-	case DL_I2C_IIDX_TARGET_EVENT2_DMA_DONE:
-	default:
-		break;
+		} break;
+		/* Not implemented */
+		case DL_I2C_IIDX_TARGET_RXFIFO_FULL:
+		case DL_I2C_IIDX_TARGET_RXFIFO_TRIGGER:
+		case DL_I2C_IIDX_TARGET_GENERAL_CALL:
+		case DL_I2C_IIDX_TARGET_EVENT1_DMA_DONE:
+		case DL_I2C_IIDX_TARGET_EVENT2_DMA_DONE:
+		default:
+			break;
+		}
 	}
 }
 

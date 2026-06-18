@@ -124,7 +124,12 @@ static int opt300x_chip_init(const struct device *dev)
 		return -ENODEV;
 	}
 
+	if (CONFIG_OPT300X_INIT_DELAY > 0) {
+		k_busy_wait(CONFIG_OPT300X_INIT_DELAY) ;
+	}
+
 	if (opt300x_reg_read(dev, OPT300X_REG_MANUFACTURER_ID, &value) != 0) {
+		LOG_ERR("Reading manufacturer id failed");
 		return -EIO;
 	}
 
@@ -134,6 +139,7 @@ static int opt300x_chip_init(const struct device *dev)
 	}
 
 	if (opt300x_reg_read(dev, OPT300X_REG_DEVICE_ID, &value) != 0) {
+		LOG_ERR("Reading device id failed");
 		return -EIO;
 	}
 

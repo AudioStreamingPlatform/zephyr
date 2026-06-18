@@ -13,6 +13,14 @@ config OPT300X
 
 if OPT300X
 
+config OPT300X_INIT_DELAY
+	int "Init delay prior to access the sensor in µS"
+	default 0
+	help
+	  Depending on when the sensor gets powered up and when such power
+	  is stable, one might need to wait a little bit prior to actually
+	  start initializing the sensor.
+
 module = OPT300X
 thread_priority = 10
 thread_stack_size = 1024

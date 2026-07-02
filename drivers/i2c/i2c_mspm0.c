@@ -559,11 +559,16 @@ static int i2c_mspm0_receive(const struct device *dev, struct i2c_msg msg, uint1
 		goto error;
 	}
 
-	/* transfer should be done - if controller is still busy something went wrong */
-	if (DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
-	    DL_I2C_CONTROLLER_STATUS_BUSY_BUS) {
-		ret = -EIO;
-		goto error;
+	int64_t start_time = k_uptime_get();
+	/* Wait for i2c bus to be ready ie. STOP condition was detected */
+	while (DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
+		DL_I2C_CONTROLLER_STATUS_BUSY_BUS) {
+		if ((k_uptime_get() - start_time) >
+		    CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT) {
+			ret = -ETIMEDOUT;
+			goto error;
+		}
+		k_usleep(1);                                                               \
 	}
 
 	return 0;

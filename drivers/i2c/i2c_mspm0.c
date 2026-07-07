@@ -568,7 +568,6 @@ static int i2c_mspm0_receive(const struct device *dev, struct i2c_msg msg, uint1
 			ret = -ETIMEDOUT;
 			goto error;
 		}
-		k_usleep(1);                                                               \
 	}
 
 	return 0;

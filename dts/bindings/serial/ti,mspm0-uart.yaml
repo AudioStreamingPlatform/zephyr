@@ -31,3 +31,17 @@ properties:
       - 8
     description: |
       Clock divider selection value.
+
+  rx-fifo-threshold:
+    type: string
+    default: "1_2_full"
+    enum:
+      - "one_entry"
+      - "1_4_full"
+      - "1_2_full"
+      - "3_4_full"
+      - "full"
+    description: |
+      RX FIFO interrupt threshold level. Interrupt fires when the FIFO
+      reaches this level. Defaults to `1_2_full` (half full). Use `one_entry` for
+      protocols that require per-byte interrupt delivery.

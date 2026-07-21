@@ -15,6 +15,8 @@
 /* Driverlib includes */
 #include <ti/driverlib/dl_gpio.h>
 
+#include <soc.h>
+
 /* GPIO defines */
 #if DT_NODE_HAS_STATUS(DT_NODELABEL(gpioa), okay)
 #define GPIOA_NODE DT_NODELABEL(gpioa)
@@ -131,6 +133,8 @@ struct gpio_mspm0_config {
 	struct gpio_driver_config common;
 	/* port base address */
 	GPIO_Regs *base;
+	/* Interrupt configuration function */
+	void (*int_config)(const struct device *);
 	/* port pincm lookup table */
 	uint32_t *pincm_lut;
 };
@@ -287,51 +291,21 @@ static uint32_t gpio_mspm0_get_pending_int(const struct device *port)
 
 static void gpio_mspm0_isr(const struct device *port)
 {
-#if DT_NODE_HAS_STATUS(DT_NODELABEL(gpioa), okay)
-	const struct device *dev_a = DEVICE_DT_GET(GPIOA_NODE);
-	struct gpio_mspm0_data *data_a = dev_a->data;
-	const struct gpio_mspm0_config *config_a = dev_a->config;
+	struct gpio_mspm0_data *data = port->data;
+	const struct gpio_mspm0_config *config = port->config;
+	uint32_t status = DL_GPIO_getEnabledInterruptStatus(config->base,
+							    0xFFFFFFFF);
 
-	uint32_t status_a = DL_GPIO_getEnabledInterruptStatus(config_a->base, 0xFFFFFFFF);
+	DL_GPIO_clearInterruptStatus(config->base, status);
 
-	DL_GPIO_clearInterruptStatus(config_a->base, status_a);
-
-	gpio_fire_callbacks(&data_a->callbacks, dev_a, status_a);
-#endif /* DT_NODE_HAS_STATUS(DT_NODELABEL(gpioa), okay) */
-
-#if DT_NODE_HAS_STATUS(DT_NODELABEL(gpiob), okay)
-	const struct device *dev_b = DEVICE_DT_GET(GPIOB_NODE);
-	struct gpio_mspm0_data *data_b = dev_b->data;
-	const struct gpio_mspm0_config *config_b = dev_b->config;
-
-	uint32_t status_b = DL_GPIO_getEnabledInterruptStatus(config_b->base, 0xFFFFFFFF);
-
-	DL_GPIO_clearInterruptStatus(config_b->base, status_b);
-
-	gpio_fire_callbacks(&data_b->callbacks, dev_b, status_b);
-#endif /* DT_NODE_HAS_STATUS(DT_NODELABEL(gpiob), okay) */
+	if (status != 0) {
+		gpio_fire_callbacks(&data->callbacks, port, status);
+ 	}
 }
-
-static bool init_irq = true;
 
 static int gpio_mspm0_init(const struct device *port)
 {
-	/* Powering up of GPIOs is part of soc.c */
-
-	if (init_irq) {
-
-		init_irq = false;
-
-#if DT_NODE_HAS_STATUS(DT_NODELABEL(gpiob), okay)
-		IRQ_CONNECT(DT_IRQN(GPIOB_NODE), DT_IRQ(GPIOB_NODE, priority), gpio_mspm0_isr,
-			    DEVICE_DT_GET(GPIOB_NODE), 0);
-		irq_enable(DT_IRQN(GPIOB_NODE));
-#elif DT_NODE_HAS_STATUS(DT_NODELABEL(gpioa), okay)
-		IRQ_CONNECT(DT_IRQN(GPIOA_NODE), DT_IRQ(GPIOA_NODE, priority), gpio_mspm0_isr,
-			    DEVICE_DT_GET(GPIOA_NODE), 0);
-		irq_enable(DT_IRQN(GPIOA_NODE));
-#endif
-	}
+	cfg->int_config(dev);
 
 	return 0;
 }
@@ -386,6 +360,13 @@ static const struct gpio_driver_api gpio_mspm0_driver_api = {
 };
 
 #define GPIO_DEVICE_INIT(__node, __suffix, __base_addr)                                            \
+	void gpio_mspm0_int_config_##__suffix(const struct device *dev)                            \
+	{                                                                                          \
+		mspm0_register_int_to_group(DT_IRQN(n),                                            \
+					    DT_PROP(n, ti_int_group_iidx),                         \
+					    gpio_mspm0_isr, dev);                                  \
+	}                                                                                          \
+	                                                                                           \
 	static const struct gpio_mspm0_config gpio_mspm0_cfg_##__suffix = {                        \
 		.common =                                                                          \
 			{                                                                          \

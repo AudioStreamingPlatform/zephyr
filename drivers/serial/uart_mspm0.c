@@ -14,6 +14,7 @@
 #include <zephyr/drivers/clock_control/mspm0_clock_control.h>
 #include <zephyr/drivers/pinctrl.h>
 #include <zephyr/drivers/uart.h>
+#include <zephyr/dt-bindings/uart/mspm0_uart.h>
 #include <zephyr/irq.h>
 
 /* Driverlib includes */
@@ -26,8 +27,8 @@ struct uart_mspm0_config {
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	void (*irq_config_func)(const struct device *dev);
 	/* UART FIFO thresholds */
-	DL_UART_RX_FIFO_LEVEL rx_fifo_threshold;
-	DL_UART_TX_FIFO_LEVEL tx_fifo_threshold;
+	uint8_t rx_fifo_threshold;
+	uint8_t tx_fifo_threshold;
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 };
 
@@ -423,6 +424,23 @@ static void uart_mspm0_isr(const struct device *dev)
 }
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
 
+#ifdef CONFIG_UART_INTERRUPT_DRIVEN
+static const DL_UART_RX_FIFO_LEVEL uart_mspm0_rx_fifo_level[] = {
+	[MSPM0_UART_RX_FIFO_LEVEL_ONE_ENTRY] = DL_UART_RX_FIFO_LEVEL_ONE_ENTRY,
+	[MSPM0_UART_RX_FIFO_LEVEL_1_4_FULL] = DL_UART_RX_FIFO_LEVEL_1_4_FULL,
+	[MSPM0_UART_RX_FIFO_LEVEL_1_2_FULL] = DL_UART_RX_FIFO_LEVEL_1_2_FULL,
+	[MSPM0_UART_RX_FIFO_LEVEL_3_4_FULL] = DL_UART_RX_FIFO_LEVEL_3_4_FULL,
+	[MSPM0_UART_RX_FIFO_LEVEL_FULL] = DL_UART_RX_FIFO_LEVEL_FULL,
+};
+static const DL_UART_TX_FIFO_LEVEL uart_mspm0_tx_fifo_level[] = {
+	[MSPM0_UART_TX_FIFO_LEVEL_1_4_EMPTY] = DL_UART_TX_FIFO_LEVEL_1_4_EMPTY,
+	[MSPM0_UART_TX_FIFO_LEVEL_1_2_EMPTY] = DL_UART_TX_FIFO_LEVEL_1_2_EMPTY,
+	[MSPM0_UART_TX_FIFO_LEVEL_3_4_EMPTY] = DL_UART_TX_FIFO_LEVEL_3_4_EMPTY,
+	[MSPM0_UART_TX_FIFO_LEVEL_ONE_ENTRY] = DL_UART_TX_FIFO_LEVEL_ONE_ENTRY,
+	[MSPM0_UART_TX_FIFO_LEVEL_EMPTY] = DL_UART_TX_FIFO_LEVEL_EMPTY,
+};
+#endif /* CONFIG_UART_INTERRUPT_DRIVEN */
+
 static int uart_mspm0_init(const struct device *dev)
 {
 	const struct uart_mspm0_config *config = dev->config;
@@ -446,8 +464,10 @@ static int uart_mspm0_init(const struct device *dev)
 
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
 	DL_UART_Main_enableFIFOs(config->regs);
-	DL_UART_Main_setRXFIFOThreshold(config->regs, config->rx_fifo_threshold);
-	DL_UART_Main_setTXFIFOThreshold(config->regs, config->tx_fifo_threshold);
+	DL_UART_Main_setRXFIFOThreshold(config->regs,
+					 uart_mspm0_rx_fifo_level[config->rx_fifo_threshold]);
+	DL_UART_Main_setTXFIFOThreshold(config->regs,
+					 uart_mspm0_tx_fifo_level[config->tx_fifo_threshold]);
 	DL_UART_Main_setRXInterruptTimeout(config->regs, 15U);
 	config->irq_config_func(dev);
 #endif /* CONFIG_UART_INTERRUPT_DRIVEN */
@@ -498,14 +518,6 @@ static DEVICE_API(uart, uart_mspm0_driver_api) = {
 
 #define MSPM0_MAIN_CLK_DIV(n)  CONCAT(DL_UART_MAIN_CLOCK_DIVIDE_RATIO_, DT_INST_PROP(n, clk_div))
 
-#define MSPM0_UART_RX_FIFO_THRESHOLD(n) \
-	CONCAT(DL_UART_RX_FIFO_LEVEL_, \
-		DT_INST_STRING_UPPER_TOKEN(n, rx_fifo_threshold))
-
-#define MSPM0_UART_TX_FIFO_THRESHOLD(n) \
-	CONCAT(DL_UART_TX_FIFO_LEVEL_, \
-		DT_INST_STRING_UPPER_TOKEN(n, tx_fifo_threshold))
-
 #define MSPM0_UART_INIT_FN(index)								\
 												\
 	PINCTRL_DT_INST_DEFINE(index);								\
@@ -522,9 +534,9 @@ static DEVICE_API(uart, uart_mspm0_driver_api) = {
 		IF_ENABLED(CONFIG_UART_INTERRUPT_DRIVEN,					\
 			   (.irq_config_func = uart_mspm0_##index##_irq_register,))		\
 		IF_ENABLED(CONFIG_UART_INTERRUPT_DRIVEN,					\
-			   (.rx_fifo_threshold = MSPM0_UART_RX_FIFO_THRESHOLD(index),))		\
+			   (.rx_fifo_threshold = DT_INST_PROP(index, rx_fifo_threshold),))	\
 		IF_ENABLED(CONFIG_UART_INTERRUPT_DRIVEN,					\
-			   (.tx_fifo_threshold = MSPM0_UART_TX_FIFO_THRESHOLD(index),))		\
+			   (.tx_fifo_threshold = DT_INST_PROP(index, tx_fifo_threshold),))	\
 		};										\
 												\
 	static struct uart_mspm0_data uart_mspm0_data_##index = {				\

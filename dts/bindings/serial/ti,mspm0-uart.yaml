@@ -45,3 +45,16 @@ properties:
       RX FIFO interrupt threshold level. Interrupt fires when the FIFO
       reaches this level. Defaults to `1_2_full` (half full). Use `one_entry` for
       protocols that require per-byte interrupt delivery.
+
+  tx-fifo-threshold:
+    type: string
+    default: "empty"
+    enum:
+      - "one_entry"
+      - "1_4_empty"
+      - "1_2_empty"
+      - "3_4_empty"
+      - "empty"
+    description: |
+      TX FIFO interrupt threshold level. Interrupt fires when the FIFO
+      reaches this level. Defaults to `empty`.

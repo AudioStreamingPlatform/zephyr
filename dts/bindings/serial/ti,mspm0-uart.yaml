@@ -33,28 +33,23 @@ properties:
       Clock divider selection value.
 
   rx-fifo-threshold:
-    type: string
-    default: "1_2_full"
-    enum:
-      - "one_entry"
-      - "1_4_full"
-      - "1_2_full"
-      - "3_4_full"
-      - "full"
+    type: int
+    default: 2
+    enum: [0, 1, 2, 3, 4]
     description: |
-      RX FIFO interrupt threshold level. Interrupt fires when the FIFO
-      reaches this level. Defaults to `1_2_full` (half full). Use `one_entry` for
-      protocols that require per-byte interrupt delivery.
+     0 - MSPM0_UART_RX_FIFO_LEVEL_ONE_ENTRY
+     1 - MSPM0_UART_RX_FIFO_LEVEL_1_4_FULL
+     2 - MSPM0_UART_RX_FIFO_LEVEL_1_2_FULL
+     3 - MSPM0_UART_RX_FIFO_LEVEL_3_4_FULL
+     4 - MSPM0_UART_RX_FIFO_LEVEL_FULL
 
   tx-fifo-threshold:
-    type: string
-    default: "empty"
-    enum:
-      - "one_entry"
-      - "1_4_empty"
-      - "1_2_empty"
-      - "3_4_empty"
-      - "empty"
+    type: int
+    default: 4
+    enum: [0, 1, 2, 3, 4]
     description: |
-      TX FIFO interrupt threshold level. Interrupt fires when the FIFO
-      reaches this level. Defaults to `empty`.
+      0 - MSPM0_UART_TX_FIFO_LEVEL_1_4_EMPTY
+      1 - MSPM0_UART_TX_FIFO_LEVEL_1_2_EMPTY
+      2 - MSPM0_UART_TX_FIFO_LEVEL_3_4_EMPTY
+      3 - MSPM0_UART_TX_FIFO_LEVEL_ONE_ENTRY
+      4 - MSPM0_UART_TX_FIFO_LEVEL_EMPTY

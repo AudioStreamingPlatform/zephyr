@@ -405,6 +405,8 @@ ZTEST(device, test_deferred_init)
 {
 	int ret;
 
+	zassert_true(device_is_deferred_init(FAKEDEFERDRIVER0));
+
 	zassert_false(device_is_ready(FAKEDEFERDRIVER0));
 
 	ret = device_init(FAKEDEFERDRIVER0);

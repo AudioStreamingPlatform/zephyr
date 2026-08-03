@@ -59,6 +59,14 @@ static inline const struct device *z_vrfy_device_get_binding(const char *name)
 }
 #include <zephyr/syscalls/device_get_binding_mrsh.c>
 
+static inline bool z_vrfy_device_is_deferred_init(const struct device *dev)
+{
+	K_OOPS(K_SYSCALL_OBJ_INIT(dev, K_OBJ_ANY));
+
+	return z_impl_device_is_deferred_init(dev);
+}
+#include <zephyr/syscalls/device_is_deferred_init_mrsh.c>
+
 static inline bool z_vrfy_device_is_ready(const struct device *dev)
 {
 	K_OOPS(K_SYSCALL_OBJ_INIT(dev, K_OBJ_ANY));
@@ -127,6 +135,21 @@ size_t z_device_get_all_static(struct device const **devices)
 	STRUCT_SECTION_COUNT(device, &cnt);
 
 	return cnt;
+}
+
+bool z_impl_device_is_deferred_init(const struct device *dev)
+{
+	if (dev == NULL) {
+		return false;
+	}
+
+	STRUCT_SECTION_FOREACH_ALTERNATE(_deferred_init, init_entry, entry) {
+		if (entry->dev == dev) {
+			return true;
+		}
+	}
+
+	return false;
 }
 
 bool z_impl_device_is_ready(const struct device *dev)

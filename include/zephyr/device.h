@@ -787,6 +787,19 @@ __syscall const struct device *device_get_binding(const char *name);
 size_t z_device_get_all_static(const struct device **devices);
 
 /**
+ * @brief Verify that a device was set to a deferred initialization
+ *
+ * Indictase whether the provided device pointer is part of deferred init
+ * device section, indicating its related DTS node has 'zephyr,deferred-init'
+ * attribute set.
+ *
+ * @param dev pointer to the device in question.
+ * @retval true If the device was set to a deferred initialization
+ * @retval false Otherwise
+ */
+__syscall bool device_is_deferred_init(const struct device *dev);
+
+/**
  * @brief Verify that a device is ready for use.
  *
  * Indicates whether the provided device pointer is for a device known to be

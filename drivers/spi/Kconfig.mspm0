@@ -1,10 +1,12 @@
-# Copyright (C) 2024 Bang & Olufsen A/S, Denmark
+# Copyright (c) 2026 Linumiz
 # SPDX-License-Identifier: Apache-2.0
 
 config SPI_MSPM0
-	bool "MSPM0 SPI driver"
+	bool "TI MSPM0 SPI"
 	default y
 	depends on DT_HAS_TI_MSPM0_SPI_ENABLED
 	select USE_MSPM0_DL_SPI
+	select PINCTRL
+	select GPIO
 	help
-	  Enable driver for TI MSPM0 SPI.
+	 Enable support for TI MSPM0 SPI peripheral.

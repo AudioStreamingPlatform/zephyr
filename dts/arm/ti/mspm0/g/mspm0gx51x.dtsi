@@ -21,7 +21,7 @@
 			compatible = "ti,mspm0-timer";
 			reg = <0x40090000 0x2000>;
 			interrupts = <2 0>;
-			clocks = <&ckm MSPM0_CLOCK_ULPCLK>;
+			clocks = <&ckm MSPM0_CLOCK_MCLK>;
 			ti,clk-prescaler = <255>;
 			ti,clk-div = <1>;
 			status = "disabled";
@@ -37,7 +37,7 @@
 			compatible = "ti,mspm0-timer";
 			reg = <0x40092000 0x2000>;
 			interrupts = <8 0>;
-			clocks = <&ckm MSPM0_CLOCK_ULPCLK>;
+			clocks = <&ckm MSPM0_CLOCK_MCLK>;
 			ti,clk-prescaler = <255>;
 			ti,clk-div = <1>;
 			status = "disabled";
@@ -53,7 +53,7 @@
 			compatible = "ti,mspm0-timer";
 			reg = <0x40096000 0x2000>;
 			interrupts = <22 0>;
-			clocks = <&ckm MSPM0_CLOCK_ULPCLK>;
+			clocks = <&ckm MSPM0_CLOCK_MCLK>;
 			ti,clk-prescaler = <255>;
 			ti,clk-div = <1>;
 			status = "disabled";

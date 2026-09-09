@@ -92,6 +92,15 @@ static void mspm0_setup_pwm_out(const struct pwm_mspm0_config *config,
 	DL_Timer_startCounter(config->base);
 }
 
+static inline uint32_t mspm0_polarity_from_flags(pwm_flags_t flags)
+{
+	if (flags & PWM_POLARITY_INVERTED) {
+		return DL_TIMER_CC_OCTL_INV_OUT_ENABLED;
+	}
+
+	return DL_TIMER_CC_OCTL_INV_OUT_DISABLED;
+}
+
 static int mspm0_pwm_set_cycles(const struct device *dev, uint32_t channel,
 			       uint32_t period_cycles, uint32_t pulse_cycles,
 			       pwm_flags_t flags)
@@ -117,6 +126,12 @@ static int mspm0_pwm_set_cycles(const struct device *dev, uint32_t channel,
 	if (data->out_mode == DL_TIMER_PWM_MODE_CENTER_ALIGN) {
 		data->period = period_cycles >> 1;
 	}
+
+	DL_Timer_setCaptureCompareOutCtl(config->base,
+					 DL_TIMER_CC_OCTL_INIT_VAL_HIGH,
+					 mspm0_polarity_from_flags(flags),
+					 DL_TIMER_CC_OCTL_SRC_FUNCVAL,
+					 config->cc_idx[channel]);
 
 	DL_Timer_setLoadValue(config->base, data->period);
 	DL_Timer_setCaptureCompareValue(config->base,

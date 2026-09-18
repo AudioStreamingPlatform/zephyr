@@ -190,8 +190,6 @@ static int clock_mspm0_init(const struct device *dev)
 #if DT_SAME_NODE(DT_SYSPLL_CLOCKS_CTRL, DT_NODELABEL(hfclk))
 	clock_mspm0_cfg_syspll.sysPLLRef = DL_SYSCTL_SYSPLL_REF_HFCLK;
 #endif
-	DL_SYSCTL_configSYSPLL(
-			(DL_SYSCTL_SYSPLLConfig *)&clock_mspm0_cfg_syspll);
 #endif
 
 #if MSPM0_HFCLK_ENABLED
@@ -225,6 +223,11 @@ static int clock_mspm0_init(const struct device *dev)
 #else
 	DL_SYSCTL_setHFCLKSourceHFCLKIN();
 #endif
+#endif
+
+#if MSPM0_SYSPLL_ENABLED
+	DL_SYSCTL_configSYSPLL(
+			(DL_SYSCTL_SYSPLLConfig *)&clock_mspm0_cfg_syspll);
 #endif
 
 #if DT_SAME_NODE(DT_LFCLK_CLOCKS_CTRL, DT_NODELABEL(lfxt))

@@ -10,6 +10,16 @@ config I2C_MSPM0
 
 if I2C_MSPM0
 
+config I2C_MSPM0_BUS_RECOVERY
+	bool "TI I2C MSPM0 bus recovery"
+	depends on GPIO
+	help
+	  Implement i2c_recover_bus(). A transfer abandoned mid-byte leaves the
+	  target driving SDA low forever, which blocks every later transfer before
+	  a START can be emitted. Recovery re-muxes SCL/SDA to GPIO, clocks the
+	  target until it releases SDA, issues a STOP and restores pinctrl.
+	  Requires scl-gpios and sda-gpios on the I2C node.
+
 config I2C_MSPM0_TARGET_SUPPORT
 	bool "TI I2C_MSPM0 target support"
 	default n

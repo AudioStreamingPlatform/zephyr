@@ -47,6 +47,15 @@ __STATIC_INLINE void DL_I2C_startControllerTransferRepeated(I2C_Regs *i2c,
 #define I2C_TRANSFER_TIMEOUT_MSEC K_FOREVER
 #endif
 
+/*
+ * Bound for the pre-transfer "controller is idle" wait. Kept independent of
+ * CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT, which may legitimately be set to 0 to mean
+ * K_FOREVER for the transfer itself; waiting forever for a wedged bus to clear
+ * itself is never useful.
+ */
+#define BUSY_WAIT_TIMEOUT_MSEC 50
+
+
 #ifndef CONFIG_I2C_MSPM0_WATCHDOG
 #define CONFIG_I2C_MSPM0_INIT_PRIORITY CONFIG_I2C_INIT_PRIORITY
 #endif
@@ -542,14 +551,48 @@ static int i2c_mspm0_get_config(const struct device *dev, uint32_t *dev_config)
 	return 0;
 }
 
+/*
+ * Wait for the controller to go idle before starting a transfer.
+ *
+ * This used to be an unbounded `while (status & BUSY);`. When the bus is wedged -
+ * a target still driving SDA after a transfer was abandoned mid-byte - the
+ * controller never leaves BUSY, so that loop span forever in whatever thread
+ * called i2c_transfer(), which on this platform is the system workqueue servicing
+ * the I2C proxy. The transfer then never returns, never reports an error, and so
+ * never reaches the recovery in i2c_mspm0_transfer(): the driver deadlocks
+ * exactly when recovery is most needed, and every later transfer times out in the
+ * caller instead.
+ *
+ * Bounded, it turns into an ordinary -ETIMEDOUT that the error path can recover.
+ */
+static int i2c_mspm0_wait_not_busy(const struct device *dev)
+{
+	const struct i2c_mspm0_config *config = dev->config;
+	int64_t start = k_uptime_get();
+
+	while (DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
+	       DL_I2C_CONTROLLER_STATUS_BUSY) {
+		if ((k_uptime_get() - start) > BUSY_WAIT_TIMEOUT_MSEC) {
+			LOG_ERR("controller stuck BUSY for %d ms - bus is wedged",
+				BUSY_WAIT_TIMEOUT_MSEC);
+			return -ETIMEDOUT;
+		}
+		k_yield();
+	}
+
+	return 0;
+}
+
 static int i2c_mspm0_receive(const struct device *dev, struct i2c_msg msg, uint16_t addr)
 {
 	const struct i2c_mspm0_config *config = dev->config;
 	struct i2c_mspm0_data *data = dev->data;
+	int wait;
 
-	while ((DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
-		 DL_I2C_CONTROLLER_STATUS_BUSY))
-		;
+	wait = i2c_mspm0_wait_not_busy(dev);
+	if (wait != 0) {
+		return wait;
+	}
 
 	/* Update cached msg and addr */
 	data->msg = msg;
@@ -619,9 +662,13 @@ static int i2c_mspm0_transmit(const struct device *dev, struct i2c_msg msg, uint
 	 * This function will send Start + Stop automatically
 	 */
 	data->state = I2C_MSPM0_TX_STARTED;
-	while ((DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
-		 DL_I2C_CONTROLLER_STATUS_BUSY))
-		;
+	{
+		int wait = i2c_mspm0_wait_not_busy(dev);
+
+		if (wait != 0) {
+			return wait;
+		}
+	}
 	DL_I2C_startControllerTransferRepeated((I2C_Regs *)config->base, data->addr,
 		DL_I2C_CONTROLLER_DIRECTION_TX, data->msg.len,
 		(msg.flags & I2C_MSG_STOP));

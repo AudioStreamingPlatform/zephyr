@@ -645,6 +645,10 @@ error:
 	return ret;
 }
 
+#ifdef CONFIG_I2C_MSPM0_BUS_RECOVERY
+static int i2c_mspm0_recover_bus_locked(const struct device *dev);
+#endif
+
 static int i2c_mspm0_transfer(const struct device *dev, struct i2c_msg *msgs, uint8_t num_msgs,
 				   uint16_t addr)
 {
@@ -665,6 +669,27 @@ static int i2c_mspm0_transfer(const struct device *dev, struct i2c_msg *msgs, ui
 		return -EBUSY;
 	}
 
+#ifdef CONFIG_I2C_MSPM0_BUS_RECOVERY
+	{
+		const struct i2c_mspm0_config *config = dev->config;
+
+		/*
+		 * If the BUSY_BUS bit is set, it indicates the controller
+		 * detected a START condition without a preceding STOP,
+		 * which will prevent it from generating further STARTs.
+		 */
+		if ((DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
+			DL_I2C_CONTROLLER_STATUS_BUSY_BUS)) {
+			if (config->scl.port != NULL && config->sda.port != NULL) {
+				LOG_WRN("%s: bus is busy, recovering", dev->name);
+				(void)i2c_mspm0_recover_bus_locked(dev);
+			} else {
+				LOG_ERR("%s: bus is busy, but recovery is not possible", dev->name);
+			}
+		}
+	}
+#endif
+
 	/* Transmit each message */
 	for (int i = 0; i < num_msgs; i++) {
 		/* initial lock to be able to wait for unlock by irq */
@@ -684,6 +709,22 @@ static int i2c_mspm0_transfer(const struct device *dev, struct i2c_msg *msgs, ui
 			break;
 		}
 	}
+
+#ifdef CONFIG_I2C_MSPM0_BUS_RECOVERY
+	if (ret != 0) {
+		const struct i2c_mspm0_config *config = dev->config;
+
+		/*
+		 * The transfer was abandoned part-way through - A target might
+		 * still be driving SDA which blocks every later
+		 * transfer. Recover the bus now, while we still hold the
+		 * `i2c_busy_sem` lock.
+		 */
+		if (config->scl.port != NULL && config->sda.port != NULL) {
+			(void)i2c_mspm0_recover_bus_locked(dev);
+		}
+	}
+#endif
 
 	k_sem_give(&data->i2c_busy_sem);
 	return ret;

@@ -47,6 +47,9 @@ __STATIC_INLINE void DL_I2C_startControllerTransferRepeated(I2C_Regs *i2c,
 #define I2C_TRANSFER_TIMEOUT_MSEC K_FOREVER
 #endif
 
+/* Bound for the idle wait before each i2c_msg; waiting forever on a wedged bus is useless. */
+#define BUSY_WAIT_TIMEOUT_MSEC 50
+
 #ifndef CONFIG_I2C_MSPM0_WATCHDOG
 #define CONFIG_I2C_MSPM0_INIT_PRIORITY CONFIG_I2C_INIT_PRIORITY
 #endif
@@ -542,14 +545,40 @@ static int i2c_mspm0_get_config(const struct device *dev, uint32_t *dev_config)
 	return 0;
 }
 
+/*
+ * Wait for the controller to go idle. This was an unbounded busy-loop, so a
+ * wedged bus spun forever in the caller's thread: the transfer never returned,
+ * never reported an error, and so never reached the recovery path. Bounded, it
+ * becomes an ordinary -ETIMEDOUT that the error path can recover from.
+ */
+static int i2c_mspm0_wait_not_busy(const struct device *dev)
+{
+	const struct i2c_mspm0_config *config = dev->config;
+	int64_t start = k_uptime_get();
+
+	while (DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
+	       DL_I2C_CONTROLLER_STATUS_BUSY) {
+		if ((k_uptime_get() - start) > BUSY_WAIT_TIMEOUT_MSEC) {
+			LOG_ERR("controller stuck BUSY for %d ms - bus is wedged",
+				BUSY_WAIT_TIMEOUT_MSEC);
+			return -ETIMEDOUT;
+		}
+		k_yield();
+	}
+
+	return 0;
+}
+
 static int i2c_mspm0_receive(const struct device *dev, struct i2c_msg msg, uint16_t addr)
 {
 	const struct i2c_mspm0_config *config = dev->config;
 	struct i2c_mspm0_data *data = dev->data;
+	int ret;
 
-	while ((DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
-		 DL_I2C_CONTROLLER_STATUS_BUSY))
-		;
+	ret = i2c_mspm0_wait_not_busy(dev);
+	if (ret != 0) {
+		return ret;
+	}
 
 	/* Update cached msg and addr */
 	data->msg = msg;
@@ -562,7 +591,7 @@ static int i2c_mspm0_receive(const struct device *dev, struct i2c_msg msg, uint1
 		DL_I2C_CONTROLLER_DIRECTION_RX, data->msg.len, (msg.flags & I2C_MSG_STOP));
 
 	/* Wait until the Controller receives all bytes */
-	int ret = k_sem_take(&data->transfer_timeout_sem, I2C_TRANSFER_TIMEOUT_MSEC);
+	ret = k_sem_take(&data->transfer_timeout_sem, I2C_TRANSFER_TIMEOUT_MSEC);
 	if (ret != 0) {
 		goto error;
 	}
@@ -576,6 +605,7 @@ static int i2c_mspm0_receive(const struct device *dev, struct i2c_msg msg, uint1
 			ret = -ETIMEDOUT;
 			goto error;
 		}
+		k_yield();
 	}
 
 	return 0;
@@ -589,6 +619,7 @@ static int i2c_mspm0_transmit(const struct device *dev, struct i2c_msg msg, uint
 {
 	const struct i2c_mspm0_config *config = dev->config;
 	struct i2c_mspm0_data *data = dev->data;
+	int ret;
 
 	/* Update cached msg and addr */
 	data->msg = msg;
@@ -619,15 +650,18 @@ static int i2c_mspm0_transmit(const struct device *dev, struct i2c_msg msg, uint
 	 * This function will send Start + Stop automatically
 	 */
 	data->state = I2C_MSPM0_TX_STARTED;
-	while ((DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
-		 DL_I2C_CONTROLLER_STATUS_BUSY))
-		;
+	ret = i2c_mspm0_wait_not_busy(dev);
+
+	if (ret != 0) {
+		return ret;
+	}
+
 	DL_I2C_startControllerTransferRepeated((I2C_Regs *)config->base, data->addr,
 		DL_I2C_CONTROLLER_DIRECTION_TX, data->msg.len,
 		(msg.flags & I2C_MSG_STOP));
 
 	/* Wait until the Controller sends all bytes */
-	int ret = k_sem_take(&data->transfer_timeout_sem, I2C_TRANSFER_TIMEOUT_MSEC);
+	ret = k_sem_take(&data->transfer_timeout_sem, I2C_TRANSFER_TIMEOUT_MSEC);
 	if (ret != 0) {
 		goto error;
 	}

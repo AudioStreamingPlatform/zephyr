@@ -41,19 +41,12 @@ __STATIC_INLINE void DL_I2C_startControllerTransferRepeated(I2C_Regs *i2c,
             I2C_MCTR_STOP_MASK));
 }
 
-#if CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT
-#define I2C_TRANSFER_TIMEOUT_MSEC K_MSEC(CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT)
-#else
-#define I2C_TRANSFER_TIMEOUT_MSEC K_FOREVER
-#endif
-
 /*
- * Bound for the pre-transfer "controller is idle" wait. Kept independent of
- * CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT, which may legitimately be set to 0 to mean
- * K_FOREVER for the transfer itself; waiting forever for a wedged bus to clear
- * itself is never useful.
+ * Ceiling for the "controller is idle" wait that precedes every message; the
+ * bound actually used is MIN(transfer-timeout-ms, this). See
+ * i2c_mspm0_busy_wait_timeout().
  */
-#define BUSY_WAIT_TIMEOUT_MSEC 50
+#define BUSY_WAIT_TIMEOUT_MAX_MSEC 100
 
 
 #ifndef CONFIG_I2C_MSPM0_WATCHDOG
@@ -152,7 +145,59 @@ struct i2c_mspm0_config {
 	struct gpio_dt_spec scl;
 	struct gpio_dt_spec sda;
 #endif
+	/* Per-message transfer timeout in ms; 0 means wait forever. */
+	uint32_t transfer_timeout_ms;
 };
+
+/*
+ * Per-message transfer timeout, in milliseconds, 0 meaning "wait forever".
+ *
+ * This is per controller instance rather than a single Kconfig for the whole
+ * SoC, because the right value is a property of what is on the bus. A target
+ * that legitimately stretches SCL for a long time - the Summit WiSA module
+ * stretches for 126 ms while it processes NETWORK.Run - needs a timeout longer
+ * than that, or the controller abandons a perfectly valid transfer mid-byte and
+ * leaves the target driving SDA. Meanwhile a bus on which this SoC is itself a
+ * target for a host that has its own timeout must stay far shorter, or the host
+ * gives up first.
+ *
+ * CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT remains the default for instances that do
+ * not set transfer-timeout-ms.
+ */
+static inline k_timeout_t i2c_mspm0_transfer_timeout(const struct i2c_mspm0_config *config)
+{
+	return config->transfer_timeout_ms ? K_MSEC(config->transfer_timeout_ms) : K_FOREVER;
+}
+
+/*
+ * Bound for the wait that precedes every message, in milliseconds.
+ *
+ * It must never exceed the per-message transfer timeout. That wait covers the
+ * residual between the completion interrupt and the controller actually
+ * finishing on the wire, and the bus is legitimately still held there when the
+ * previous message carried no STOP. A bound shorter than the transfer timeout
+ * can therefore expire on a target that is merely slow rather than stuck, and
+ * the error path would tear down a perfectly good transaction with bus
+ * recovery.
+ *
+ * It is capped rather than simply following transfer-timeout-ms so that a
+ * genuinely wedged bus is still detected in tenths of a second, and so that
+ * raising transfer-timeout-ms does not silently inflate the host's
+ * per-transaction budget.
+ *
+ * transfer_timeout_ms == 0 means K_FOREVER for the transfer itself; waiting
+ * forever for a wedged bus to clear is never useful, so fall back to the
+ * ceiling rather than to zero.
+ */
+static inline uint32_t i2c_mspm0_busy_wait_timeout(const struct i2c_mspm0_config *config)
+{
+	if (config->transfer_timeout_ms == 0U) {
+		return BUSY_WAIT_TIMEOUT_MAX_MSEC;
+	}
+
+	return MIN(config->transfer_timeout_ms, BUSY_WAIT_TIMEOUT_MAX_MSEC);
+}
+
 
 struct i2c_mspm0_data {
 	const struct i2c_mspm0_config *cfg;
@@ -568,13 +613,13 @@ static int i2c_mspm0_get_config(const struct device *dev, uint32_t *dev_config)
 static int i2c_mspm0_wait_not_busy(const struct device *dev)
 {
 	const struct i2c_mspm0_config *config = dev->config;
+	uint32_t timeout_ms = i2c_mspm0_busy_wait_timeout(config);
 	int64_t start = k_uptime_get();
 
 	while (DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
 	       DL_I2C_CONTROLLER_STATUS_BUSY) {
-		if ((k_uptime_get() - start) > BUSY_WAIT_TIMEOUT_MSEC) {
-			LOG_ERR("controller stuck BUSY for %d ms - bus is wedged",
-				BUSY_WAIT_TIMEOUT_MSEC);
+		if ((k_uptime_get() - start) > timeout_ms) {
+			LOG_ERR("controller stuck BUSY for %u ms - bus is wedged", timeout_ms);
 			return -ETIMEDOUT;
 		}
 		k_yield();
@@ -605,7 +650,7 @@ static int i2c_mspm0_receive(const struct device *dev, struct i2c_msg msg, uint1
 		DL_I2C_CONTROLLER_DIRECTION_RX, data->msg.len, (msg.flags & I2C_MSG_STOP));
 
 	/* Wait until the Controller receives all bytes */
-	int ret = k_sem_take(&data->transfer_timeout_sem, I2C_TRANSFER_TIMEOUT_MSEC);
+	int ret = k_sem_take(&data->transfer_timeout_sem, i2c_mspm0_transfer_timeout(config));
 	if (ret != 0) {
 		goto error;
 	}
@@ -614,8 +659,7 @@ static int i2c_mspm0_receive(const struct device *dev, struct i2c_msg msg, uint1
 	/* Wait for i2c bus to be ready ie. STOP condition was detected */
 	while (DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
 		DL_I2C_CONTROLLER_STATUS_BUSY_BUS) {
-		if ((k_uptime_get() - start_time) >
-		    CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT) {
+		if ((k_uptime_get() - start_time) > config->transfer_timeout_ms) {
 			ret = -ETIMEDOUT;
 			goto error;
 		}
@@ -675,7 +719,7 @@ static int i2c_mspm0_transmit(const struct device *dev, struct i2c_msg msg, uint
 		(msg.flags & I2C_MSG_STOP));
 
 	/* Wait until the Controller sends all bytes */
-	int ret = k_sem_take(&data->transfer_timeout_sem, I2C_TRANSFER_TIMEOUT_MSEC);
+	int ret = k_sem_take(&data->transfer_timeout_sem, i2c_mspm0_transfer_timeout(config));
 	if (ret != 0) {
 		goto error;
 	}
@@ -1415,6 +1459,8 @@ static DEVICE_API(i2c, i2c_mspm0_driver_api) = {
 		},                                                                                 \
 		.watchdog_timer = DEVICE_DT_GET_OR_NULL(DT_PHANDLE(DT_DRV_INST(index), watchdog_timer)),\
 		.target_mode_only = DT_INST_PROP_OR(index, target_mode_only, false),               \
+		.transfer_timeout_ms = DT_INST_PROP_OR(index, transfer_timeout_ms,                 \
+						       CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT),           \
 		IF_ENABLED(CONFIG_I2C_MSPM0_BUS_RECOVERY,                                          \
 			(.scl = GPIO_DT_SPEC_INST_GET_OR(index, scl_gpios, {0}),                   \
 			 .sda = GPIO_DT_SPEC_INST_GET_OR(index, sda_gpios, {0}),))                 \

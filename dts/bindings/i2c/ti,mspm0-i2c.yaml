@@ -10,6 +10,20 @@ properties:
   reg:
     required: true
 
+  scl-gpios:
+    type: phandle-array
+    description: |
+      GPIO the SCL line is muxed to. Optional, but required for bus recovery:
+      i2c_recover_bus() re-muxes SCL and SDA to GPIO, clocks the bus until a
+      target that was left mid-byte releases SDA, issues a STOP and restores
+      the pinctrl state. Without these the recover_bus callback reports
+      -ENOTSUP and a target holding SDA low wedges the bus permanently.
+
+  sda-gpios:
+    type: phandle-array
+    description: |
+      GPIO the SDA line is muxed to. See scl-gpios.
+
   target-mode-only:
     type: boolean
     description: |

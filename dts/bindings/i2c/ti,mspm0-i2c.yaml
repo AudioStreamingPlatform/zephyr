@@ -24,6 +24,40 @@ properties:
     description: |
       GPIO the SDA line is muxed to. See scl-gpios.
 
+  transfer-timeout-ms:
+    type: int
+    description: |
+      Timeout in milliseconds for a single message. Despite the name, this
+      bounds each struct i2c_msg rather than a whole i2c_transfer() call, so a
+      transfer of two messages can take twice this value. 0 means wait forever.
+      Defaults to CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT when not set.
+
+      The right value is a property of what is on the bus, which is why it is
+      set per controller instance, i.e. per devicetree node, rather than once
+      for the whole SoC. A target that legitimately stretches SCL for a long time
+      needs a timeout longer than that stretch, otherwise the controller
+      abandons a valid transfer mid-byte and leaves the target driving SDA low,
+      wedging the bus. A bus on which this SoC is itself a target for a host
+      with its own timeout needs a much shorter one, so the SoC gives up before
+      the host does.
+
+      When this controller relays transfers on behalf of a host - the i2c-proxy
+      pattern, where the host programs an operation and this driver executes it
+      as one i2c_transfer() - the host arms one timeout for that whole operation
+      while this property is re-armed for every i2c_msg inside it. The host must
+      therefore outlast the sum, or it abandons an operation that is still
+      running and its retry reprograms the command registers underneath it. A
+      relayed operation is up to two messages, each preceded by a bounded wait
+      for the controller to go idle, and a read also polls for bus-idle
+      afterwards, so the host must satisfy:
+
+        T_host > 3 * transfer-timeout-ms + 2 * B
+        B     = MIN(transfer-timeout-ms, 100 ms)
+
+      where B is the driver's internal idle-wait bound. Raising this property
+      without raising the host's timeout to match makes that race worse, not
+      better.
+
   target-mode-only:
     type: boolean
     description: |

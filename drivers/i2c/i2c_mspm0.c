@@ -41,12 +41,6 @@ __STATIC_INLINE void DL_I2C_startControllerTransferRepeated(I2C_Regs *i2c,
             I2C_MCTR_STOP_MASK));
 }
 
-#if CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT
-#define I2C_TRANSFER_TIMEOUT_MSEC K_MSEC(CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT)
-#else
-#define I2C_TRANSFER_TIMEOUT_MSEC K_FOREVER
-#endif
-
 /*
  * Bound for the idle wait before each i2c_msg. It covers controller residual only -
  * DONE fires before the last bits and any STOP are off the wire - which is a property
@@ -153,7 +147,14 @@ struct i2c_mspm0_config {
 	struct gpio_dt_spec scl;
 	struct gpio_dt_spec sda;
 #endif
+	/* 0 waits forever. */
+	uint32_t msg_timeout_ms;
 };
+
+static inline k_timeout_t i2c_mspm0_msg_timeout(const struct i2c_mspm0_config *config)
+{
+	return config->msg_timeout_ms ? K_MSEC(config->msg_timeout_ms) : K_FOREVER;
+}
 
 struct i2c_mspm0_data {
 	const struct i2c_mspm0_config *cfg;
@@ -612,14 +613,22 @@ static int i2c_mspm0_receive(const struct device *dev, struct i2c_msg msg, uint1
 		DL_I2C_CONTROLLER_DIRECTION_RX, data->msg.len, (msg.flags & I2C_MSG_STOP));
 
 	/* Wait until the Controller receives all bytes */
-	ret = k_sem_take(&data->transfer_timeout_sem, I2C_TRANSFER_TIMEOUT_MSEC);
+	ret = k_sem_take(&data->transfer_timeout_sem, i2c_mspm0_msg_timeout(config));
 	if (ret != 0) {
 		goto error;
 	}
 
+	/*
+	 * 0 means K_FOREVER for the i2c_msg itself, but never here: waiting forever
+	 * for a STOP on a wedged bus is the deadlock the bounded waits exist to
+	 * prevent.
+	 */
+	uint32_t stop_timeout_ms =
+		config->msg_timeout_ms ? config->msg_timeout_ms : BUSY_WAIT_TIMEOUT_MSEC;
+
 	/* Wait for i2c bus to be ready ie. STOP condition was detected */
 	ret = i2c_mspm0_wait_status_clear(dev, DL_I2C_CONTROLLER_STATUS_BUSY_BUS,
-					  CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT);
+					  stop_timeout_ms);
 	if (ret != 0) {
 		goto error;
 	}
@@ -677,7 +686,7 @@ static int i2c_mspm0_transmit(const struct device *dev, struct i2c_msg msg, uint
 		(msg.flags & I2C_MSG_STOP));
 
 	/* Wait until the Controller sends all bytes */
-	ret = k_sem_take(&data->transfer_timeout_sem, I2C_TRANSFER_TIMEOUT_MSEC);
+	ret = k_sem_take(&data->transfer_timeout_sem, i2c_mspm0_msg_timeout(config));
 	if (ret != 0) {
 		goto error;
 	}
@@ -1394,6 +1403,8 @@ static DEVICE_API(i2c, i2c_mspm0_driver_api) = {
 		},                                                                                 \
 		.watchdog_timer = DEVICE_DT_GET_OR_NULL(DT_PHANDLE(DT_DRV_INST(index), watchdog_timer)),\
 		.target_mode_only = DT_INST_PROP_OR(index, target_mode_only, false),               \
+		.msg_timeout_ms = DT_INST_PROP_OR(index, msg_timeout_ms,                           \
+						  CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT),              \
 		IF_ENABLED(CONFIG_I2C_MSPM0_BUS_RECOVERY,                                          \
 			(.scl = GPIO_DT_SPEC_INST_GET_OR(index, scl_gpios, {0}),                   \
 			 .sda = GPIO_DT_SPEC_INST_GET_OR(index, sda_gpios, {0}),))                 \

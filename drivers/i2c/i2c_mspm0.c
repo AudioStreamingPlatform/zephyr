@@ -16,6 +16,9 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(i2c_mspm0);
 #include "i2c-priv.h"
+#ifdef CONFIG_I2C_MSPM0_BUS_RECOVERY
+#include <zephyr/drivers/gpio.h>
+#endif
 
 /* Driverlib includes */
 #include <ti/driverlib/dl_i2c.h>
@@ -135,6 +138,11 @@ struct i2c_mspm0_config {
 	void (*interrupt_init_function)(const struct device *dev);
 	const struct device *watchdog_timer;
 	bool target_mode_only;
+#ifdef CONFIG_I2C_MSPM0_BUS_RECOVERY
+	/* Only used by i2c_mspm0_recover_bus(); optional, see the DT binding. */
+	struct gpio_dt_spec scl;
+	struct gpio_dt_spec sda;
+#endif
 };
 
 struct i2c_mspm0_data {
@@ -1028,6 +1036,15 @@ static int i2c_mspm0_init(const struct device *dev)
 	k_sem_init(&data->i2c_busy_sem, 0, 1);
 	k_sem_init(&data->transfer_timeout_sem, 1, 1);
 
+#ifdef CONFIG_I2C_MSPM0_BUS_RECOVERY
+	if (!config->target_mode_only &&
+	    (config->scl.port == NULL || config->sda.port == NULL)) {
+		LOG_WRN("%s: no scl-gpios/sda-gpios - i2c_recover_bus() unavailable; "
+			"a target left holding SDA low will block this bus until reset",
+			dev->name);
+	}
+#endif
+
 #ifdef CONFIG_I2C_MSPM0_WATCHDOG
 	if (config->watchdog_timer) {
 		if (!device_is_ready(config->watchdog_timer)) {
@@ -1100,10 +1117,149 @@ static int i2c_mspm0_init(const struct device *dev)
 	return 0;
 }
 
+#ifdef CONFIG_I2C_MSPM0_BUS_RECOVERY
+/*
+ * Bus recovery.
+ *
+ * A transfer that is abandoned part-way through a byte leaves the target
+ * driving SDA for the bit it was in the middle of sending; it is waiting for a
+ * clock edge that no longer comes. SDA then stays low, the controller reports
+ * BUSY_BUS and refuses to emit a START, and every subsequent transfer fails
+ * without putting anything on the wire.
+ *
+ * i2c bitbang helper functions won't be used here because those functions don't
+ * support non-standard I2C clock speeds
+ */
+
+#define I2C_RECOVER_SCL_PULSES 9
+
+static int i2c_mspm0_recover_bus_locked(const struct device *dev)
+{
+	const struct i2c_mspm0_config *config = dev->config;
+	uint32_t half_period_us;
+	int ret;
+
+	if (!gpio_is_ready_dt(&config->scl)) {
+		LOG_ERR("SCL GPIO device not ready");
+		return -EIO;
+	}
+
+	if (!gpio_is_ready_dt(&config->sda)) {
+		LOG_ERR("SDA GPIO device not ready");
+		return -EIO;
+	}
+
+	/*
+	 * Round the half period up so we never clock the target faster than the bus is
+	 * configured for, eg. 80 kHz -> 7 us -> ~71 kHz.
+	 */
+	half_period_us = DIV_ROUND_UP(USEC_PER_SEC, 2U * config->clock_frequency);
+
+	/* Drop whatever the controller still thinks it is doing before taking the pins. */
+	DL_I2C_resetControllerTransfer((I2C_Regs *)config->base);
+	DL_I2C_flushControllerTXFIFO((I2C_Regs *)config->base);
+	DL_I2C_flushControllerRXFIFO((I2C_Regs *)config->base);
+	DL_I2C_disableController((I2C_Regs *)config->base);
+
+	ret = gpio_pin_configure_dt(&config->scl, GPIO_OUTPUT_HIGH);
+	if (ret != 0) {
+		LOG_ERR("failed to configure SCL as GPIO output (err %d)", ret);
+		goto restore;
+	}
+
+	ret = gpio_pin_configure_dt(&config->sda, GPIO_OUTPUT_HIGH);
+	if (ret != 0) {
+		LOG_ERR("failed to configure SDA as GPIO output (err %d)", ret);
+		goto restore;
+	}
+
+	k_busy_wait(half_period_us);
+
+	/*
+	 * Same sequence as i2c_bitbang_recover_bus(): a START, nine SCL pulses
+	 * with SDA released, then a repeated START and a STOP. Running it on an
+	 * idle bus is harmless and makes the no-op case observable on a logic
+	 * analyser.
+	 */
+
+	/* START: SDA falls while SCL is high. */
+	gpio_pin_set_dt(&config->sda, 0);
+	k_busy_wait(half_period_us);
+	gpio_pin_set_dt(&config->scl, 0);
+	k_busy_wait(half_period_us);
+
+	/* Nine clock pulses with SDA released. */
+	gpio_pin_set_dt(&config->sda, 1);
+	k_busy_wait(half_period_us);
+	for (int i = 0; i < I2C_RECOVER_SCL_PULSES; i++) {
+		gpio_pin_set_dt(&config->scl, 1);
+		k_busy_wait(half_period_us);
+		gpio_pin_set_dt(&config->scl, 0);
+		k_busy_wait(half_period_us);
+	}
+
+	/* Repeated START. */
+	gpio_pin_set_dt(&config->sda, 1);
+	k_busy_wait(half_period_us);
+	gpio_pin_set_dt(&config->scl, 1);
+	k_busy_wait(half_period_us);
+	gpio_pin_set_dt(&config->sda, 0);
+	k_busy_wait(half_period_us);
+	gpio_pin_set_dt(&config->scl, 0);
+	k_busy_wait(half_period_us);
+
+	/* STOP: SDA rises while SCL is high. */
+	gpio_pin_set_dt(&config->sda, 0);
+	k_busy_wait(half_period_us);
+	gpio_pin_set_dt(&config->scl, 1);
+	k_busy_wait(half_period_us);
+	gpio_pin_set_dt(&config->sda, 1);
+	k_busy_wait(half_period_us);
+
+	/* Did the target let go? */
+	ret = gpio_pin_configure_dt(&config->sda, GPIO_INPUT);
+	if (ret != 0) {
+		LOG_ERR("failed to sample SDA (err %d)", ret);
+		goto restore;
+	}
+	k_busy_wait(half_period_us);
+
+	if (gpio_pin_get_dt(&config->sda) != 1) {
+		LOG_ERR("bus recovery failed - target still holding SDA after %d clocks",
+			I2C_RECOVER_SCL_PULSES);
+		ret = -EBUSY;
+		goto restore;
+	}
+
+	ret = 0;
+
+restore:
+	(void)pinctrl_apply_state(config->pinctrl, PINCTRL_STATE_DEFAULT);
+	DL_I2C_enableController((I2C_Regs *)config->base);
+
+	return ret;
+}
+
+static int i2c_mspm0_recover_bus(const struct device *dev)
+{
+	struct i2c_mspm0_data *data = dev->data;
+	int ret;
+
+	k_sem_take(&data->i2c_busy_sem, K_FOREVER);
+	ret = i2c_mspm0_recover_bus_locked(dev);
+	k_sem_give(&data->i2c_busy_sem);
+
+	return ret;
+}
+#endif /* CONFIG_I2C_MSPM0_BUS_RECOVERY */
+
 static DEVICE_API(i2c, i2c_mspm0_driver_api) = {
 	.configure = i2c_mspm0_configure,
 	.get_config = i2c_mspm0_get_config,
 	.transfer = i2c_mspm0_transfer,
+#ifdef CONFIG_I2C_MSPM0_BUS_RECOVERY
+	.recover_bus = i2c_mspm0_recover_bus,
+#endif
 #ifdef CONFIG_I2C_MSPM0_TARGET_SUPPORT
 	.target_register = i2c_mspm0_target_register,
 	.target_unregister = i2c_mspm0_target_unregister,
@@ -1147,6 +1303,9 @@ static DEVICE_API(i2c, i2c_mspm0_driver_api) = {
 		},                                                                                 \
 		.watchdog_timer = DEVICE_DT_GET_OR_NULL(DT_PHANDLE(DT_DRV_INST(index), watchdog_timer)),\
 		.target_mode_only = DT_INST_PROP_OR(index, target_mode_only, false),               \
+		IF_ENABLED(CONFIG_I2C_MSPM0_BUS_RECOVERY,                                          \
+			(.scl = GPIO_DT_SPEC_INST_GET_OR(index, scl_gpios, {0}),                   \
+			 .sda = GPIO_DT_SPEC_INST_GET_OR(index, sda_gpios, {0}),))                 \
 	};											   \
                                                                                                    \
 	static struct i2c_mspm0_data i2c_mspm0_data_##index = {                                    \

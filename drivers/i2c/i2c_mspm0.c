@@ -645,6 +645,10 @@ error:
 	return ret;
 }
 
+#ifdef CONFIG_I2C_MSPM0_BUS_RECOVERY
+static int i2c_mspm0_recover_bus_locked(const struct device *dev);
+#endif
+
 static int i2c_mspm0_transfer(const struct device *dev, struct i2c_msg *msgs, uint8_t num_msgs,
 				   uint16_t addr)
 {
@@ -684,6 +688,27 @@ static int i2c_mspm0_transfer(const struct device *dev, struct i2c_msg *msgs, ui
 			break;
 		}
 	}
+
+#ifdef CONFIG_I2C_MSPM0_BUS_RECOVERY
+	if (ret != 0) {
+		/*
+		 * The transfer was abandoned part-way through - a timeout waiting for the
+		 * ISR (-EAGAIN), a bus that never went idle (-ETIMEDOUT), or a controller
+		 * error (-EIO). Any of those can leave the target still driving SDA for the
+		 * bit it was in the middle of, which blocks every later transfer before a
+		 * START can even be emitted. Clock it out now, while we still hold the lock.
+		 *
+		 * Doing it here rather than from a monitor elsewhere also matters on boards
+		 * that gate this bus behind an isolator driven by the I2C mux: the caller's
+		 * transfer still has the mux selected at this point, so the recovery pulses
+		 * actually reach the target instead of a disconnected stub.
+		 *
+		 * The original error is what the caller needs to see, so the recovery result
+		 * is deliberately discarded.
+		 */
+		(void)i2c_mspm0_recover_bus_locked(dev);
+	}
+#endif
 
 	k_sem_give(&data->i2c_busy_sem);
 	return ret;

@@ -24,6 +24,35 @@ properties:
     description: |
       GPIO the SDA line is muxed to. See scl-gpios.
 
+  transfer-timeout-ms:
+    type: int
+    description: |
+      Per-message transfer timeout in milliseconds. 0 means wait forever.
+      Defaults to CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT when not set.
+
+      The right value is a property of what is on the bus, which is why it is
+      per instance. A target that legitimately stretches SCL for a long time
+      needs a timeout longer than that stretch, otherwise the controller
+      abandons a valid transfer mid-byte and leaves the target driving SDA low,
+      wedging the bus. A bus on which this SoC is itself a target for a host
+      with its own timeout needs a much shorter one, so the SoC gives up before
+      the host does.
+
+      When this controller relays transfers on behalf of a host - the i2c-proxy
+      pattern, where the host programs a transaction and this driver executes
+      it - the host's per-transaction timeout must outlast this per-message one,
+      or the host abandons a transaction that is still running and its retry
+      reprograms the command registers underneath it. A transaction is up to two
+      messages, each preceded by a bounded wait for the controller to go idle,
+      and a read also polls for bus-idle afterwards, so the host must satisfy:
+
+        T_host > 3 * transfer-timeout-ms + 2 * B
+        B     = MIN(transfer-timeout-ms, 100 ms)
+
+      where B is the driver's internal idle-wait bound. Raising this property
+      without raising the host's timeout to match makes that race worse, not
+      better.
+
   target-mode-only:
     type: boolean
     description: |

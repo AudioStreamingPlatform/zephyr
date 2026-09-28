@@ -655,15 +655,24 @@ static int i2c_mspm0_receive(const struct device *dev, struct i2c_msg msg, uint1
 		goto error;
 	}
 
-	int64_t start_time = k_uptime_get();
-	/* Wait for i2c bus to be ready ie. STOP condition was detected */
-	while (DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
-		DL_I2C_CONTROLLER_STATUS_BUSY_BUS) {
-		if ((k_uptime_get() - start_time) > config->transfer_timeout_ms) {
-			ret = -ETIMEDOUT;
-			goto error;
+	/*
+	 * Wait for the bus to go idle, i.e. for the STOP to be seen - but only when
+	 * we asked for one. A read that is not the last message of a transaction
+	 * deliberately leaves the bus held for the following repeated START, so
+	 * BUSY_BUS would never clear and this would burn the whole timeout and fail
+	 * a transfer that is going perfectly well.
+	 */
+	if (msg.flags & I2C_MSG_STOP) {
+		int64_t start_time = k_uptime_get();
+
+		while (DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
+			DL_I2C_CONTROLLER_STATUS_BUSY_BUS) {
+			if ((k_uptime_get() - start_time) > config->transfer_timeout_ms) {
+				ret = -ETIMEDOUT;
+				goto error;
+			}
+			k_yield();
 		}
-		k_yield();
 	}
 
 	return 0;

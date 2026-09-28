@@ -619,18 +619,24 @@ static int i2c_mspm0_receive(const struct device *dev, struct i2c_msg msg, uint1
 	}
 
 	/*
-	 * 0 means K_FOREVER for the i2c_msg itself, but never here: waiting forever
-	 * for a STOP on a wedged bus is the deadlock the bounded waits exist to
-	 * prevent.
+	 * Only when we asked for a STOP: a read that is not the last i2c_msg of the
+	 * transfer holds the bus for the repeated START, so BUSY_BUS would never
+	 * clear.
 	 */
-	uint32_t stop_timeout_ms =
-		config->msg_timeout_ms ? config->msg_timeout_ms : BUSY_WAIT_TIMEOUT_MSEC;
+	if (msg.flags & I2C_MSG_STOP) {
+		/*
+		 * 0 means K_FOREVER for the i2c_msg itself, but never here: waiting
+		 * forever for a STOP on a wedged bus is the deadlock the bounded waits
+		 * exist to prevent.
+		 */
+		uint32_t stop_timeout_ms =
+			config->msg_timeout_ms ? config->msg_timeout_ms : BUSY_WAIT_TIMEOUT_MSEC;
 
-	/* Wait for i2c bus to be ready ie. STOP condition was detected */
-	ret = i2c_mspm0_wait_status_clear(dev, DL_I2C_CONTROLLER_STATUS_BUSY_BUS,
-					  stop_timeout_ms);
-	if (ret != 0) {
-		goto error;
+		ret = i2c_mspm0_wait_status_clear(dev, DL_I2C_CONTROLLER_STATUS_BUSY_BUS,
+						  stop_timeout_ms);
+		if (ret != 0) {
+			goto error;
+		}
 	}
 
 	return 0;

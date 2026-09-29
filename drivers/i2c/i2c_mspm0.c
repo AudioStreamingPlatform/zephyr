@@ -16,6 +16,9 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(i2c_mspm0);
 #include "i2c-priv.h"
+#ifdef CONFIG_I2C_MSPM0_BUS_RECOVERY
+#include <zephyr/drivers/gpio.h>
+#endif
 
 /* Driverlib includes */
 #include <ti/driverlib/dl_i2c.h>
@@ -38,11 +41,13 @@ __STATIC_INLINE void DL_I2C_startControllerTransferRepeated(I2C_Regs *i2c,
             I2C_MCTR_STOP_MASK));
 }
 
-#if CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT
-#define I2C_TRANSFER_TIMEOUT_MSEC K_MSEC(CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT)
-#else
-#define I2C_TRANSFER_TIMEOUT_MSEC K_FOREVER
-#endif
+/*
+ * Ceiling for the "controller is idle" wait that precedes every message; the
+ * bound actually used is MIN(transfer-timeout-ms, this). See
+ * i2c_mspm0_busy_wait_timeout().
+ */
+#define BUSY_WAIT_TIMEOUT_MAX_MSEC 100
+
 
 #ifndef CONFIG_I2C_MSPM0_WATCHDOG
 #define CONFIG_I2C_MSPM0_INIT_PRIORITY CONFIG_I2C_INIT_PRIORITY
@@ -135,7 +140,64 @@ struct i2c_mspm0_config {
 	void (*interrupt_init_function)(const struct device *dev);
 	const struct device *watchdog_timer;
 	bool target_mode_only;
+#ifdef CONFIG_I2C_MSPM0_BUS_RECOVERY
+	/* Only used by i2c_mspm0_recover_bus(); optional, see the DT binding. */
+	struct gpio_dt_spec scl;
+	struct gpio_dt_spec sda;
+#endif
+	/* Per-message transfer timeout in ms; 0 means wait forever. */
+	uint32_t transfer_timeout_ms;
 };
+
+/*
+ * Per-message transfer timeout, in milliseconds, 0 meaning "wait forever".
+ *
+ * This is per controller instance rather than a single Kconfig for the whole
+ * SoC, because the right value is a property of what is on the bus. A target
+ * that legitimately stretches SCL for a long time - the Summit WiSA module
+ * stretches for 126 ms while it processes NETWORK.Run - needs a timeout longer
+ * than that, or the controller abandons a perfectly valid transfer mid-byte and
+ * leaves the target driving SDA. Meanwhile a bus on which this SoC is itself a
+ * target for a host that has its own timeout must stay far shorter, or the host
+ * gives up first.
+ *
+ * CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT remains the default for instances that do
+ * not set transfer-timeout-ms.
+ */
+static inline k_timeout_t i2c_mspm0_transfer_timeout(const struct i2c_mspm0_config *config)
+{
+	return config->transfer_timeout_ms ? K_MSEC(config->transfer_timeout_ms) : K_FOREVER;
+}
+
+/*
+ * Bound for the wait that precedes every message, in milliseconds.
+ *
+ * It must never exceed the per-message transfer timeout. That wait covers the
+ * residual between the completion interrupt and the controller actually
+ * finishing on the wire, and the bus is legitimately still held there when the
+ * previous message carried no STOP. A bound shorter than the transfer timeout
+ * can therefore expire on a target that is merely slow rather than stuck, and
+ * the error path would tear down a perfectly good transaction with bus
+ * recovery.
+ *
+ * It is capped rather than simply following transfer-timeout-ms so that a
+ * genuinely wedged bus is still detected in tenths of a second, and so that
+ * raising transfer-timeout-ms does not silently inflate the host's
+ * per-transaction budget.
+ *
+ * transfer_timeout_ms == 0 means K_FOREVER for the transfer itself; waiting
+ * forever for a wedged bus to clear is never useful, so fall back to the
+ * ceiling rather than to zero.
+ */
+static inline uint32_t i2c_mspm0_busy_wait_timeout(const struct i2c_mspm0_config *config)
+{
+	if (config->transfer_timeout_ms == 0U) {
+		return BUSY_WAIT_TIMEOUT_MAX_MSEC;
+	}
+
+	return MIN(config->transfer_timeout_ms, BUSY_WAIT_TIMEOUT_MAX_MSEC);
+}
+
 
 struct i2c_mspm0_data {
 	const struct i2c_mspm0_config *cfg;
@@ -534,14 +596,48 @@ static int i2c_mspm0_get_config(const struct device *dev, uint32_t *dev_config)
 	return 0;
 }
 
+/*
+ * Wait for the controller to go idle before starting a transfer.
+ *
+ * This used to be an unbounded `while (status & BUSY);`. When the bus is wedged -
+ * a target still driving SDA after a transfer was abandoned mid-byte - the
+ * controller never leaves BUSY, so that loop spun forever in whatever thread
+ * called i2c_transfer(), which on this platform is the system workqueue servicing
+ * the I2C proxy. The transfer then never returns, never reports an error, and so
+ * never reaches the recovery in i2c_mspm0_transfer(): the driver deadlocks
+ * exactly when recovery is most needed, and every later transfer times out in the
+ * caller instead.
+ *
+ * Bounded, it turns into an ordinary -ETIMEDOUT that the error path can recover.
+ */
+static int i2c_mspm0_wait_not_busy(const struct device *dev)
+{
+	const struct i2c_mspm0_config *config = dev->config;
+	uint32_t timeout_ms = i2c_mspm0_busy_wait_timeout(config);
+	int64_t start = k_uptime_get();
+
+	while (DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
+	       DL_I2C_CONTROLLER_STATUS_BUSY) {
+		if ((k_uptime_get() - start) > timeout_ms) {
+			LOG_ERR("controller stuck BUSY for %u ms - bus is wedged", timeout_ms);
+			return -ETIMEDOUT;
+		}
+		k_yield();
+	}
+
+	return 0;
+}
+
 static int i2c_mspm0_receive(const struct device *dev, struct i2c_msg msg, uint16_t addr)
 {
 	const struct i2c_mspm0_config *config = dev->config;
 	struct i2c_mspm0_data *data = dev->data;
+	int wait;
 
-	while ((DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
-		 DL_I2C_CONTROLLER_STATUS_BUSY))
-		;
+	wait = i2c_mspm0_wait_not_busy(dev);
+	if (wait != 0) {
+		return wait;
+	}
 
 	/* Update cached msg and addr */
 	data->msg = msg;
@@ -554,19 +650,28 @@ static int i2c_mspm0_receive(const struct device *dev, struct i2c_msg msg, uint1
 		DL_I2C_CONTROLLER_DIRECTION_RX, data->msg.len, (msg.flags & I2C_MSG_STOP));
 
 	/* Wait until the Controller receives all bytes */
-	int ret = k_sem_take(&data->transfer_timeout_sem, I2C_TRANSFER_TIMEOUT_MSEC);
+	int ret = k_sem_take(&data->transfer_timeout_sem, i2c_mspm0_transfer_timeout(config));
 	if (ret != 0) {
 		goto error;
 	}
 
-	int64_t start_time = k_uptime_get();
-	/* Wait for i2c bus to be ready ie. STOP condition was detected */
-	while (DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
-		DL_I2C_CONTROLLER_STATUS_BUSY_BUS) {
-		if ((k_uptime_get() - start_time) >
-		    CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT) {
-			ret = -ETIMEDOUT;
-			goto error;
+	/*
+	 * Wait for the bus to go idle, i.e. for the STOP to be seen - but only when
+	 * we asked for one. A read that is not the last message of a transaction
+	 * deliberately leaves the bus held for the following repeated START, so
+	 * BUSY_BUS would never clear and this would burn the whole timeout and fail
+	 * a transfer that is going perfectly well.
+	 */
+	if (msg.flags & I2C_MSG_STOP) {
+		int64_t start_time = k_uptime_get();
+
+		while (DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
+			DL_I2C_CONTROLLER_STATUS_BUSY_BUS) {
+			if ((k_uptime_get() - start_time) > config->transfer_timeout_ms) {
+				ret = -ETIMEDOUT;
+				goto error;
+			}
+			k_yield();
 		}
 	}
 
@@ -611,15 +716,19 @@ static int i2c_mspm0_transmit(const struct device *dev, struct i2c_msg msg, uint
 	 * This function will send Start + Stop automatically
 	 */
 	data->state = I2C_MSPM0_TX_STARTED;
-	while ((DL_I2C_getControllerStatus((I2C_Regs *)config->base) &
-		 DL_I2C_CONTROLLER_STATUS_BUSY))
-		;
+	{
+		int wait = i2c_mspm0_wait_not_busy(dev);
+
+		if (wait != 0) {
+			return wait;
+		}
+	}
 	DL_I2C_startControllerTransferRepeated((I2C_Regs *)config->base, data->addr,
 		DL_I2C_CONTROLLER_DIRECTION_TX, data->msg.len,
 		(msg.flags & I2C_MSG_STOP));
 
 	/* Wait until the Controller sends all bytes */
-	int ret = k_sem_take(&data->transfer_timeout_sem, I2C_TRANSFER_TIMEOUT_MSEC);
+	int ret = k_sem_take(&data->transfer_timeout_sem, i2c_mspm0_transfer_timeout(config));
 	if (ret != 0) {
 		goto error;
 	}
@@ -636,6 +745,10 @@ error:
 	DL_I2C_flushControllerTXFIFO((I2C_Regs *)config->base);
 	return ret;
 }
+
+#ifdef CONFIG_I2C_MSPM0_BUS_RECOVERY
+static int i2c_mspm0_recover_bus_locked(const struct device *dev);
+#endif
 
 static int i2c_mspm0_transfer(const struct device *dev, struct i2c_msg *msgs, uint8_t num_msgs,
 				   uint16_t addr)
@@ -676,6 +789,38 @@ static int i2c_mspm0_transfer(const struct device *dev, struct i2c_msg *msgs, ui
 			break;
 		}
 	}
+
+#ifdef CONFIG_I2C_MSPM0_BUS_RECOVERY
+	if (ret != 0) {
+		const struct i2c_mspm0_config *config = dev->config;
+
+		/*
+		 * The transfer was abandoned part-way through - a timeout waiting for the
+		 * ISR (-EAGAIN), a bus that never went idle (-ETIMEDOUT), or a controller
+		 * error (-EIO). Any of those can leave the target still driving SDA for the
+		 * bit it was in the middle of, which blocks every later transfer before a
+		 * START can even be emitted. Clock it out now, while we still hold the lock.
+		 *
+		 * Doing it here rather than from a monitor elsewhere also matters on boards
+		 * that gate this bus behind an isolator driven by the I2C mux: the caller's
+		 * transfer still has the mux selected at this point, so the recovery pulses
+		 * actually reach the target instead of a disconnected stub.
+		 *
+		 * The original error is what the caller needs to see, so the recovery result
+		 * is deliberately discarded.
+		 *
+		 * Only attempted when this bus can actually be recovered. Recovery is
+		 * compiled in for every instance, but it needs scl-gpios/sda-gpios, and a
+		 * board that has not declared them would otherwise log a failure on every
+		 * transfer error for a mechanism it never asked for. The missing GPIOs are
+		 * reported once at probe instead, and an explicit i2c_recover_bus() still
+		 * reports -ENOTSUP.
+		 */
+		if (config->scl.port != NULL && config->sda.port != NULL) {
+			(void)i2c_mspm0_recover_bus_locked(dev);
+		}
+	}
+#endif
 
 	k_sem_give(&data->i2c_busy_sem);
 	return ret;
@@ -1028,6 +1173,20 @@ static int i2c_mspm0_init(const struct device *dev)
 	k_sem_init(&data->i2c_busy_sem, 0, 1);
 	k_sem_init(&data->transfer_timeout_sem, 1, 1);
 
+#ifdef CONFIG_I2C_MSPM0_BUS_RECOVERY
+	/*
+	 * Recovery only means anything on a bus this controller drives. Say so at
+	 * probe rather than silently reporting -ENOTSUP the first time the bus is
+	 * actually wedged - which, on a product, is in the field.
+	 */
+	if (!config->target_mode_only &&
+	    (config->scl.port == NULL || config->sda.port == NULL)) {
+		LOG_WRN("%s: no scl-gpios/sda-gpios - i2c_recover_bus() unavailable; "
+			"a target left holding SDA low will wedge this bus until reset",
+			dev->name);
+	}
+#endif
+
 #ifdef CONFIG_I2C_MSPM0_WATCHDOG
 	if (config->watchdog_timer) {
 		if (!device_is_ready(config->watchdog_timer)) {
@@ -1100,10 +1259,172 @@ static int i2c_mspm0_init(const struct device *dev)
 	return 0;
 }
 
+#ifdef CONFIG_I2C_MSPM0_BUS_RECOVERY
+/*
+ * Bus recovery.
+ *
+ * A transfer that is abandoned part-way through a byte leaves the target driving SDA for
+ * the bit it was in the middle of sending; it is waiting for a clock edge that no longer
+ * comes. SDA then stays low, the controller reports BUSY_BUS and refuses to emit a START,
+ * and every subsequent transfer fails without putting anything on the wire. Disabling the
+ * controller does not help - the target, not the controller, is holding the line, and a
+ * STOP cannot be generated while SDA is held low because a STOP needs SDA to rise.
+ *
+ * The only way out is to clock the target until it lets go. Mux SCL/SDA to GPIO, run the
+ * bus-clear sequence from the I2C-bus specification (up to nine SCL pulses, stopping as
+ * soon as the target releases SDA, followed by a STOP), and restore the pinctrl state.
+ *
+ * This is deliberately not built on the i2c_bitbang helper: that helper only accepts the
+ * standard rates (i2c_bitbang_configure() returns -ENOTSUP for anything that is not
+ * I2C_SPEED_STANDARD or I2C_SPEED_FAST), and i2c_map_dt_bitrate() returns 0 for any
+ * clock-frequency that is not one of the I2C_BITRATE_* constants. Buses clocked below
+ * 100 kHz because a target requires it - map_hdmi_4_2's i2c1 runs at 80 kHz for the
+ * Summit WiSA module - cannot be expressed that way, and clocking such a target faster
+ * than it allows during error recovery is exactly the wrong moment to go out of spec.
+ * Nine pulses at the configured rate is a small enough sequence to emit directly.
+ */
+#define I2C_RECOVER_SCL_PULSES 9
+
+/*
+ * Caller must already hold i2c_busy_sem. The transfer path recovers from its own
+ * error handling while holding it, so this cannot take the lock itself.
+ */
+static int i2c_mspm0_recover_bus_locked(const struct device *dev)
+{
+	const struct i2c_mspm0_config *config = dev->config;
+	uint32_t half_period_us;
+	int ret;
+
+	if (config->scl.port == NULL || config->sda.port == NULL) {
+		LOG_ERR("bus recovery needs scl-gpios and sda-gpios in the device tree");
+		return -ENOTSUP;
+	}
+
+	if (!gpio_is_ready_dt(&config->scl) || !gpio_is_ready_dt(&config->sda)) {
+		LOG_ERR("SCL/SDA GPIO device not ready");
+		return -ENODEV;
+	}
+
+	/*
+	 * Round the half period up so we never clock the target faster than the bus is
+	 * configured for. 80 kHz -> 7 us -> ~71 kHz.
+	 */
+	half_period_us = DIV_ROUND_UP(USEC_PER_SEC, 2U * config->clock_frequency);
+
+	/* Drop whatever the controller still thinks it is doing before taking the pins. */
+	DL_I2C_resetControllerTransfer((I2C_Regs *)config->base);
+	DL_I2C_flushControllerTXFIFO((I2C_Regs *)config->base);
+	DL_I2C_flushControllerRXFIFO((I2C_Regs *)config->base);
+	DL_I2C_disableController((I2C_Regs *)config->base);
+
+	/*
+	 * Both lines are open-drain outputs with a pull-up: driving a 1 releases the line
+	 * rather than forcing it high, which is what "SDA held high/floating" below means.
+	 * SDA is only switched to an input at the very end, to sample whether the target
+	 * actually let go - gpio_mspm0_pin_configure() rejects GPIO_INPUT | GPIO_OUTPUT,
+	 * and DL_GPIO_initDigitalOutputFeatures() never sets IOMUX_PINCM_INENA, so an
+	 * output pin's DIN cannot be read back.
+	 */
+	ret = gpio_pin_configure_dt(&config->scl, GPIO_OUTPUT_HIGH);
+	if (ret != 0) {
+		LOG_ERR("failed to configure SCL as GPIO (err %d)", ret);
+		goto restore;
+	}
+
+	ret = gpio_pin_configure_dt(&config->sda, GPIO_OUTPUT_HIGH);
+	if (ret != 0) {
+		LOG_ERR("failed to configure SDA as GPIO (err %d)", ret);
+		goto restore;
+	}
+
+	k_busy_wait(half_period_us);
+
+	/*
+	 * Same sequence as i2c_bitbang_recover_bus(): a START, nine SCL pulses with SDA
+	 * released, then a repeated START and a STOP. It is emitted unconditionally - a
+	 * target that is mid-byte needs the clocks whatever SDA happens to read right now,
+	 * and running it on an idle bus is harmless and makes the no-op case observable on
+	 * a logic analyser.
+	 */
+
+	/* START: SDA falls while SCL is high. */
+	gpio_pin_set_dt(&config->sda, 0);
+	k_busy_wait(half_period_us);
+	gpio_pin_set_dt(&config->scl, 0);
+	k_busy_wait(half_period_us);
+
+	/* Nine clock pulses with SDA released. */
+	gpio_pin_set_dt(&config->sda, 1);
+	k_busy_wait(half_period_us);
+	for (int i = 0; i < I2C_RECOVER_SCL_PULSES; i++) {
+		gpio_pin_set_dt(&config->scl, 1);
+		k_busy_wait(half_period_us);
+		gpio_pin_set_dt(&config->scl, 0);
+		k_busy_wait(half_period_us);
+	}
+
+	/* Repeated START. */
+	gpio_pin_set_dt(&config->sda, 1);
+	k_busy_wait(half_period_us);
+	gpio_pin_set_dt(&config->scl, 1);
+	k_busy_wait(half_period_us);
+	gpio_pin_set_dt(&config->sda, 0);
+	k_busy_wait(half_period_us);
+	gpio_pin_set_dt(&config->scl, 0);
+	k_busy_wait(half_period_us);
+
+	/* STOP: SDA rises while SCL is high. */
+	gpio_pin_set_dt(&config->sda, 0);
+	k_busy_wait(half_period_us);
+	gpio_pin_set_dt(&config->scl, 1);
+	k_busy_wait(half_period_us);
+	gpio_pin_set_dt(&config->sda, 1);
+	k_busy_wait(half_period_us);
+
+	/* Did the target let go? */
+	ret = gpio_pin_configure_dt(&config->sda, GPIO_INPUT);
+	if (ret != 0) {
+		LOG_ERR("failed to sample SDA (err %d)", ret);
+		goto restore;
+	}
+	k_busy_wait(half_period_us);
+
+	if (gpio_pin_get_dt(&config->sda) != 1) {
+		LOG_ERR("bus recovery failed - target still holding SDA after %d clocks",
+			I2C_RECOVER_SCL_PULSES);
+		ret = -EBUSY;
+		goto restore;
+	}
+
+	ret = 0;
+
+restore:
+	(void)pinctrl_apply_state(config->pinctrl, PINCTRL_STATE_DEFAULT);
+	DL_I2C_enableController((I2C_Regs *)config->base);
+
+	return ret;
+}
+
+static int i2c_mspm0_recover_bus(const struct device *dev)
+{
+	struct i2c_mspm0_data *data = dev->data;
+	int ret;
+
+	k_sem_take(&data->i2c_busy_sem, K_FOREVER);
+	ret = i2c_mspm0_recover_bus_locked(dev);
+	k_sem_give(&data->i2c_busy_sem);
+
+	return ret;
+}
+#endif /* CONFIG_I2C_MSPM0_BUS_RECOVERY */
+
 static DEVICE_API(i2c, i2c_mspm0_driver_api) = {
 	.configure = i2c_mspm0_configure,
 	.get_config = i2c_mspm0_get_config,
 	.transfer = i2c_mspm0_transfer,
+#ifdef CONFIG_I2C_MSPM0_BUS_RECOVERY
+	.recover_bus = i2c_mspm0_recover_bus,
+#endif
 #ifdef CONFIG_I2C_MSPM0_TARGET_SUPPORT
 	.target_register = i2c_mspm0_target_register,
 	.target_unregister = i2c_mspm0_target_unregister,
@@ -1147,6 +1468,11 @@ static DEVICE_API(i2c, i2c_mspm0_driver_api) = {
 		},                                                                                 \
 		.watchdog_timer = DEVICE_DT_GET_OR_NULL(DT_PHANDLE(DT_DRV_INST(index), watchdog_timer)),\
 		.target_mode_only = DT_INST_PROP_OR(index, target_mode_only, false),               \
+		.transfer_timeout_ms = DT_INST_PROP_OR(index, transfer_timeout_ms,                 \
+						       CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT),           \
+		IF_ENABLED(CONFIG_I2C_MSPM0_BUS_RECOVERY,                                          \
+			(.scl = GPIO_DT_SPEC_INST_GET_OR(index, scl_gpios, {0}),                   \
+			 .sda = GPIO_DT_SPEC_INST_GET_OR(index, sda_gpios, {0}),))                 \
 	};											   \
                                                                                                    \
 	static struct i2c_mspm0_data i2c_mspm0_data_##index = {                                    \

@@ -35,7 +35,37 @@ zephyr_file(APPLICATION_ROOT APPLICATION_CONFIG_DIR)
 set_ifndef(APPLICATION_CONFIG_DIR ${APPLICATION_SOURCE_DIR})
 string(CONFIGURE ${APPLICATION_CONFIG_DIR} APPLICATION_CONFIG_DIR)
 
+# Re-run CMake when a Kconfig fragment or a devicetree overlay is added to, or
+# removed from, any of the directories searched below. Nothing else watches them,
+# so without this the new file is only noticed once something unrelated happens to
+# trigger a reconfigure.
+#
+# Not in script mode: twister pre-filters test cases by running this module
+# through package_helper.cmake with cmake -P, and CONFIGURE_DEPENDS is rejected
+# outright there. There is no build system to re-run in that mode anyway.
+if(NOT CMAKE_SCRIPT_MODE_FILE)
+  file(GLOB configuration_files_watched CONFIGURE_DEPENDS
+       ${APPLICATION_CONFIG_DIR}/*.conf
+       ${APPLICATION_CONFIG_DIR}/*.overlay
+       ${APPLICATION_CONFIG_DIR}/socs/*.conf
+       ${APPLICATION_CONFIG_DIR}/socs/*.overlay
+       ${APPLICATION_CONFIG_DIR}/boards/*.conf
+       ${APPLICATION_CONFIG_DIR}/boards/*.overlay
+  )
+endif()
+
 zephyr_get(CONF_FILE SYSBUILD LOCAL)
+# Drop whatever the cache holds so the search below runs again on every CMake
+# run. Without this the set of configuration files is frozen at first configure
+# and a file added to socs/ or boards/ afterwards is ignored until the build
+# directory is made pristine.
+#
+# This also discards a value the user supplied, through -DCONF_FILE=, the
+# environment or the application's CMakeLists.txt, because the cache keeps no
+# record of who wrote it. Specify such a file on every invocation.
+unset(CONF_FILE)
+unset(CONF_FILE CACHE)
+
 if(NOT DEFINED CONF_FILE)
   zephyr_file(CONF_FILES ${APPLICATION_CONFIG_DIR} KCONF CONF_FILE NAMES "prj.conf" SUFFIX ${FILE_SUFFIX} REQUIRED)
   zephyr_file(CONF_FILES ${APPLICATION_CONFIG_DIR}/socs KCONF CONF_FILE QUALIFIERS SUFFIX ${FILE_SUFFIX})
@@ -64,6 +94,10 @@ To change CONF_FILE, use the CONF_FILE variable." ${CONF_FILE_FORCE_CACHE})
 zephyr_boilerplate_watch(CONF_FILE)
 
 zephyr_get(DTC_OVERLAY_FILE SYSBUILD LOCAL)
+# Same as for CONF_FILE above: always search again, at the cost of discarding a
+# user-supplied -DDTC_OVERLAY_FILE=.
+unset(DTC_OVERLAY_FILE)
+unset(DTC_OVERLAY_FILE CACHE)
 
 # If DTC_OVERLAY_FILE is not set by the user, look for SoC and board-specific overlays
 # in the 'boards' and `soc` configuration subdirectories.

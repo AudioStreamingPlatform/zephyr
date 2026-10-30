@@ -24,6 +24,27 @@ properties:
     description: |
       GPIO the SDA line is muxed to. See scl-gpios.
 
+  msg-timeout-ms:
+    type: int
+    description: |
+      Timeout for a single struct i2c_msg, not for a whole i2c_transfer(), so
+      a two-message transfer can take twice this value. 0 waits forever.
+      Defaults to CONFIG_I2C_MSPM0_TRANSFER_TIMEOUT.
+
+      Must exceed the longest SCL stretch any target on this bus performs, or
+      the controller abandons a valid message mid-byte and leaves the target
+      driving SDA low, wedging the bus.
+
+      When a host drives this controller as an i2c-proxy, it arms one timeout
+      for an operation that this driver runs as one i2c_transfer() of up to
+      two messages, each preceded by a bounded idle wait, with a bus-idle poll
+      after a read. The host timeout must therefore satisfy:
+
+        T_host > 3 * msg-timeout-ms + 2 * B
+        B     = MIN(msg-timeout-ms, 100 ms)
+
+      Raising this without raising T_host to match makes that race worse.
+
   target-mode-only:
     type: boolean
     description: |

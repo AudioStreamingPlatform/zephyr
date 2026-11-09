@@ -1,0 +1,4 @@
+config FLASHCTL_MSPM0
+	bool "TI FLASH MSPM0 driver"
+	default n
+	select USE_MSPM0_DL_FLASHCTL
